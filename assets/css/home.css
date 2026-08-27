@@ -89,6 +89,32 @@
   color: var(--mc-text-soft);
 }
 
+/* Badge icona delle card home: rimpiazza le vecchie utility Tailwind (non
+   funzionanti) con CSS reale. --_accent dà il colore per singola card. */
+.home-action__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--_accent, var(--mc-primary)) 14%, var(--mc-card));
+  color: var(--_accent, var(--mc-primary));
+}
+
+.home-action__icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.home-action__icon--vendite     { --_accent: #ea580c; }
+.home-action__icon--storni      { --_accent: #e11d48; }
+.home-action__icon--prodotti    { --_accent: #db2777; }
+.home-action__icon--statistiche { --_accent: #7c3aed; }
+.home-action__icon--stampanti   { --_accent: #2563eb; }
+.home-action__icon--scontrino   { --_accent: #059669; }
+
 @media (max-width: 768px) {
   .home-grid {
     grid-template-columns: 1fr 1fr; /* Two columns on small screens */
