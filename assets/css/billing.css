@@ -1431,22 +1431,17 @@ body.billing-page .pos-main-panel #app {
   flex-shrink: 0;
 }
 
+/* Simbolo Satispay - Colour Palette delle brand guidelines 2024:
+   dark aubergine su sfondo chiaro, off-white su sfondo scuro.
+   I path del simbolo hanno fill="currentColor" (registry pos_icon), quindi
+   basta impostare 'color'. */
 .pay-pill__icon--satispay {
-  color: #ffffff !important;
-}
-
-.pay-pill__icon--satispay path {
-  fill: #251312 !important;
+  color: #290402;
 }
 
 :root.dark-mode .pay-pill__icon--satispay,
 body.dark-mode .pay-pill__icon--satispay {
-  color: #251312 !important;
-}
-
-:root.dark-mode .pay-pill__icon--satispay path,
-body.dark-mode .pay-pill__icon--satispay path {
-  fill: #ffffff !important;
+  color: #fffbef;
 }
 
 .pay-pill__text {
