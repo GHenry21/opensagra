@@ -116,15 +116,7 @@
                                             :title="item.qty === 1 ? 'Rimuovi articolo' : 'Diminuisci quantità'"
                                             :aria-label="item.qty === 1 ? 'Rimuovi articolo' : 'Diminuisci quantità'"
                                             @pointerdown="startStepHold(item, -1, 'quantity')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(item, -1, 'quantity')">
-                                            <svg v-if="item.qty === 1" viewBox="0 0 24 24" width="16" height="16"
-                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                <path d="M3 6h18"></path>
-                                                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                                                <path d="M10 11v6"></path>
-                                                <path d="M14 11v6"></path>
-                                            </svg>
+                                            <?= pos_icon('trash', ['v-if' => 'item.qty === 1', 'width' => '16', 'height' => '16']) ?>
                                             <template v-else>-</template>
                                         </button>
                                         <input type="text" inputmode="numeric" class="qty-value"
@@ -154,14 +146,7 @@
                                             <template v-if="getLineDiscountPercent(item) > 0">
                                                 Sct {{ getLineDiscountPercent(item) + '%' }}
                                             </template>
-                                            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                fill="none" stroke="currentColor" stroke-width="2.5"
-                                                stroke-linecap="round" stroke-linejoin="round"
-                                                class="line-discount-trigger__icon" aria-hidden="true">
-                                                <line x1="19" x2="5" y1="5" y2="19"></line>
-                                                <circle cx="6.5" cy="6.5" r="2.5"></circle>
-                                                <circle cx="17.5" cy="17.5" r="2.5"></circle>
-                                            </svg>
+                                            <?= pos_icon('percent', ['v-else' => true, 'stroke-width' => '2.5', 'class' => 'line-discount-trigger__icon']) ?>
                                         </button>
                                     </div>
                                 </td>

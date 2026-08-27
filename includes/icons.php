@@ -187,6 +187,10 @@ if (!function_exists('pos_icon')) {
             if ($value === null || $value === false) {
                 continue;
             }
+            if ($value === true) {          // attributo senza valore (es. 'v-else' => true)
+                $attrString .= ' ' . $key;
+                continue;
+            }
             $attrString .= ' ' . $key . '="' . htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8') . '"';
         }
 
