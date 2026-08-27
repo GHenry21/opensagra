@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../assets/css/conf_stampanti.css">
     <!-- Importa tutte le favicon con una sola riga -->
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
+    <?php require_once __DIR__ . '/../includes/icons.php'; ?>
     <title>Configurazione Stampanti</title>
     <script src="../assets/js/vue.global.js"></script>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
@@ -26,28 +27,18 @@
             <div id="container">
                 <div id="top" class="management-panel">
                     <div class="panel-title-row">
-                        <svg class="panel-title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect width="12" height="8" x="6" y="14"></rect></svg>
+                        <?= pos_icon('print', ['class' => 'panel-title-icon']) ?>
                         <h2>Configurazione Stampanti</h2>
                     </div>
                     <div id="message"></div>
                     <div class="printer-toolbar">
                         <div class="search-wrap">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                                aria-hidden="true">
-                                <circle cx="11" cy="11" r="8"></circle>
-                                <path d="m21 21-4.3-4.3"></path>
-                            </svg>
+                            <?= pos_icon('search') ?>
                             <input type="text" id="searchPrinter" placeholder="Cerca stampanti..."
                                 aria-label="Cerca stampanti" v-model="searchQuery">
                         </div>
                         <button class="btn-add" id="btnAddRow" @click="openModal(null)">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                                aria-hidden="true">
-                                <path d="M12 5v14"></path>
-                                <path d="M5 12h14"></path>
-                            </svg>
+                            <?= pos_icon('plus') ?>
                             Nuova Stampante
                         </button>
                     </div>
@@ -94,26 +85,11 @@
                                             <td class="printer-col-actions" data-label="AZIONI">
                                                 <button type="button" class="row-test-btn" title="Test stampa"
                                                     aria-label="Test stampa" @click="testPrinterConfig(item.record)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                        fill="none" stroke="currentColor" stroke-width="2"
-                                                        stroke-linecap="round" stroke-linejoin="round"
-                                                        aria-hidden="true">
-                                                        <path d="M6 9V2h12v7"></path>
-                                                        <path
-                                                            d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2">
-                                                        </path>
-                                                        <path d="M6 14h12v8H6z"></path>
-                                                    </svg>
+                                                    <?= pos_icon('printer-test') ?>
                                                 </button>
                                                 <button type="button" class="row-edit-btn" title="Modifica"
                                                     aria-label="Modifica stampante" @click="openModal(item.index)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                        fill="none" stroke="currentColor" stroke-width="2"
-                                                        stroke-linecap="round" stroke-linejoin="round"
-                                                        aria-hidden="true">
-                                                        <path d="M12 20h9"></path>
-                                                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
-                                                    </svg>
+                                                    <?= pos_icon('pencil-line') ?>
                                                 </button>
                                             </td>
                                             <td data-label="Cassa ID">{{ item.record.cassa_id || '-' }}</td>
@@ -159,11 +135,7 @@
                 <div class="printer-modal-head">
                     <h3 id="modalTitle">{{ isCreatingRecord ? 'Nuova Stampante' : 'Modifica Stampante' }}</h3>
                     <button type="button" class="modal-close" id="modalClose" aria-label="Chiudi" @click="closeModal">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <path d="M18 6 6 18"></path>
-                            <path d="m6 6 12 12"></path>
-                        </svg>
+                        <?= pos_icon('x') ?>
                     </button>
                 </div>
                 <!-- Corpo del modal con i campi di input -->
@@ -295,14 +267,7 @@
                 <div class="printer-modal-foot">
                     <button type="button" class="btn-danger" id="modalDeleteBtn"
                         :disabled="isCreatingRecord || !modalData.cassa_id" @click="deleteRecord">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <path d="M3 6h18"></path>
-                            <path d="M8 6V4h8v2"></path>
-                            <path d="m19 6-1 14H6L5 6"></path>
-                            <path d="M10 11v6"></path>
-                            <path d="M14 11v6"></path>
-                        </svg>
+                        <?= pos_icon('trash-simple') ?>
                         Elimina
                     </button>
                     <div class="modal-actions-right">
