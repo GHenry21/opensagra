@@ -1,0 +1,184 @@
+/* Home page layout */
+.home-page {
+  background: var(--mc-bg-soft);
+}
+
+.home-shell {
+  width: 100%;
+  max-width: var(--page-content-max-width);
+  margin-inline: auto;
+}
+
+.home-header {
+  margin-bottom: 26px;
+}
+.home-logo { 
+  width: auto; /* Adjust the size as needed */
+  height: 60px; /* Adjust the size as needed */
+}
+.home-logo-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.home-title {
+  margin: 0;
+  font-size: clamp(30px, 4vw, 44px);
+  letter-spacing: -0.02em;
+  display: flex;
+  font-weight: 700;
+}
+
+.home-subtitle {
+  margin: 0 0 0 0;
+  color: var(--mc-text-soft);
+  font-size: clamp(15px, 2vw, 17px);
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.home-action {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--mc-border);
+  text-decoration: none;
+  color: var(--mc-text);
+  background: linear-gradient(160deg, var(--mc-card), var(--mc-panel-muted));
+  box-shadow: var(--ui-shadow-soft);
+  transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-action-btn {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--mc-border);
+  text-decoration: none;
+  color: var(--mc-text);
+  background: linear-gradient(160deg, var(--mc-card), var(--mc-panel-muted));
+  box-shadow: var(--ui-shadow-soft);
+  transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-action-btn .home-action__title,
+.home-action-btn .home-action__desc {
+  width: 100%;
+  text-align: left;
+}
+
+.home-action-btn:hover,
+.home-action:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--mc-primary) 35%, var(--mc-border));
+}
+
+.home-action__title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.home-action__desc {
+  font-size: 14px;
+  color: var(--mc-text-soft);
+}
+
+@media (max-width: 768px) {
+  .home-grid {
+    grid-template-columns: 1fr 1fr; /* Two columns on small screens */
+  }
+}
+
+/* Modale iniziale per l'ID cassa (sostituisce window.prompt) */
+.cassa-id-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 17, 21, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.cassa-id-modal-backdrop[hidden] {
+  display: none;
+}
+
+.cassa-id-modal {
+  width: min(420px, 100%);
+  padding: 28px;
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--mc-border);
+  background: var(--mc-panel);
+  color: var(--mc-text);
+  box-shadow: var(--ui-shadow-strong);
+  animation: cassa-id-modal-in 0.18s ease-out;
+}
+
+.cassa-id-modal h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cassa-id-modal p {
+  margin: 0 0 18px;
+  color: var(--mc-text-soft);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.cassa-id-modal input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  margin-bottom: 16px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--mc-border);
+  background: var(--mc-bg);
+  color: var(--mc-text);
+  font-size: 15px;
+}
+
+.cassa-id-modal input:focus {
+  outline: none;
+  border-color: var(--mc-primary);
+  box-shadow: 0 0 0 3px var(--mc-ring);
+}
+
+.cassa-id-modal button {
+  width: 100%;
+  padding: 11px 14px;
+  border: none;
+  border-radius: var(--ui-radius-sm);
+  background: var(--mc-primary);
+  color: var(--mc-primary-text);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cassa-id-modal button:hover {
+  box-shadow: var(--ui-shadow-soft);
+  transform: translateY(-1px);
+}
+
+@keyframes cassa-id-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

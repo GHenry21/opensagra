@@ -1,0 +1,18 @@
+# Cartella delle dipendenze di Composer (verrà rigenerata via script)
+/vendor/
+
+# File di test temporanei o log
+*.log
+*.tmp
+
+# File di sistema e ide
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# File di configurazione locale con eventuali password (se usi file .env)
+.env
+# cartelle/che di lavoro
+/.liveui.json
+

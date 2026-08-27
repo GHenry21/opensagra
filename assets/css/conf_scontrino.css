@@ -1,0 +1,178 @@
+.receipt-shell {
+    width: 100%;
+    display: grid;
+    gap: 14px
+}
+
+.receipt-card {
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong);
+    padding: 16px
+}
+
+.receipt-card h2 {
+    margin: 0;
+    font-size: 24px
+}
+
+.panel-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px
+}
+
+.panel-title-bordered {
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--mc-primary)
+}
+
+.panel-title-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    color: var(--mc-primary)
+}
+
+.receipt-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px
+}
+
+.field-wrap {
+    display: grid;
+    gap: 6px
+}
+
+.field-wrap input[type="text"],
+.field-wrap textarea {
+    width: 100%;
+    box-sizing: border-box
+}
+
+#logoFile {
+    height: 40px;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center
+}
+
+#logoFile::file-selector-button {
+    height: 28px;
+    margin-right: 10px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--mc-border);
+    background: var(--mc-panel-muted);
+    color: var(--mc-text);
+    cursor: pointer
+}
+
+#logoFile::file-selector-button:hover {
+    background: var(--mc-hover-soft)
+}
+
+#customHeaderText {
+    min-height: 120px;
+    resize: vertical
+}
+
+.switch-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px
+}
+
+.switch-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px
+}
+
+.logo-preview-wrap {
+    margin-top: 8px;
+    border: 1px dashed var(--mc-border);
+    border-radius: 12px;
+    padding: 10px;
+    min-height: 120px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--mc-panel-muted) 75%, transparent)
+}
+
+#logoPreview {
+    max-width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    display: none
+}
+
+#logoEmptyState {
+    color: var(--mc-text-soft);
+    font-size: 13px
+}
+
+.actions-row {
+    margin-top: 14px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap
+}
+
+.printer-preview {
+    margin-top: 10px;
+    border-radius: 12px;
+    border: 1px solid var(--mc-border);
+    background: color-mix(in srgb, var(--mc-panel-muted) 80%, transparent);
+    padding: 12px;
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.35;
+    white-space: pre-wrap
+}
+
+.inline-muted {
+    margin: 0;
+    color: var(--mc-text-soft);
+    font-size: 13px;
+    line-height: 1.4
+}
+
+.link-row {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap
+}
+
+.link-row a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 10px;
+    text-decoration: none;
+    border: 1px solid var(--mc-border);
+    background: color-mix(in srgb, var(--mc-panel-muted) 70%, transparent);
+    color: var(--mc-text);
+    font-size: 13px;
+    font-weight: 600
+}
+
+.link-row a:hover {
+    border-color: var(--mc-hover-border);
+    background: var(--mc-hover-bg)
+}
+
+@media (max-width:860px) {
+    .receipt-grid {
+        grid-template-columns: 1fr
+    }
+
+    .receipt-shell {
+        margin-top: 0
+    }
+}

@@ -1,0 +1,1089 @@
+/*
+  POS Redesign
+  Stile condiviso per header, tema e componenti POS
+  Mantiene il tema chiaro/scuro via class body.dark-mode (theme.js)
+*/
+
+:root {
+  --ui-font: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+  --ui-radius-sm: 10px;
+  --ui-radius-md: 14px;
+  --ui-radius-lg: 18px;
+  --ui-shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --ui-shadow-strong: 0 16px 40px rgba(0, 0, 0, 0.14);
+  --page-content-max-width: 1440px;
+  --page-gutter: 16px;
+
+  /* Light tokens */
+  --mc-bg: #f8f8f6;
+  --mc-bg-soft: #f3f4f6;
+  --mc-panel: #fefefe;
+  --mc-panel-muted: #f8f8f9;
+  --mc-card: #fdfdfd;
+  --mc-border: rgba(34, 39, 46, 0.2);
+  --mc-text: #111827;
+  --mc-text-soft: #5f6773;
+  --mc-primary: #e0b020;
+  --mc-primary-text: #33260a;
+  --mc-danger: #c73646;
+  --mc-success: #0f9d5f;
+  --mc-ring: rgba(224, 176, 32, 0.38);
+
+  /* Toast tokens - Glass style with red/green */
+  --error-bg: rgba(220, 53, 69, 0.15);
+  --error-text: #ffffff;
+  --error-border: #dc3545;
+  --success-bg: rgba(40, 167, 69, 0.15);
+  --success-text: #ffffff;
+  --success-border: #28a745;
+
+  /* Toast card light mode - Glass style */
+  --_toast-light-bg-error: rgba(220, 53, 69, 0.15);
+  --_toast-light-text-error: var(--mc-text);
+  --_toast-light-bg-success: rgba(40, 167, 69, 0.15);
+  --_toast-light-text-success: var(--mc-text);
+  --_toast-light-icon-error-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>');
+  --_toast-light-icon-success-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+}
+
+/* Some mobile browsers (notably Firefox for Android/Fire OS) auto-inflate
+   font sizes on pages they judge to be "narrow text columns", ignoring the
+   declared px font-size - Chrome doesn't do this, which is why the same
+   page looks correctly sized there but oversized (fonts, and anything laid
+   out relative to that text) in Firefox on the same tablet. Opting out
+   keeps every browser rendering the CSS as written. */
+html {
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+:root.dark-mode,
+body.dark-mode {
+  /* Dark tokens, coerenti con palette LAB richiesta */
+  --mc-bg: #1e1f23;
+  --mc-bg-soft: #101115;
+  --mc-panel: #1e1f23;
+  --mc-panel-muted: #1c1f25;
+  --mc-card: #1a1d23;
+  --mc-border: rgba(255, 255, 255, 0.14);
+  --mc-text: #f4f4f6;
+  --mc-text-soft: #a2a7b3;
+  --mc-primary: #e6bb35;
+  --mc-primary-text: #221a03;
+  --mc-danger: #da4656;
+  --mc-success: #34c47e;
+  --mc-ring: rgba(230, 187, 53, 0.35);
+
+  --ui-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --ui-shadow-strong: 0 18px 44px rgba(0, 0, 0, 0.5);
+
+  /* Toast tokens - Glass style with red/green */
+  --error-bg: rgba(220, 53, 69, 0.15);
+  --error-text: #ffffff;
+  --error-border: #dc3545;
+  --success-bg: rgba(40, 167, 69, 0.15);
+  --success-text: #ffffff;
+  --success-border: #28a745;
+
+  /* Toast card dark mode - Glass style */
+  --_toast-dark-bg-error: rgba(220, 53, 69, 0.15);
+  --_toast-dark-text-error: var(--mc-text);
+  --_toast-dark-bg-success: rgba(40, 167, 69, 0.15);
+  --_toast-dark-text-success: var(--mc-text);
+  --_toast-dark-icon-error-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>');
+  --_toast-dark-icon-success-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+}
+
+:root {
+  --mc-hover-soft: color-mix(in srgb, var(--mc-bg) 94%, black 6%);
+  --mc-hover-strong: color-mix(in srgb, var(--mc-panel) 88%, var(--mc-primary) 12%);
+  --mc-hover-border: color-mix(in srgb, var(--mc-primary) 72%, var(--mc-border));
+  --mc-hover-border-width: 2px;
+}
+
+:root.dark-mode,
+body.dark-mode {
+  --mc-hover-soft: color-mix(in srgb, var(--mc-bg) 86%, white 14%);
+  --mc-hover-strong: color-mix(in srgb, var(--mc-panel) 84%, var(--mc-primary) 16%);
+  --mc-hover-border: color-mix(in srgb, var(--mc-primary) 80%, rgba(255, 255, 255, 0.24));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--ui-font);
+  color: var(--mc-text);
+  background:var(--mc-bg)
+}
+
+button {
+  font-family: var(--ui-font);
+}
+
+/* Scrollbar */
+/* Standard per Firefox */
+* {
+  scrollbar-width: thin; /* Equivale a circa 8px */
+  scrollbar-color: var(--mc-hover-strong) transparent; /* [thumb] [track] */
+}
+/* 2. Regole WebKit per Chrome, Edge e Safari */
+::-webkit-scrollbar {
+  background-color: transparent;
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--mc-hover-strong);
+  border-radius: 8px;
+}
+
+
+#theme-toggle-btn {
+  border-radius: 999px;
+  border: 1px solid var(--mc-border);
+  background: var(--mc-panel);
+  color: var(--mc-text);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--ui-shadow-soft);
+}
+
+#theme-toggle-btn:hover {
+  background: var(--mc-bg-soft);
+}
+
+#theme-toggle-btn:focus-visible,
+button:focus-visible,
+input:focus,
+select:focus,
+textarea:focus,
+a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--mc-ring);
+}
+
+/* Contenitore Logo + Testo */
+.pos-brand {
+  display: inline-flex;
+  align-items: flex-end; /* Allinea l'icona e il testo in basso */
+  gap: 12px;             /* Distanza orizzontale tra icona e testo */
+  flex-shrink: 0;        /* Impedisce al browser di rimpicciolire il logo se manca spazio */
+}
+
+/* Rimuove sottolineature e mantiene i colori del testo per il link del logo */
+.brand-link {
+  display: inline-flex;
+  align-items: flex-end; /* Allinea il testo alla base delle posate */
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  padding-left: 8px;
+}
+
+/* Icona SVG/PNG nell'header */
+.pos-logo {
+  height: 48px;          /* Dimensione verticale dell'icona */
+  width: auto;
+  display: block;
+  object-fit: contain;
+  border-radius: 0;      /* Rimosso border-radius per non tagliare l'SVG dello stemma */
+}
+
+/* Titolo "OPEN SAGRA" renderizzato in HTML */
+.pos-title {
+  margin: 0;
+  font-family: var(--ui-font); /* Segoe UI */
+  font-size: clamp(1rem, 2vw, 2.4rem); /* cresce/diminuisce proporzionalmente senza uscire dai margini */
+  font-weight: 720;            /* Bold per la parola SAGRA */
+  line-height: 1;           /* spazio vuoto sotto le maiuscole */
+  letter-spacing: 0.5px;
+  color: var(--mc-text);       /* Usa la variabile per Dark/Light mode */
+  text-transform: uppercase;
+  white-space: nowrap;
+  align-self: flex-end;
+  max-width: 100%;
+}
+
+/* Barra azioni in cima al pannello principale (sostituisce la vecchia topbar
+   a piena larghezza): resta dentro .pos-main-panel, non più edge-to-edge. */
+.pos-main-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  /* margin-bottom: 14px; */
+}
+
+.pos-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Peso differenziato per "OPEN" */
+.pos-title .word-open {
+  font-weight: 600;            /* SemiBold per OPEN */
+  opacity: 0.92;
+}
+
+.pos-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--mc-text-soft);
+}
+
+.pos-icon-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--ui-radius-sm);
+  background: var(--mc-panel-muted);
+}
+
+.pos-icon-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: var(--mc-panel-muted);
+  color: var(--mc-text);
+  cursor: pointer;
+  transition: transform 0.18s ease, filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+  text-decoration: none;
+}
+
+.pos-icon-btn + .pos-icon-btn {
+  border-left: 1px solid var(--mc-border);
+}
+
+.pos-icon-btn:hover {
+  background: var(--mc-hover-soft);
+  color: var(--mc-primary-text);
+  transform: translateY(-1px);
+  filter: none;
+}
+
+:root.dark-mode .pos-icon-btn:hover,
+body.dark-mode .pos-icon-btn:hover {
+  color: #ffffff;
+}
+
+.pos-icon-btn svg {
+  width: 22px;
+  height: 22px;
+  transform-origin: center;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.pos-icon-btn.is-rotating svg {
+  animation: topbar-icon-spin 0.36s ease;
+}
+
+.pos-icon-btn.is-bouncing svg {
+  animation: topbar-icon-bounce 0.32s ease;
+}
+
+@keyframes topbar-icon-spin {
+  from {
+    transform: rotate(0deg) scale(0.92);
+    opacity: 0.7;
+  }
+
+  to {
+    transform: rotate(180deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes topbar-icon-bounce {
+  0% {
+    transform: scale(1);
+  }
+
+  40% {
+    transform: scale(0.88);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.back-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  border-radius: var(--ui-radius-sm);
+  padding: 0 14px;
+  border: 1px solid var(--mc-border);
+  text-decoration: none;
+  color: var(--mc-text);
+  background: var(--mc-panel);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.back-home:hover {
+  background: var(--mc-bg-soft);
+}
+
+/* Sidebar laterale (Vendite/Storni/Gestione Prodotti/Statistiche/Configurazioni) */
+.pos-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 264px;
+  display: flex;
+  flex-direction: column;
+  background: var(--mc-bg-soft);
+  /* box-shadow: var(--ui-shadow-soft); */
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 1200;
+  transition: transform 0.3s ease;
+}
+
+.pos-sidebar__brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 10px 14px 16px;
+  border-bottom: 1px solid var(--mc-border);
+}
+
+.pos-sidebar__brand .brand-link {
+  padding-left: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pos-sidebar-close-btn {
+  display: none;
+  flex-shrink: 0;
+}
+
+@media (max-width: 992px) {
+  .pos-sidebar-close-btn {
+    display: inline-flex;
+    border: 0;
+    border-radius: var(--ui-radius-sm);
+  }
+
+  /* Stessa superficie cliccabile (min 48px) per tutti i tasti icona rilevanti in
+     mobile: apertura sidebar, chiusura sidebar, tema e schermo intero. */
+  body.sidebar-page #posSidebarToggle,
+  .pos-sidebar-close-btn,
+  .pos-sidebar__footer .pos-icon-btn,
+  body.sidebar-page .pos-topbar-actions > .pos-icon-group .pos-icon-btn {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* Nella colonna a larghezza fissa il titolo non deve più restringersi con il
+   viewport (comportamento della topbar a piena larghezza): dimensione fissa e,
+   come rete di sicurezza, può andare a capo invece di uscire dalla colonna. */
+.pos-sidebar__brand .pos-title {
+  font-size: 1.3rem;
+  white-space: normal;
+  line-height: 1.15;
+}
+
+.pos-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 12px 0;
+}
+
+.pos-sidebar__nav:last-of-type {
+  padding-bottom: 14px;
+}
+
+/* Spazio tra i due gruppi di voci senza linea divisoria (solo respiro visivo). */
+.pos-sidebar__nav--gap {
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.pos-sidebar__link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--ui-radius-sm);
+  border: 0;
+  border-left: 3px solid transparent;
+  background: none;
+  color: var(--mc-text);
+  text-decoration: none;
+  font-weight: 400;
+  font-size: 16px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.pos-sidebar__link svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.pos-sidebar__link:hover {
+  background: var(--mc-hover-soft);
+  color: var(--mc-text);
+}
+
+.pos-sidebar__link.is-active {
+  background: color-mix(in srgb, var(--mc-primary) 16%, transparent);
+  border-left-color: var(--mc-primary);
+  color: var(--mc-text);
+  font-weight: 700;
+}
+
+.pos-sidebar__divider {
+  margin: 8px 16px auto
+}
+
+.pos-sidebar__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--mc-border);
+}
+
+.pos-sidebar__footer .pos-badge {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.pos-sidebar__footer .pos-icon-btn {
+  flex-shrink: 0;
+  border-radius: var(--ui-radius-sm);
+}
+
+.pos-sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1190;
+}
+
+#posSidebarToggle {
+  display: inline-flex;
+  border-radius: var(--ui-radius-sm);
+}
+
+body.sidebar-page {
+  margin-left: 264px;
+  transition: margin-left 0.3s ease;
+}
+
+/* Desktop: la sidebar è visibile di default; il tasto dedicato la collassa/espande
+   (stesso meccanismo push di navbar example.html, riscritto con classi). */
+@media (min-width: 993px) {
+  body.sidebar-collapsed .pos-sidebar {
+    transform: translateX(-100%);
+  }
+
+  body.sidebar-collapsed.sidebar-page {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 992px) {
+  .pos-sidebar {
+    transform: translateX(-100%);
+    z-index: 1500;
+  }
+
+  body.sidebar-page {
+    margin-left: 0;
+  }
+
+  body.sidebar-open .pos-sidebar {
+    transform: translateX(0);
+  }
+
+  body.sidebar-open .pos-sidebar-overlay {
+    display: block;
+    z-index: 1490;
+  }
+}
+
+/* Pannello principale: sostituisce la vecchia topbar a piena larghezza. Tutto il
+   contenuto (a destra della sidebar, sotto il livello della topbar) vive qui
+   dentro come un unico riquadro con sfondo proprio e angoli arrotondati. */
+.pos-main-panel {
+
+  padding: 16px var(--page-gutter) 20px;
+  border-radius: var(--ui-radius-lg);
+  background: var(--mc-panel);
+  margin: 10px;
+  min-height: calc(100vh - 2 * var(--page-gutter));
+}
+
+@media (max-width: 768px) {
+  .pos-main-panel {
+    padding: 14px var(--page-gutter) 16px;
+  }
+}
+
+/* Shared management pages (storni/stat/conf/add_product) */
+
+.management-page.canvas-page {
+  background: var(--mc-bg-soft);
+  overflow: auto
+}
+
+.canvas-page .management-shell.add-product-layout {
+  width: 100%;
+  max-width: 100%;
+}
+
+.canvas-page .management-shell {
+  width: 100%;
+  max-width: var(--page-content-max-width);
+  margin-inline: auto;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.management-panel {
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+  box-shadow: var(--ui-shadow-strong);
+  padding: 14px;
+}
+
+.management-panel h2,
+.management-panel h3 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.management-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.management-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --page-gutter: 12px;
+  }
+}
+
+.management-page input[type="text"],
+.management-page input[type="number"],
+.management-page input[type="date"],
+.management-page input[type="datetime-local"],
+.management-page input[type="file"],
+.management-page select {
+  width: 100%;
+  height: 38px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--mc-border);
+  background: var(--mc-card);
+  color: var(--mc-text);
+  padding: 0 12px;
+
+}
+
+
+
+.management-page label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--mc-text-soft);
+}
+
+.management-page button:not(.pos-icon-btn):not(#theme-toggle-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link) {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--mc-border);
+  background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.management-page button#btnRemoveLogo:not(.pos-icon-btn):not(#theme-toggle-btn) {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--mc-border);
+  background: color-mix(in srgb, var(--mc-danger) 90%, #000 10%);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.management-page button#btnRemoveLogo:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+  background: color-mix(in srgb, var(--mc-danger) 76%, #000 24%);
+  border-color: color-mix(in srgb, var(--mc-danger) 78%, #000 22%);
+  filter: none;
+}
+
+.management-page button#btnReload:not(.pos-icon-btn):not(#theme-toggle-btn) {
+  background: #34495e;
+  border-color: #34495e;
+  color: #ffffff;
+}
+
+.management-page button#btnReload:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+  background: #2c3e50;
+  border-color: #34495e;
+  color: #ffffff;
+  filter: none;
+}
+
+.management-page button:not(.pos-icon-btn):not(#theme-toggle-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):hover {
+  background: color-mix(in srgb, var(--mc-primary) 74%, #000 26%);
+  filter: none;
+}
+
+.management-page button.btn-delete:not(.pos-icon-btn):not(#theme-toggle-btn) {
+  background: color-mix(in srgb, var(--mc-danger) 90%, #000 10%);
+  color: #fff;
+}
+
+.management-page button.btn-delete:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+  background: color-mix(in srgb, var(--mc-danger) 76%, #000 24%);
+}
+
+.management-page .btn-add {
+  background: color-mix(in srgb, var(--mc-success) 86%, #000 14%);
+}
+
+.management-page .btn-add:hover {
+  background: color-mix(in srgb, var(--mc-success) 72%, #000 28%);
+}
+
+.management-page table {
+  width: 100%;
+  border-spacing: 0;
+  /* border-radius: 12px; */
+  overflow: hidden;
+  background: color-mix(in srgb, var(--mc-panel) 65%, transparent);
+}
+
+.management-page th,
+.management-page td {
+  border-bottom: 1px solid color-mix(in srgb, var(--mc-border) 75%, transparent);
+  padding: 9px 8px;
+  text-align: left;
+  vertical-align: middle;
+  /* border-radius: 12px; */
+}
+
+.management-page th {
+  background: var(--mc-panel-muted);
+  color: var(--mc-text-soft);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.management-page tr:nth-child(even) {
+  background: color-mix(in srgb, var(--mc-panel-muted) 55%, transparent);
+}
+
+.management-note {
+  color: var(--mc-text-soft);
+  font-size: 13px;
+}
+
+/* Shared toast/notification stack (assets/js/toast.js, usato da tutte le pagine) */
+#message {
+  position: fixed;
+  top: 25px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1305;
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+#message .toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  max-width: 400px;
+  min-width: 300px;
+  font-family: var(--ui-font);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid transparent;
+  animation: toast-in 0.22s ease-out;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+:root:not(.dark-mode) #message .toast.error {
+  background-color: var(--_toast-light-bg-error);
+  color: var(--mc-text);
+  border-color: #dc3545;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>');
+}
+
+:root:not(.dark-mode) #message .toast.error .toast-icon {
+  background-color: #dc3545;
+}
+
+:root:not(.dark-mode) #message .toast.success {
+  background-color: var(--_toast-light-bg-success);
+  color: var(--mc-text);
+  border-color: #28a745;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+}
+
+:root:not(.dark-mode) #message .toast.success .toast-icon {
+  background-color: #28a745;
+}
+
+:root:not(.dark-mode) #message .toast.info {
+  background-color: rgba(0, 123, 255, 0.15);
+  color: var(--mc-text);
+  border-color: #007bff;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>');
+}
+
+:root:not(.dark-mode) #message .toast.info .toast-icon {
+  background-color: #007bff;
+}
+
+:root.dark-mode #message .toast.error {
+  background-color: var(--_toast-dark-bg-error);
+  color: var(--mc-text);
+  border-color: #dc3545;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>');
+}
+
+:root.dark-mode #message .toast.error .toast-icon {
+  background-color: #ffffff;
+}
+
+:root.dark-mode #message .toast.success {
+  background-color: var(--_toast-dark-bg-success);
+  color: var(--mc-text);
+  border-color: #28a745;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+}
+
+:root.dark-mode #message .toast.success .toast-icon {
+  background-color: #ffffff;
+}
+
+:root.dark-mode #message .toast.info {
+  background-color: rgba(0, 123, 255, 0.15);
+  color: var(--mc-text);
+  border-color: #0d6efd;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>');
+}
+
+:root.dark-mode #message .toast.info .toast-icon {
+  background-color: #ffffff;
+}
+
+#message .toast-icon {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  mask-image: var(--_toast-icon-url);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  background-color: currentColor;
+  flex-shrink: 0;
+}
+
+#message .toast-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#message .toast-title {
+  font-weight: 700;
+  font-size: 1.05em;
+  line-height: 1.2;
+  color: currentColor;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+#message .toast-message {
+  font-size: 0.95em;
+  line-height: 1.4;
+  opacity: 0.95;
+  color: currentColor;
+  white-space: pre-line;
+}
+
+#message .toast-actions {
+  margin-top: 8px;
+}
+
+#message .toast-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 14px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: currentColor;
+  font-family: var(--ui-font);
+  font-size: 0.85em;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+#message .toast-action-btn:hover {
+  background-color: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+#message .toast-close-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: currentColor;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 0;
+}
+
+#message .toast-close-btn:hover {
+  opacity: 1;
+}
+
+#message .toast.toast-out {
+  animation: toast-out 0.2s ease-in forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+
+/* Shared confirm dialog (assets/js/confirm-dialog.js, sostituisce window.confirm) */
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1450;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 17, 21, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-dialog {
+  width: min(380px, 100%);
+  padding: 24px;
+  border-radius: var(--ui-radius-lg);
+  border: 1px solid var(--mc-border);
+  background: var(--mc-panel);
+  color: var(--mc-text);
+  box-shadow: var(--ui-shadow-strong);
+  animation: toast-in 0.18s ease-out;
+  font-family: var(--ui-font);
+  box-sizing: border-box;
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.confirm-dialog p {
+  margin: 0 0 20px;
+  color: var(--mc-text-soft);
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-dialog-btn {
+  padding: 9px 16px;
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--ui-font);
+  cursor: pointer;
+}
+
+.confirm-dialog-btn--secondary {
+  background: transparent;
+  border-color: var(--mc-border);
+  color: var(--mc-text);
+}
+
+.confirm-dialog-btn--secondary:hover {
+  background: var(--mc-hover-soft);
+}
+
+.confirm-dialog-btn--danger {
+  background: var(--mc-danger);
+  color: #ffffff;
+}
+
+.confirm-dialog-btn--danger:hover {
+  filter: brightness(1.08);
+}
+
+@media (max-width: 480px) {
+  .confirm-dialog {
+    padding: 20px;
+  }
+
+  .confirm-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .confirm-dialog-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 1180px) {
+  .management-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  #message {
+    /* In alto a destra (classico): */
+    top: 10px;
+    left: auto;
+    right: 10px;
+    transform: none;
+    width: calc(100vw - 20px);
+  }
+}
+
+
+/* Defined outside any media query: the product picker modal activates up to 1024px, wider than this file's 768px breakpoint */
+@keyframes product-picker-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes product-picker-slide-down {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(100%);
+  }
+}
+

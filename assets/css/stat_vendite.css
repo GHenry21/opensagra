@@ -1,0 +1,490 @@
+#statVenditeApp {
+    /* Colori delle serie del grafico "Andamento Ricavi": letti da JS via getComputedStyle,
+       così i valori restano definiti qui e non hardcoded nello script della pagina. */
+    --chart-ricavo: var(--mc-primary);
+    --chart-ricavo-fill: color-mix(in srgb, var(--mc-primary) 15%, transparent);
+    --chart-ordini: var(--mc-success);
+    --chart-contanti: var(--mc-success);
+    --chart-contanti-fill: color-mix(in srgb, var(--chart-contanti) 15%, transparent);
+    --chart-carta: #3b82f6;
+    --chart-carta-fill: color-mix(in srgb, var(--chart-carta) 15%, transparent);
+    --chart-satispay: var(--mc-primary);
+    --chart-satispay-fill: color-mix(in srgb, var(--chart-satispay) 15%, transparent)
+}
+
+#page-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+    font-size: 24px;
+    border-bottom: 1px solid var(--mc-primary);
+    padding: 8px
+}
+
+#page-title .title-icon {
+    flex-shrink: 0
+}
+
+#dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 14px
+}
+
+/* Riga 1: pillole range rapido */
+.filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px
+}
+
+.filter-pill {
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid var(--mc-border);
+    background: var(--mc-panel);
+    color: var(--mc-text);
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color .2s ease, background-color .2s ease
+}
+
+.filter-pill:hover {
+    background: var(--mc-hover-soft)
+}
+
+.filter-pill.is-active {
+    background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+    border-color: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+    color: var(--mc-primary-text)
+}
+
+/* Riga 2: filtri custom + azioni */
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 14px;
+    padding: 14px;
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong)
+}
+
+.filter-bar__field {
+    display: grid;
+    gap: 4px;
+    font-size: 13px
+}
+
+.filter-bar__field label {
+    color: var(--mc-text-soft);
+    font-weight: 600
+}
+
+.filter-bar__field input {
+    height: 38px;
+    border-radius: var(--ui-radius-sm);
+    border: 1px solid var(--mc-border);
+    background: var(--mc-card);
+    color: var(--mc-text);
+    padding: 0 10px
+}
+
+.filter-bar__actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+    flex-wrap: wrap
+}
+
+.filter-bar__status {
+    margin: 0;
+    font-size: 13px;
+    color: var(--mc-text-soft)
+}
+
+.filter-bar__status--error {
+    color: var(--mc-danger)
+}
+
+/* Riga 3: card KPI */
+.kpi-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px
+}
+
+.stat-card {
+    display: grid;
+    gap: 6px;
+    padding: 16px;
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong)
+}
+
+.stat-card__label {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--mc-text-soft)
+}
+
+.stat-card__value {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--mc-primary)
+}
+
+/* Riga 4: sidebar + grafico */
+.dashboard-main {
+    display: grid;
+    grid-template-columns: minmax(260px, .8fr) minmax(0, 2fr);
+    gap: 14px;
+    align-items: start
+}
+
+.dashboard-sidebar {
+    display: grid;
+    gap: 14px;
+    min-width: 0
+}
+
+.side-panel {
+    padding: 10px;
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong);
+    min-width: 0
+}
+
+.side-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px
+}
+
+.side-panel__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mc-text-soft)
+}
+
+.panel-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px
+}
+
+.chart-card__title .panel-icon {
+    width: 18px;
+    height: 18px
+}
+
+.side-panel__toggle {
+    display: flex;
+    gap: 4px
+}
+
+.side-panel__toggle button {
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid var(--mc-border);
+    background: var(--mc-panel-muted);
+    color: var(--mc-text);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.side-panel__toggle button.is-active {
+    background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+    border-color: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+    color: var(--mc-primary-text)
+}
+
+.side-panel__search {
+    width: 100%;
+    height: 32px;
+    margin-bottom: 10px;
+    border-radius: var(--ui-radius-sm);
+    border: 1px solid var(--mc-border);
+    background: var(--mc-card);
+    color: var(--mc-text);
+    padding: 0 10px;
+    font-size: 13px
+}
+
+.side-panel__empty {
+    margin: 0;
+    font-size: 13px;
+    color: var(--mc-text-soft)
+}
+
+.side-list {
+    list-style: none;
+    margin: 0;
+    padding: 8px;
+    display: grid;
+    gap: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.side-list__item {
+    display: grid;
+    gap: 4px
+}
+
+.side-list__item--selectable {
+    padding: 6px;
+    margin: -6px;
+    border-radius: var(--ui-radius-sm);
+    border: var(--mc-hover-border-width) solid transparent;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease
+}
+
+.side-list__item--selectable:hover {
+    background: var(--mc-hover-soft)
+}
+
+.side-list__item--selectable.is-active {
+    background: var(--mc-hover-strong);
+    border-color: var(--mc-hover-border);
+    border-width: var(--mc-hover-border-width)
+}
+
+.side-list__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px
+}
+
+.side-list__name {
+    font-weight: 700;
+    color: var(--mc-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.side-list__value {
+    font-weight: 700;
+    color: var(--mc-primary);
+    white-space: nowrap
+}
+
+.side-list__meter {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--mc-panel-muted);
+    overflow: hidden
+}
+
+.side-list__meter-fill {
+    height: 100%;
+    background: var(--mc-primary)
+}
+
+.side-list__sub {
+    font-size: 11px;
+    color: var(--mc-text-soft)
+}
+
+/* Grafico */
+.chart-card {
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong);
+    min-width: 0;
+    min-height: 420px
+}
+
+.chart-card__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px
+}
+
+.chart-card__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 18px
+}
+
+.active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px
+}
+
+.active-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--mc-hover-strong);
+    border: var(--mc-hover-border-width) solid var(--mc-hover-border);
+    color: var(--mc-text);
+    font-size: 12px;
+    font-weight: 700
+}
+
+.active-filter-chip .filter-icon {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    color: var(--mc-primary)
+}
+
+.chart-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px
+}
+
+.chart-tab {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--ui-radius-sm);
+    border: 1px solid var(--mc-border);
+    background: var(--mc-panel-muted);
+    color: var(--mc-text);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.chart-tab:hover {
+    background: var(--mc-hover-soft)
+}
+
+.chart-tab.is-active {
+    background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+    border-color: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
+    color: var(--mc-primary-text)
+}
+
+.chart-card__body {
+    position: relative;
+    flex: 1;
+    min-height: 320px
+}
+
+.chart-card__body canvas {
+    width: 100% !important;
+    height: 100% !important
+}
+
+/* Dettaglio completo */
+.detail-panel {
+    padding: 14px;
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong)
+}
+
+.detail-panel__summary {
+    cursor: pointer;
+    font-weight: 700;
+    margin-bottom: 8px
+}
+
+#results {
+    min-width: 0;
+    max-height: 60vh;
+    overflow: auto;
+    border-radius: var(--ui-radius-sm)
+}
+
+#results table {
+    width: 100%;
+    min-width: 680px
+}
+
+.results-empty {
+    min-height: 150px;
+    border: 1px dashed color-mix(in srgb, var(--mc-border) 88%, transparent);
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel-muted) 72%, transparent);
+    display: grid;
+    place-content: center;
+    text-align: center;
+    padding: 16px;
+    color: var(--mc-text-soft);
+    gap: 6px
+}
+
+.results-empty strong {
+    color: var(--mc-text);
+    font-size: 16px
+}
+
+.results-empty p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4
+}
+
+@media (orientation: portrait) and (max-width:1100px) {
+    .kpi-row {
+        grid-template-columns: 1fr
+    }
+
+    .dashboard-main {
+        grid-template-columns: 1fr
+    }
+
+    .filter-bar__actions {
+        margin-left: 0;
+        width: 100%
+    }
+
+    .filter-bar__actions button {
+        flex: 1 1 auto
+    }
+
+    #results {
+        max-height: none
+    }
+}
+
+/* Override locale: i bottoni non selezionati sono "ghost" (nessun background di riposo).
+   La regola globale in pos-redesign.css (.management-page button:not(...)) ha una
+   specificità più alta delle regole di questa pagina, quindi va forzata qui sia per
+   lo stato di riposo sia per l'hover, che deve usare var(--mc-hover-soft) invece del
+   background dorato globale; il colore testo resta var(--mc-text) in entrambi gli
+   stati per restare leggibile su tema chiaro e scuro. */
+#statVenditeApp button:not(.is-active) {
+    background: transparent !important;
+    color: var(--mc-text) !important;
+}
+
+#statVenditeApp button:not(.is-active):hover {
+    background: var(--mc-hover-soft) !important;
+}

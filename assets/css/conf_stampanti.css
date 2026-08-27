@@ -1,0 +1,784 @@
+     #container {
+         display: grid;
+         gap: 14px;
+     }
+
+     .panel-title-row {
+         display: flex;
+         align-items: center;
+         gap: 10px;
+         margin-bottom: 12px;
+     }
+
+     .panel-title-row h2 {
+         margin: 0;
+     }
+
+     .panel-title-icon {
+         width: 24px;
+         height: 24px;
+         flex-shrink: 0;
+         color: var(--mc-primary);
+     }
+
+     #bottom {
+         max-height: 58vh;
+         overflow-y: auto;
+     }
+
+     .win-printer-wrap {
+         display: grid;
+         gap: 6px;
+     }
+
+     .printer-toolbar {
+         display: flex;
+         align-items: center;
+         justify-content: space-between;
+         gap: 12px;
+         margin-top: 10px;
+         flex-wrap: wrap;
+         border-top: 1px solid var(--mc-hover-border);
+         padding: 8px;
+     }
+
+     .search-wrap {
+         position: relative;
+         flex: 1;
+         min-width: 220px;
+         max-width: 420px;
+     }
+
+     .search-wrap svg {
+         position: absolute;
+         left: 10px;
+         top: 50%;
+         transform: translateY(-50%);
+         width: 15px;
+         height: 15px;
+         opacity: 0.7;
+         pointer-events: none;
+     }
+
+     #searchPrinter {
+         width: 100%;
+         height: 36px;
+         border-radius: 10px;
+         border: 1px solid var(--mc-border);
+         background: color-mix(in srgb, var(--mc-panel-muted) 70%, transparent);
+         color: var(--mc-text);
+         padding: 0 12px 0 34px;
+         outline: none;
+         transition: border-color 0.2s ease, box-shadow 0.2s ease;
+         margin-top: 0;
+     }
+
+     #btnAddRow {
+         margin-bottom: 0;
+         display: inline-flex;
+         align-items: center;
+         gap: 8px;
+         height: 36px;
+         border-radius: 10px;
+         padding: 0 14px;
+         font-weight: 600;
+     }
+
+     #btnAddRow svg {
+         width: 15px;
+         height: 15px;
+     }
+
+     .printer-table-shell {
+         border-radius: 8px;
+         overflow: hidden;
+         border: 1px solid color-mix(in srgb, var(--mc-border) 70%, transparent);
+         background: color-mix(in srgb, var(--mc-panel) 80%, transparent);
+     }
+
+     .printer-table-wrap {
+         width: 100%;
+         overflow-x: auto;
+         border-radius: inherit;
+     }
+
+     .printer-table {
+         width: 100%;
+         border-collapse: separate;
+         border-spacing: 0;
+         margin-top: 0;
+         border: 0;
+         border-radius: 0;
+     }
+
+     .printer-table thead tr {
+         background: color-mix(in srgb, var(--mc-panel-muted) 88%, transparent);
+     }
+
+     .printer-table th,
+     .printer-table td {
+         border: 0;
+         border-bottom: 1px solid color-mix(in srgb, var(--mc-border) 70%, transparent);
+         padding: 10px 8px;
+         text-align: left;
+         vertical-align: middle;
+         border-radius: 0;
+         color: var(--mc-text);
+         white-space: nowrap;
+         font-size: 14px;
+     }
+
+     .printer-table th {
+         height: 40px;
+         padding-top: 0;
+         padding-bottom: 0;
+         font-size: 13px;
+         color: var(--mc-text-soft);
+         font-weight: 600;
+     }
+
+     .table-sort-btn {
+         display: inline-flex;
+         align-items: center;
+         gap: 4px;
+         padding: 0;
+         border: 0 !important;
+         background: transparent !important;
+         color: inherit !important;
+         box-shadow: none !important;
+         font: inherit;
+         font-weight: inherit;
+         cursor: pointer;
+     }
+
+     .management-page .table-sort-btn:hover {
+         background: transparent !important;
+         color: inherit !important;
+     }
+
+     .table-sort-btn:focus-visible {
+         outline: 2px solid var(--mc-primary);
+         outline-offset: 3px;
+         border-radius: 2px;
+     }
+
+     .table-sort-icon {
+         width: 16px;
+         height: 16px;
+         opacity: 0.3;
+     }
+
+     .table-sort-icon.is-active {
+         opacity: 1;
+     }
+
+     .printer-table tbody tr {
+         transition: background-color 0.2s ease;
+     }
+
+     .printer-table tbody tr:hover {
+         background: color-mix(in srgb, var(--mc-panel-muted) 55%, transparent);
+     }
+
+     .printer-table tbody tr:last-child td {
+         border-bottom: 0;
+     }
+
+     .printer-table thead th:first-child {
+         border-top-left-radius: 8px;
+     }
+
+     .printer-table thead th:last-child {
+         border-top-right-radius: 8px;
+     }
+
+     .printer-table tbody tr:last-child td:first-child {
+         border-bottom-left-radius: 8px;
+     }
+
+     .printer-table tbody tr:last-child td:last-child {
+         border-bottom-right-radius: 8px;
+     }
+
+     .printer-col-action {
+         width: 44px;
+         text-align: center;
+     }
+
+     .printer-col-actions {
+         width: 112px;
+         text-align: center;
+     }
+
+     .printer-col-porta {
+         width: 90px;
+         text-align: center;
+     }
+
+     .payment-methods-col {
+         min-width: 250px;
+     }
+
+     .payment-toggles {
+         display: flex;
+         align-items: center;
+         gap: 20px;
+         flex-wrap: wrap;
+     }
+
+     .payment-toggle {
+         display: inline-flex;
+         align-items: center;
+         gap: 4px;
+         color: var(--mc-text);
+         font-size: 12px;
+         font-weight: 600;
+         cursor: pointer;
+     }
+
+     .payment-toggle input[type="checkbox"] {
+         width: 15px;
+         height: 15px;
+         margin: 0px 8px 0px 0px;
+         border: 0;
+         background: none;
+         padding: 0;
+         accent-color: var(--mc-primary);
+     }
+
+     .payment-toggles--modal {
+         padding: 8px 10px;
+         border: 1px solid var(--mc-border);
+         border-radius: 8px;
+         background: var(--mc-panel-muted);
+     }
+
+     .printer-col-type {
+         width: 140px;
+     }
+
+     .printer-col-id {
+         width: 120px;
+     }
+
+     .row-edit-btn {
+         width: 30px;
+         height: 30px;
+         border-radius: 9px;
+         border: 0 !important;
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         background: transparent !important;
+         color: var(--mc-text-soft) !important;
+         cursor: pointer;
+         transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+         padding: 0 !important;
+     }
+
+     .row-edit-btn:hover {
+         background: var(--mc-hover-soft) !important;
+         color: var(--mc-primary-text) !important;
+         filter: none;
+     }
+
+     .row-edit-btn svg {
+         width: 14px;
+         height: 14px;
+     }
+
+     .row-test-btn {
+         width: 30px;
+         height: 30px;
+         border-radius: 9px;
+         border: 0 !important;
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         background: transparent !important;
+         color: var(--mc-success) !important;
+         cursor: pointer;
+         transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+         padding: 0 !important;
+     }
+
+     .row-test-btn:hover {
+         background: var(--mc-hover-soft) !important;
+         color: var(--mc-primary-text) !important;
+         filter: none;
+     }
+
+     .row-test-btn::after {
+         content: none;
+     }
+
+     body.dark-mode .row-edit-btn:hover,
+     body.dark-mode .row-test-btn:hover {
+         color: #ffffff !important;
+     }
+
+     .row-test-btn svg {
+         width: 14px;
+         height: 14px;
+     }
+
+     .tipo-pill {
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         border-radius: 8px;
+         padding: 6px;
+         font-size: 14px;
+         font-weight: 500;
+         border: 1px solid color-mix(in srgb, var(--mc-border) 82%, transparent);
+         background: color-mix(in srgb, var(--mc-panel-muted) 80%, transparent);
+         color: var(--mc-text-soft);
+         letter-spacing: 0.02em;
+     }
+
+     .empty-state {
+         padding: 18px;
+         text-align: center;
+         color: var(--mc-text-soft);
+         font-size: 14px;
+     }
+
+     .modal-backdrop {
+         position: fixed;
+         inset: 0;
+         background: color-mix(in srgb, #000 60%, transparent);
+         z-index: 1200;
+         display: none;
+         align-items: center;
+         justify-content: center;
+         padding: 14px;
+     }
+
+     .modal-backdrop.is-open {
+         display: flex;
+     }
+
+     .printer-modal {
+         width: min(560px, 100%);
+         border-radius: 14px;
+         border: 1px solid color-mix(in srgb, var(--mc-border) 90%, transparent);
+         background: color-mix(in srgb, var(--mc-panel) 96%, #000 4%);
+         box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+         overflow: hidden;
+     }
+
+     .printer-modal-head {
+         display: flex;
+         align-items: center;
+         justify-content: space-between;
+         padding: 14px;
+         border-bottom: 1px solid color-mix(in srgb, var(--mc-border) 70%, transparent);
+     }
+
+     .printer-modal-head h3 {
+         margin: 0;
+         font-size: 18px;
+         color: var(--mc-text);
+     }
+
+     .modal-close {
+         width: 30px;
+         height: 30px;
+         border-radius: 8px;
+         border: 0 !important;
+         background: transparent !important;
+         color: var(--mc-text-soft) !important;
+         cursor: pointer;
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         transition: background-color 0.2s ease, color 0.2s ease;
+         padding: 0 !important;
+     }
+
+     .modal-close:hover,
+     #modalBackdrop {
+         background: color-mix(in srgb, var(--mc-panel-muted) 82%, transparent) !important;
+         color: var(--mc-text) !important;
+     }
+
+     body.management-page:not(.dark-mode) .modal-close:hover,
+     body.management-page:not(.dark-mode) #modalBackdrop {
+         background: color-mix(in srgb, var(--mc-panel-muted) 82%, transparent) !important;
+         color: var(--mc-text) !important;
+     }
+
+     .modal-close svg {
+         width: 14px;
+         height: 14px;
+     }
+
+     .printer-modal-body {
+         display: grid;
+         gap: 12px;
+         padding: 14px;
+     }
+
+     .modal-field {
+         display: grid;
+         gap: 6px;
+     }
+
+     .modal-field label:not(.payment-toggle) {
+         font-size: 13px;
+         color: var(--mc-text-soft);
+     }
+
+     .modal-field input:not([type="checkbox"]),
+     .modal-field select,
+     .modal-field select option {
+         height: 38px;
+         border-radius: 10px;
+         border: 1px solid color-mix(in srgb, var(--mc-border) 80%, transparent);
+         background: color-mix(in srgb, var(--mc-panel-muted) 65%, transparent);
+         color: var(--mc-text);
+         padding: 0 10px;
+         outline: none;
+         margin-top: 10px;
+     }
+
+     /* Quando il select è in stato "placeholder" (nessuna opzione scelta) */
+     .modal-field select.is-placeholder {
+         color: color-mix(in srgb, var(--mc-text) 45%, transparent);
+         /* Stesso tono di grigio trasparente del placeholder dell'IP */
+     }
+
+      #modalNomeIndirizzoWrap .win-printer-wrap {
+         gap: 8px;
+     }
+
+     #refreshBridgePrintersBtn {
+         height: 36px;
+         border-radius: 10px;
+         border: 1px solid color-mix(in srgb, var(--mc-border) 80%, transparent);
+         background: color-mix(in srgb, var(--mc-panel-muted) 65%, transparent);
+         color: var(--mc-text);
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         gap: 8px;
+         padding: 0 12px;
+         cursor: pointer;
+         transition: background-color 0.2s ease, border-color 0.2s ease;
+     }
+
+     #refreshBridgePrintersBtn:hover {
+         background: color-mix(in srgb, var(--mc-panel-muted) 84%, transparent);
+     }
+
+     #refreshBridgePrintersBtn:disabled {
+         opacity: 0.65;
+         cursor: not-allowed;
+     }
+
+     #refreshBridgePrintersBtn .icon-refresh {
+         width: 14px;
+         height: 14px;
+         flex-shrink: 0;
+     }
+
+     .spin-animation {
+         animation: spin 0.9s linear infinite;
+     }
+
+     .field-highlight {
+         border-color:
+             /*color-mix(in srgb, var(--mc-warning) 78%, #ffffff 22%)*/
+             var(--mc-ring) !important;
+         box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-warning) 24%, transparent);
+         animation: highlight-pulse 1.2s ease-in-out 2;
+     }
+
+     @keyframes spin {
+         from {
+             transform: rotate(0deg);
+         }
+
+         to {
+             transform: rotate(360deg);
+         }
+     }
+
+     @keyframes highlight-pulse {
+         0% {
+             box-shadow: 0 0 0 0 color-mix(in srgb, var(--mc-warning) 26%, transparent);
+         }
+
+         70% {
+             box-shadow: 0 0 0 7px color-mix(in srgb, var(--mc-warning) 0%, transparent);
+         }
+
+         100% {
+             box-shadow: 0 0 0 0 color-mix(in srgb, var(--mc-warning) 0%, transparent);
+         }
+     }
+
+     .printer-modal-foot {
+         display: flex;
+         justify-content: space-between;
+         gap: 10px;
+         padding: 12px 14px;
+         border-top: 1px solid color-mix(in srgb, var(--mc-border) 70%, transparent);
+         background: color-mix(in srgb, var(--mc-panel-muted) 38%, transparent);
+     }
+
+     .modal-actions-right {
+         display: flex;
+         gap: 8px;
+     }
+
+     .btn-secondary,
+     .btn-danger,
+     .btn-primary {
+         height: 36px;
+         border-radius: 10px;
+         padding: 0 14px;
+         border: 0 !important;
+         cursor: pointer;
+         font-weight: 600;
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         gap: 8px;
+         transition: background-color 0.2s ease, color 0.2s ease;
+     }
+
+   /*  #modalBackdrop {
+         background: transparent !important;
+         color: var(--mc-text) !important;
+     }*/
+
+     #modalBackdrop #modalTestBtn {
+         background: #3578de !important;
+         color: #fff !important;
+     }
+
+     #modalBackdrop #modalTestBtn:hover {
+         background: #4a8df2 !important;
+
+     }
+
+     #modalBackdrop #modalSaveBtn {
+         background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%) !important;
+         color: #fff !important;
+     }
+
+     #modalBackdrop #modalSaveBtn:hover {
+         background: color-mix(in srgb, var(--mc-primary) 74%, #000 26%) !important;
+     }
+
+     #modalBackdrop #modalDeleteBtn {
+         background: color-mix(in srgb, #d92b2b 82%, #000 18%) !important;
+         color: #fff !important;
+     }
+
+     #modalBackdrop #modalDeleteBtn:hover {
+         background: color-mix(in srgb, #d92b2b 72%, #000 28%) !important;
+     }
+
+     .btn-danger svg {
+         width: 14px;
+         height: 14px;
+         flex-shrink: 0;
+     }
+
+     .btn-danger[disabled] {
+         opacity: 0.45;
+         cursor: not-allowed;
+     }
+
+     @media (max-width: 760px) {
+         #bottom {
+             max-height: none;
+         }
+/* 1. Aggiungi questa per togliere l'ingombro invisibile */
+         .payment-methods-col {
+             min-width: 0;
+         }
+
+         /* Le larghezze fisse da desktop (colonne th/td) vanno resettate: altrimenti
+            entrano in conflitto con le tracce della grid delle card e si sovrappongono */
+         .printer-table td.printer-col-type,
+         .printer-table td.printer-col-porta,
+         .printer-table td.printer-col-id,
+         .printer-table td.printer-col-action,
+         .printer-table td.printer-col-actions {
+             width: auto;
+             min-width: 0;
+         }
+
+         /* --- Toolbar --- */
+         .printer-toolbar {
+             flex-direction: column-reverse; /* Inverte l'ordine per mettere Nuova Stampante sopra */
+             align-items: stretch;
+         }
+
+         #btnAddRow {
+             width: 100%;
+             justify-content: center;
+             background: #cfa144 !important; /* Colore giallo/oro come da foto */
+             color: #fff !important;
+             border: none !important;
+             height: 42px;
+             border-radius: 8px;
+         }
+
+         .search-wrap {
+             max-width: none;
+             width: 100%;
+         }
+
+         /* --- Struttura Tabella -> Card --- */
+         .printer-table-shell {
+             background: transparent;
+             border: none;
+         }
+
+         .printer-table thead {
+             display: none;
+         }
+
+         .printer-table, .printer-table tbody {
+             display: flex;
+             flex-direction: column;
+             gap: 16px;
+             background: transparent;
+         }
+
+         /* Configurazione Griglia Card: 3 colonne di contenuto + colonna Azioni */
+         .printer-card-row {
+             display: grid !important;
+             grid-template-columns: minmax(0, 1.fr) minmax(0, 1.75fr) minmax(0, 1.5fr) 85px;
+             grid-template-areas:
+                 "cassa tipo   pagamenti actions"
+                 "nome  qzhost porta     actions";
+             padding: 6px;
+             background: color-mix(in srgb, var(--mc-panel) 50%, #111 50%);
+             border: 1px solid color-mix(in srgb, var(--mc-border) 60%, transparent);
+             border-radius: 12px;
+         }
+
+         .printer-card-row::after {
+             content: "";
+             grid-column: 1 / 4;
+             grid-row: 2;
+             align-self: start;
+             width: 100%;
+             border-top: 1px solid var(--mc-border) !important;
+             pointer-events: none;
+         }
+
+         .printer-table td {
+             display: flex;
+             flex-direction: column;;
+             border: none !important;
+             align-items: flex-start;
+             white-space: normal;
+             min-width: 0;
+             overflow-wrap: break-word;
+             word-break: break-word;
+         }
+
+         /* Generazione automatica etichette campi */
+         .printer-table td::before {
+             content: attr(data-label);
+             font-size: 11px;
+             color: var(--mc-text-soft);
+             margin-bottom: 6px;
+             text-transform: uppercase;
+             letter-spacing: 0.5px;
+             white-space: normal;
+             overflow-wrap: break-word;
+         }
+
+         /* --- Assegnazione Aree Grid (basato su classi/indici attuali) --- */
+         .printer-card-row td:nth-child(2) { grid-area: cassa; font-size: 1.3rem; font-weight: 500; color: #fff;} /* Cassa ID */
+         .printer-card-row td:nth-child(3) { grid-area: tipo; display: flex !important; } /* Tipo */
+         .printer-card-row td:nth-child(4) { grid-area: pagamenti; } /* Pagamenti */
+         .printer-card-row td:nth-child(5) { grid-area: nome; } /* Nome/Indirizzo */
+         .printer-card-row td:nth-child(6) { grid-area: qzhost; } /* QZ Host */
+         .printer-card-row td:nth-child(7) { grid-area: porta; display: flex; width: auto; text-align: left; } /* Porta */
+
+         /* Colonna Azioni laterale */
+         .printer-card-row td:nth-child(1) { 
+             grid-area: actions;
+             border-left: 1px solid color-mix(in srgb, var(--mc-border) 40%, transparent) !important;
+             padding-left: 8px !important;
+             display: flex;
+             flex-direction: column;
+             gap: 10px;
+             align-items: stretch;
+             justify-content: flex-start;
+             
+        /* Aggiungi queste due righe per far stare i bottoni in primo piano */
+             position: relative;
+             z-index: 10;       
+             width: auto !important;      
+         }
+
+         .printer-card-row td:nth-child(1)::before {
+             text-align: center;
+             margin-bottom: 8px;
+         }
+
+         /* Styling Bottoni Azioni per simulare le rect-button della foto */
+         .row-edit-btn, .row-test-btn {
+             width: 100%;
+             height: 48px !important;
+             border: 1px solid color-mix(in srgb, var(--mc-border) 60%, transparent) !important;
+             background: color-mix(in srgb, var(--mc-panel-muted) 40%, transparent) !important;
+             border-radius: 6px;
+             justify-content: center;
+         }
+         
+         /* Riordina i bottoni tramite Flexbox: Edit in alto, Stampa (test) in basso */
+         .row-edit-btn { order: 1; }
+         .row-test-btn { order: 2; }
+
+         .row-edit-btn::after {
+             content: "Edit";
+             font-size: 13px;
+             margin-left: 6px;
+         }         
+
+         .row-test-btn::after {
+             content: "Test";
+             font-size: 13px;
+             margin-left: 6px;
+         }
+        
+         /* Reset tipografia pillola/checkbox */
+         .tipo-pill {
+             white-space: nowrap; /* Evita che il testo vada a capo */
+             padding: 4px 8px;
+             font-size: 11px;
+             background: transparent;
+             border-color: color-mix(in srgb, var(--mc-border) 60%, transparent);
+         }
+
+         .payment-toggles {
+             flex-direction: column;
+             gap: 4px;
+             align-items: flex-start;
+         }
+
+         .payment-toggle {
+             font-size: 12px;
+             gap: 6px;
+         }         
+
+         /* Comportamento originale del modal mobile */
+         .printer-modal-foot {
+             flex-direction: column;
+             align-items: stretch;
+         }
+
+         .modal-actions-right {
+             justify-content: flex-end;
+         }
+     }
