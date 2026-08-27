@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../assets/css/billing.css">
     <!-- Importa tutte le favicon con una sola riga -->
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
+    <?php require_once __DIR__ . '/../includes/icons.php'; ?>
     <title>Billing</title>
 </head>
 
@@ -27,12 +28,7 @@
                     <h2 class="products-panel__title">Prodotti</h2>
                     <button type="button" class="modal-close" aria-label="Chiudi catalogo prodotti"
                         title="Chiudi catalogo prodotti" @click="closeProductPicker">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                            stroke-linejoin="round" aria-hidden="true">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
+                        <?= pos_icon('x', ['stroke-width' => '2.5']) ?>
                     </button>
                     <div class="products-tools">
                         <select id="category-view-mode" class="products-tools__select"
@@ -71,11 +67,7 @@
                                     :aria-expanded="isCategoryCollapsed(categoryName) ? 'false' : 'true'"
                                     @click="toggleCategoryCollapse(categoryName)">
                                     <span class="category-title">{{ categoryName }}</span>
-                                    <svg class="category-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                        width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="6 9 12 15 18 9"></polyline>
-                                    </svg>
+                                    <?= pos_icon('chevron-down', ['class' => 'category-icon', 'aria-hidden' => 'true']) ?>
                                 </button>
                                 <div class="product-grid">
                                     <div v-for="product in categoryProducts" :key="product.id" class="card"
@@ -99,15 +91,7 @@
                     <h2 class="cart-title">Carrello</h2>
                     <button id="clear-cart-btn" class="danger-btn icon-btn cart-head__clear" type="button"
                         title="Svuota carrello" aria-label="Svuota carrello" @click="clearCart">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16"
-                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round" aria-hidden="true">
-                            <path d="M3 6h18"></path>
-                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                            <path d="M10 11v6"></path>
-                            <path d="M14 11v6"></path>
-                        </svg>
+                        <?= pos_icon('trash', ['width' => '16', 'height' => '16']) ?>
                     </button>
                 </header>
 
@@ -220,12 +204,7 @@
                                 aria-controls="mobile-discount-panel"
                                 aria-label="Mostra sconto totale" title="Sconto totale"
                                 @click="toggleMobileSummaryPanel('discount')">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <line x1="19" y1="5" x2="5" y2="19"></line>
-                                    <circle cx="6.5" cy="6.5" r="2.5"></circle>
-                                    <circle cx="17.5" cy="17.5" r="2.5"></circle>
-                                </svg>
+                                <?= pos_icon('percent', ['stroke-width' => '2.5']) ?>
                                 <span>Sconto</span>
                             </button>
                             <div id="mobile-discount-panel" class="mobile-summary-panel"
@@ -252,12 +231,7 @@
                                 aria-controls="mobile-paid-panel"
                                 aria-label="Mostra importo pagato" title="Importo pagato"
                                 @click="toggleMobileSummaryPanel('paid')">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                                    <path d="M7 9h10M7 13h4"></path>
-                                    <circle cx="17" cy="14" r="1"></circle>
-                                </svg>
+                                <?= pos_icon('banknote') ?>
                                 <span>Pagato</span>
                             </button>
                             <div id="mobile-paid-panel" class="mobile-summary-panel"
@@ -282,13 +256,7 @@
                             <input type="radio" id="pagamento_contanti" name="metodoPagamento" value="contanti"
                                 autocomplete="off" v-model="paymentMethod">
                             <span class="pay-pill">
-                                <svg class="pay-pill__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round" aria-hidden="true">
-                                    <rect width="20" height="12" x="2" y="6" rx="2"></rect>
-                                    <circle cx="12" cy="12" r="2"></circle>
-                                    <path d="M6 12h.01M18 12h.01"></path>
-                                </svg>
+                                <?= pos_icon('cash', ['class' => 'pay-pill__icon']) ?>
                                 <span class="pay-pill__text">Contanti</span>
                             </span>
                         </label>
@@ -296,13 +264,7 @@
                             <input type="radio" id="pagamento_carta" name="metodoPagamento" value="carta"
                                 autocomplete="off" v-model="paymentMethod">
                             <span class="pay-pill">
-                                <svg class="pay-pill__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round" aria-hidden="true">
-                                    <rect x="2" y="5" width="20" height="14" rx="2"></rect>
-                                    <line x1="2" y1="10" x2="22" y2="10"></line>
-                                    <line x1="6" y1="15" x2="10" y2="15"></line>
-                                </svg>
+                                <?= pos_icon('credit-card', ['class' => 'pay-pill__icon']) ?>
                                 <span class="pay-pill__text">Carta</span>
                             </span>
                         </label>
@@ -330,26 +292,12 @@
                         @click="openDrawer">Apri Cassetto</button>
                     <button id="checkout-btn" class="primary-btn" type="button" @click="checkout">
                         <span>Stampa Scontrino</span>
-                        <svg class="checkout-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24"
-                            height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round">
-                            <path d="M6 9V4h12v5" />
-                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                            <path d="M18 14H6v7l3-1.5 3 1.5 3-1.5 3 1.5z" />
-                            <line x1="9" y1="17" x2="15" y2="17" stroke-width="1.5" />
-                            <circle cx="18" cy="11" r="0.5" fill="currentColor" />
-                        </svg>
+                        <?= pos_icon('print-receipt', ['class' => 'checkout-icon', 'aria-hidden' => 'true']) ?>
                     </button>
                     <button id="print-last-receipt-btn" class="neutral-btn icon-btn print-last-btn" type="button"
                         title="Ristampa ultimo scontrino" aria-label="Ristampa ultimo scontrino"
                         @click="printLastReceipt">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18"
-                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round" aria-hidden="true">
-                            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-                            <rect x="6" y="14" width="12" height="8"></rect>
-                        </svg>
+                        <?= pos_icon('print', ['width' => '18', 'height' => '18']) ?>
                     </button>
                 </section>
 
