@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../assets/css/add_product.css">
 <!-- Importa tutte le favicon con una sola riga -->
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
+    <?php require_once __DIR__ . '/../includes/icons.php'; ?>
     <title>Inserisci Prodotto</title>
 </head>
 
@@ -20,7 +21,7 @@
     <main class="management-shell add-product-layout" id="app">
         <section class="management-panel">
             <div class="panel-title-row panel-title-bordered">
-                <svg class="panel-title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22,13v7a1,1,0,0,1-1,1H3a1,1,0,0,1-1-1V13a1,1,0,0,1,2,0v6H20V13a1,1,0,0,1,2,0ZM12,3a1,1,0,0,0-1,1V8H7a1,1,0,0,0,0,2h4v4a1,1,0,0,0,2,0V10h4a1,1,0,0,0,0-2H13V4A1,1,0,0,0,12,3Z"></path></svg>
+                <?= pos_icon('add-box', ['class' => 'panel-title-icon']) ?>
                 <h2>Inserisci prodotto</h2>
             </div>
 
@@ -52,11 +53,11 @@
         <section class="management-panel">
             <div class="products-panel-title panel-title-bordered">
                 <div class="panel-title-row">
-                    <svg class="panel-title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+                    <?= pos_icon('image', ['class' => 'panel-title-icon']) ?>
                     <h2>Prodotti esistenti</h2>
                 </div>
                 <button type="button" id="reloadProductsBtn" class="reload-products-btn" @click="reloadData" title="Ricarica elenco" aria-label="Ricarica elenco">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.1 6.6L3 16"></path><path d="M3 21v-5h5"></path><path d="M3 12A9 9 0 0 1 18.1 5.4L21 8"></path><path d="M21 3v5h-5"></path></svg>
+                    <?= pos_icon('refresh-ccw') ?>
                 </button>
             </div>
 
@@ -169,11 +170,11 @@
                                     <div class="image-input-group">
                                         <img v-if="product.editImagePath" class="edit-image-thumb" :src="'../' + product.editImagePath" :alt="product.editName" @error="$event.target.style.visibility = 'hidden'">
                                         <span v-else class="edit-image-placeholder" aria-hidden="true">
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5-5 5 5"></path><path d="M12 15V5"></path></svg>
+                                            <?= pos_icon('upload') ?>
                                         </span>
                                         <input type="text" class="edit-image-path" v-model="product.editImagePath" placeholder="uploads/file.jpg">
                                         <label :for="`file-upload-${product.id}`" class="image-upload-btn" title="Scegli immagine" aria-label="Scegli immagine">
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5-5 5 5"></path><path d="M12 15V5"></path></svg>
+                                            <?= pos_icon('upload') ?>
                                         </label>
                                         <input :id="`file-upload-${product.id}`" type="file" class="edit-image-file visually-hidden-file" accept="image/*" @change="handleImageSelection(product, $event)">
                                     </div>
