@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../assets/css/stat_vendite.css">
 <!-- Importa tutte le favicon con una sola riga -->
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
+    <?php require_once __DIR__ . '/../includes/icons.php'; ?>
     <title>Statistiche vendite</title>
 
     <script src="../assets/js/vue.global.js"></script>
@@ -27,13 +28,7 @@
     <main class="management-shell">
     <div id="statVenditeApp">
         <h2 id="page-title">
-            <svg class="title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="24" height="24" fill="none" stroke="var(--mc-primary)" aria-hidden="true">
-                <rect x="2.64" y="19.08" width="5.3" height="9.84" rx=".7" ry=".7" stroke-miterlimit="10"/>
-                <rect x="17.08" y="13.52" width="5.3" height="15.52" rx=".7" ry=".7" stroke-miterlimit="10"/>
-                <rect x="24.17" y="1.19" width="5.3" height="27.84" rx=".7" ry=".7" stroke-miterlimit="10"/>
-                <rect x="9.86" y="7.27" width="5.3" height="21.7" rx=".7" ry=".7" stroke-miterlimit="10"/>
-                <line x1="1.13" y1="31.04" x2="30.87" y2="31.04" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <?= pos_icon('stat-bars', ['class' => 'title-icon', 'stroke' => 'var(--mc-primary)']) ?>
             Statistiche vendite
         </h2>
 
@@ -84,11 +79,7 @@
                 <aside class="dashboard-sidebar">
                     <div class="side-panel">
                         <h3 class="side-panel__title">
-                            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <rect x="3" y="6" width="18" height="13" rx="2"/>
-                                <path d="M3 10h18"/>
-                                <circle cx="16" cy="14.5" r="1.5" fill="currentColor" stroke="none"/>
-                            </svg>
+                            <?= pos_icon('card-line', ['class' => 'panel-icon']) ?>
                             Casse
                         </h3>
                         <ul class="side-list" v-if="casse.length">
@@ -109,10 +100,7 @@
                     <div class="side-panel">
                         <div class="side-panel__header">
                             <h3 class="side-panel__title">
-                                <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <circle cx="12" cy="12" r="9"/>
-                                    <circle cx="12" cy="12" r="4"/>
-                                </svg>
+                                <?= pos_icon('target', ['class' => 'panel-icon']) ?>
                                 Top Pietanze
                             </h3>
                             <div class="side-panel__toggle">
@@ -136,17 +124,12 @@
                 <div class="chart-card">
                     <div class="chart-card__header">
                         <h3 class="chart-card__title">
-                            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M3 17l6-6 4 4 8-8"/>
-                                <path d="M15 7h6v6"/>
-                            </svg>
+                            <?= pos_icon('trending-up', ['class' => 'panel-icon']) ?>
                             Andamento Ricavi
                         </h3>
                         <div class="active-filters" v-if="activeFilters.length">
                             <span class="active-filter-chip" v-for="f in activeFilters" :key="f.type">
-                                <svg class="filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                    <path d="M4 5h16l-6 7v5l-4 2v-7z"/>
-                                </svg>
+                                <?= pos_icon('filter', ['class' => 'filter-icon']) ?>
                                 {{ f.value }}
                             </span>
                         </div>
