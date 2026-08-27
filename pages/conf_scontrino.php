@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="../assets/css/conf_scontrino.css">
 <!-- Importa tutte le favicon con una sola riga -->
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
+    <?php require_once __DIR__ . '/../includes/icons.php'; ?>
     <title>Configurazione Scontrino</title>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
@@ -25,7 +26,7 @@
         <div class="receipt-shell">
             <section class="receipt-card">
                 <div class="panel-title-row panel-title-bordered">
-                    <svg class="panel-title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"></path><path d="M16 8h-6"></path><path d="M16 12h-6"></path><path d="M13 16H10"></path></svg>
+                    <?= pos_icon('receipt-lines', ['class' => 'panel-title-icon']) ?>
                     <h2>Configurazione Scontrino</h2>
                 </div>
                 <p class="inline-muted">Questa configurazione e globale per tutte le stampanti/casse: definisci testo, cut e logo.</p>
