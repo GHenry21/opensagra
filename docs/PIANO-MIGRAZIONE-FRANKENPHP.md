@@ -16,7 +16,7 @@
 | **Realtime (Mercure/SSE)** | Rimandato. L'hub è già dentro il binario FrankenPHP: si attiva quando/se serve (Fase 4). |
 | **Worker mode** | Ottimizzazione futura opzionale. Scope e stima in Appendice B. |
 | **QZ Tray** | Stampa da stampanti USB via browser. La procedura certificati/firma attuale (openssl + override + `sign-message.php`) **resta invariata** in questa migrazione. Con Caddy/HTTPS vanno però verificati alcuni punti di mixed-content: vedi **Appendice C**. Nessuna modifica al codice QZ ora. |
-| **Wizard d'installazione** | Lo script pone domande in linguaggio semplice (architettura, QZ, HTTPS) e configura di conseguenza: vedi **Fase 3a**. |
+| **Wizard d'installazione** | Lo script pone domande in linguaggio semplice (architettura, QZ, HTTPS) e configura di conseguenza: vedi **Fase 3a**. ⚠️ Le domande attuali sono solo una bozza, da riformulare al momento della Fase 3. |
 | **Versionamento** | Ogni modifica va committata su git (repo locale, branch `main`). |
 
 ### Perché FrankenPHP classic + MariaDB nativa (oltre a HTTPS automatico)
@@ -180,6 +180,8 @@ Lista chiusa, ricavata dal codice app + `require` dei vendor (dettaglio e snippe
 Un solo entry point (`install.ps1` su Windows, `install.sh` su macOS/Linux, o un unico script che rileva l'OS) che porta una macchina pulita ad app funzionante in HTTPS.
 
 ### 3a. Wizard: domande all'utente
+
+> ⚠️ **BOZZA — da rivedere.** Le domande e le spiegazioni qui sotto **così non vanno bene**: sono un primo abbozzo per fissare l'idea. Vanno riformulate (numero di domande, ordine, testo per non esperti, casi che mancano, default) quando si arriverà a implementare la Fase 3. Non prenderle come definitive.
 
 Prima di installare, lo script pone alcune domande in **linguaggio semplice**, con spiegazione inline. Le risposte determinano cosa installare e come generare i config. Deve avere anche una modalità non interattiva (`--answers file.json`) per reinstallazioni ripetibili.
 
