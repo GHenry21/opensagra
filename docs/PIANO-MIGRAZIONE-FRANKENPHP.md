@@ -12,6 +12,8 @@
 | **Polling prodotti in `billing.php`** | Strategia A — polling *condizionale*: un endpoint leggerissimo dice "è cambiato qualcosa?", la lista completa si scarica solo sul cambio. Niente SSE per ora. |
 | **Bug indipendente da tutto** | `api/get_products.php` esegue `ALTER TABLE` / `UPDATE` a ogni richiesta → va in una migrazione una-tantum. |
 | **Infrastruttura** | Da XAMPP → **FrankenPHP in _classic mode_ + MariaDB nativa**, distribuiti con uno script d'installazione per-OS. **Niente Docker** (accesso stampante USB). **Niente worker mode** per ora (nessun refactoring, non serve alla scala attuale). |
+| **Packaging / distribuzione** | **Nessun binario embed.** Lo script d'installazione **copia i file** di opensagra nelle cartelle di destinazione. Il codice sorgente resta aperto e ispezionabile (progetto open source). `vendor/` incluso nel pacchetto di release (niente `composer install` sul target). |
+| **Cosa varia in base alle risposte** | Il codice di opensagra è **sempre spedito completo e identico**. Il wizard automatizza solo due passi oggi manuali: (1) generare `config/variabili.env` dalle risposte, (2) creare DB/tabelle/utente. Vedi **Fase 3a**. |
 | **HTTPS** | Automatico via FrankenPHP/Caddy. Sui tablet: installare la CA locale una volta. |
 | **Realtime (Mercure/SSE)** | Rimandato. L'hub è già dentro il binario FrankenPHP: si attiva quando/se serve (Fase 4). |
 | **Worker mode** | Ottimizzazione futura opzionale. Scope e stima in Appendice B. |
@@ -179,11 +181,22 @@ Lista chiusa, ricavata dal codice app + `require` dei vendor (dettaglio e snippe
 
 Un solo entry point (`install.ps1` su Windows, `install.sh` su macOS/Linux, o un unico script che rileva l'OS) che porta una macchina pulita ad app funzionante in HTTPS.
 
-### 3a. Wizard: domande all'utente
+**Modello di distribuzione:** niente binario embed. Il pacchetto di release contiene i file di opensagra (con `vendor/`) + questo script. Lo script installa i prerequisiti (FrankenPHP, MariaDB), **copia i file** nella cartella di destinazione, genera i config e registra il servizio. Il codice resta in chiaro e modificabile sul posto (open source).
 
-> ⚠️ **BOZZA — da rivedere.** Le domande e le spiegazioni qui sotto **così non vanno bene**: sono un primo abbozzo per fissare l'idea. Vanno riformulate (numero di domande, ordine, testo per non esperti, casi che mancano, default) quando si arriverà a implementare la Fase 3. Non prenderle come definitive.
+> L'embed di FrankenPHP è stato valutato e **scartato**: dato che lo script d'installazione serve comunque (MariaDB, QZ, domande, servizio), il guadagno del binario unico è marginale, mentre la build cross-OS — soprattutto Windows — aggiunge una pipeline da mantenere. La copia dei file è più semplice e coerente con "codice aperto e ispezionabile".
 
-Prima di installare, lo script pone alcune domande in **linguaggio semplice**, con spiegazione inline. Le risposte determinano cosa installare e come generare i config. Deve avere anche una modalità non interattiva (`--answers file.json`) per reinstallazioni ripetibili.
+### 3a. Wizard: cosa automatizza (scope ridotto)
+
+> ⚠️ **BOZZA — da rivedere.** I testi e il numero di domande qui sotto **così non vanno bene**: primo abbozzo per fissare l'idea. Da riformulare (testo per non esperti, default, casi mancanti) quando si implementa la Fase 3.
+
+**Principio:** il codice di opensagra è **sempre spedito completo e identico**, tutte le funzioni presenti. Il wizard **non** abilita/disabilita funzionalità. Sostituisce solo due passi oggi manuali:
+
+1. **Generazione di `config/variabili.env`** (oggi: creato/editato a mano copiando `variabili.env.example`).
+2. **Provisioning del DB**: creare database, tabelle e utente (oggi: si lancia `config/crea_dbtable_and_user.php`).
+
+Il file `config/variabili.env` resta in ogni caso un **file di testo normale, accessibile e modificabile** dopo l'installazione (l'app lo rilegge a ogni richiesta via `config/get_db_connection.php`). Il wizard lo scrive, non lo "nasconde".
+
+Serve anche una modalità non interattiva (`--answers file.json` o parametri) per reinstallazioni ripetibili.
 
 #### Domanda 1 — Architettura: cassa indipendente o server centralizzato?
 
@@ -198,9 +211,16 @@ Prima di installare, lo script pone alcune domande in **linguaggio semplice**, c
 > - 🟢 Adatto a: sagra media/grande, più punti vendita, si vuole la vista unica delle vendite.
 
 Effetto sullo script:
-- [ ] *Indipendente*: installa FrankenPHP **+ MariaDB locale** su ogni macchina; `DB_POS_HOST=127.0.0.1`; `Caddyfile` su `localhost`.
-- [ ] *Centralizzato — server*: installa FrankenPHP **+ MariaDB**; `Caddyfile` con hostname di rete; apre la porta 443 sul firewall; MariaDB in ascolto solo sulla LAN.
-- [ ] *Centralizzato — cassa*: **non installa nulla lato app**; salva l'URL del server e (se serve) installa solo QZ Tray; opzionale scorciatoia/kiosk del browser verso `https://<server>.local`.
+
+| Scenario | `config/variabili.env` | Provisioning DB | App + FrankenPHP |
+|---|---|---|---|
+| **Indipendente** (ogni PC a sé) | `DB_POS_HOST=127.0.0.1` + utente/password (default o generati) | eseguito **in locale** su ogni macchina | copia file + FrankenPHP + MariaDB locale; `Caddyfile` su `localhost` |
+| **Centralizzato — server** | `DB_POS_HOST=127.0.0.1` (il server parla col suo DB in locale) | eseguito **una volta sul server**; utente app anche per host `%`/subnet LAN; `bind-address` MariaDB sulla LAN | copia file + FrankenPHP + MariaDB; `Caddyfile` con hostname di rete; porta 443 sul firewall |
+| **Centralizzato — cassa** | *(opzionale)* solo se quella postazione esegue anche codice PHP proprio; altrimenti **nessun `.env`**: la cassa è solo un browser verso `https://<server>` | nessuno | nessuna copia app; salva l'URL del server; QZ solo se serve; opzionale kiosk del browser |
+
+- [ ] Se *indipendente*: il wizard chiede solo conferma; scrive `DB_POS_HOST=127.0.0.1`.
+- [ ] Se *centralizzato*: sul **server** scrive `127.0.0.1`; sulle **casse** (se hanno una loro app) chiede **l'IP del server** e lo scrive in `DB_POS_HOST=<ip>`. L'utente può correggerlo a mano nel file in qualsiasi momento.
+- [ ] Password DB: per `127.0.0.1` va bene un default noto; per accesso via LAN il wizard **genera una password casuale** e la scrive sia nell'`.env` sia nel provisioning.
 
 > ⚠️ Combinazione delicata: **centralizzato + stampanti USB sui tablet**. La pagina è servita in HTTPS da un altro host, quindi il browser blocca `ws://` verso un QZ non-loopback. Vedi **Appendice C** — da testare prima di prometterla.
 
@@ -240,7 +260,7 @@ Effetto sullo script:
   - Windows: MSI silent (`msiexec /i ... /qn` con `SERVICENAME`, `PASSWORD`).
   - macOS: `brew install mariadb` + `brew services start mariadb`.
   - Linux: pacchetto distro + `systemctl enable --now mariadb`.
-- [ ] **Composer** + `composer install --no-dev --optimize-autoloader`.
+- [ ] **Composer**: non serve sul target se `vendor/` è nel pacchetto di release (default). Serve solo per rigenerare le dipendenze in fase di build del pacchetto: `composer install --no-dev --optimize-autoloader`.
 
 ### 3d. Estensioni PHP
 
@@ -248,18 +268,28 @@ Effetto sullo script:
 - [ ] **Gate**: `frankenphp php-cli -m` deve contenere tutte le required, altrimenti abort con messaggio chiaro.
 - [ ] **Caveat binario statico Linux/Mac**: se `gd`/`intl`/`curl` non sono nel bundle statico, usare l'immagine Docker FrankenPHP **solo sul server** o un build custom. Documentare nel README dello script.
 
-### 3e. Database
+### 3e. Database — riusa lo script esistente
 
-- [ ] Creare DB `opensagra_pos` + utente applicativo con password da parametro/env.
-- [ ] Importare `config/pos.sql`.
-- [ ] Eseguire le migrazioni di `config/migrations/` (Fase 0).
-- [ ] *Solo modalità centralizzata*: `bind-address` MariaDB sulla LAN, utente app con host `%` o subnet, porta 3306 aperta solo verso la LAN.
+**Script già presente:** `config/crea_dbtable_and_user.php`. Oggi fa già:
+- legge `config/variabili.env` (via `get_db_connection.php`);
+- si connette come `root` e crea il database `opensagra_pos` se manca;
+- importa `config/pos.sql` **solo se non ci sono già tabelle** (idempotente);
+- crea l'utente app per gli host `localhost`, `127.0.0.1` e `%` con `GRANT ALL` sul db + `FLUSH PRIVILEGES`.
+
+**Adattamenti per il wizard/installer:**
+- [ ] Renderlo eseguibile anche da **CLI** (`php config/crea_dbtable_and_user.php`), non solo via browser (oggi stampa HTML `<br>`): output pulito + `exit code` ≠ 0 su errore.
+- [ ] Parametrizzare la connessione root: oggi è hardcoded `new mysqli($db_host, 'root', '')` (stile XAMPP). Accettare **password di root** e host da parametro/env per i server reali.
+- [ ] **Indipendente**: eseguirlo in locale su ogni macchina (root su `127.0.0.1`). L'utente `%` che già crea è innocuo in locale.
+- [ ] **Centralizzato**: eseguirlo **solo sul server**; le casse non lo lanciano. Verificare che l'utente `%` (già creato) sia adeguato o restringerlo alla subnet LAN.
+- [ ] Dopo l'import schema, eseguire le migrazioni di `config/migrations/` (Fase 0: `stock.updated_at`, indice, ecc.).
+- [ ] *Solo centralizzato*: `bind-address` MariaDB sulla LAN, porta 3306 aperta solo verso la LAN.
+- [ ] Allineare l'incoerenza minore: `variabili.env` ha `DB_POS_SID`/`DB_POS_HOST` mentre il nome DB è hardcoded `opensagra_pos` in `get_db_connection.php` — decidere se il nome DB diventa anch'esso una variabile.
 
 ### 3f. File e config
 
-- [ ] Copiare i file app nel path target dell'OS (`C:\opensagra`, `/opt/opensagra`, `/usr/local/opensagra`...).
+- [ ] Copiare i file di opensagra nel path target dell'OS (`C:\opensagra`, `/opt/opensagra`, `/usr/local/opensagra`...), `vendor/` incluso.
 - [ ] Generare `Caddyfile` (root = path target; `localhost` o hostname di rete secondo la Domanda 1; `tls internal` o dominio secondo la Domanda 3).
-- [ ] Generare `config/variabili.env` (host, utente, password DB).
+- [ ] Generare `config/variabili.env` dalle risposte del wizard (`DB_POS_HOST`, `DB_POS_USER`, `DB_POS_PASS`), partendo da `config/variabili.env.example`. **Lasciarlo come file di testo leggibile/modificabile.**
 - [ ] Permessi cartella `uploads/` scrivibile dal processo FrankenPHP.
 
 ### 3g. Servizi
@@ -287,7 +317,8 @@ Effetto sullo script:
 ### 3j. Pulizia
 
 - [ ] Rimuovere la cartella `docker/` dal repo (strada abbandonata) e ogni riferimento.
-- [ ] Aggiornare il README con: prerequisiti, comando unico di install, come aggiornare (`git pull` + `composer install` + migrazioni + `frankenphp reload`).
+- [ ] **Open source**: `config/variabili.env` è oggi **tracciato** con credenziali (`pos_own`/`pos_own1`). Aggiungere `config/variabili.env` al `.gitignore` (oggi ignora solo `.env`), `git rm --cached config/variabili.env`, tracciare solo `variabili.env.example`. Idem `docker/.env`.
+- [ ] Aggiornare il README con: prerequisiti, comando unico di install, come aggiornare (`git pull` + migrazioni + `frankenphp reload`; `composer install` solo se non si usa il pacchetto con `vendor/`).
 
 **Accettazione:** su una VM/macchina pulita, un comando porta a: DB popolato, app raggiungibile in HTTPS, servizi attivi al boot, smoke test 2d verde.
 
@@ -452,7 +483,8 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 - [ ] Fase 0 → commit `db: migrazione DDL fuori da get_products + stock.updated_at`
 - [ ] Fase 1 → commit `billing: polling condizionale con endpoint versione, backoff, pausa tab`
 - [ ] Fase 2 → commit `infra: Caddyfile + note estensioni/servizio FrankenPHP (dev)`
-- [ ] Fase 3 → commit `infra: script installazione per-OS + wizard`
+- [ ] Fase 3 → commit `infra: script installazione per-OS (copia file) + wizard env/DB`
+- [ ] Fase 3 → commit separato `chore: variabili.env fuori da git, solo .example tracciato`
 - [ ] Fase 4 → commit `realtime: hub Mercure + EventSource con fallback polling`
 - [ ] Il documento di piano stesso e i suoi aggiornamenti vanno committati man mano.
 
@@ -463,7 +495,7 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 - [ ] **Fase 0** — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato.
 - [ ] **Fase 1** — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum.
 - [ ] **Fase 2** — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile`, `composer install`, smoke test 2d, servizio WinSW.
-- [ ] **Fase 3** — script d'installazione per-OS con **wizard** (architettura indipendente/centralizzata, QZ sì/no, HTTPS CA locale/dominio): FrankenPHP + MariaDB + Composer, estensioni + gate, DB + migrazioni, file + config, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, README.
+- [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
 - [ ] **Git** *(Appendice D)* — un commit per fase; il piano si committa man mano.
