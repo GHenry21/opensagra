@@ -425,6 +425,9 @@
     <script src="../assets/js/qz-helper.js"></script>
     <script>
         const DEFAULT_DISCOUNT_PRESETS = [5, 10, 15];
+        // Intervallo del polling condizionale prodotti a riposo (Fase 1 del piano di
+        // migrazione): sale a backoff (5s/10s/20s/40s, cap 60s) solo sugli errori.
+        const PRODUCTS_POLL_NORMAL_MS = 6000;
         let qzScriptLoadPromise = null;
         let qzConnectionTarget = null;
         let qzLoadedFromHost = null;
@@ -647,6 +650,15 @@
                     _productPickerMql: null,
                     _productPickerMqlHandler: null,
                     _productPickerResizeFallbackHandler: null,
+                    // Polling condizionale prodotti (Fase 1 del piano di migrazione):
+                    // vedi pollProductsVersion/scheduleProductsPoll/initProductsPolling.
+                    _productsPollTimer: null,
+                    _productsVisibilityHandler: null,
+                    _pollInFlight: false,
+                    _lastProductsVersion: null,
+                    _lastProductsCount: null,
+                    _productsPollBackoffMs: null,
+                    _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
                     isMobileView: typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -1292,6 +1304,22 @@
                 showToast(message, type = 'info', duration = 3000) {
                     return window.showToast(message, type, { duration });
                 },
+                // Sostituisce this.products con l'array aggiornato mantenendo, per i prodotti
+                // gia' presenti, lo stesso oggetto (Object.assign in place invece di ricrearlo):
+                // evita di ricreare inutilmente tutti gli item ad ogni poll quando la maggior
+                // parte dei prodotti non e' cambiata (Fase 1 del piano di migrazione).
+                mergeProducts(newProducts) {
+                    const existingById = new Map(this.products.map((product) => [product.id, product]));
+                    const merged = newProducts.map((incoming) => {
+                        const existing = existingById.get(incoming.id);
+                        if (existing) {
+                            Object.assign(existing, incoming);
+                            return existing;
+                        }
+                        return incoming;
+                    });
+                    this.products.splice(0, this.products.length, ...merged);
+                },
                 async loadProducts() {
                     const endpoints = ['../api/get_products.php'];
                     const parseProducts = (response) => {
@@ -1310,34 +1338,110 @@
                         return [];
                     };
 
-                    const loadFromEndpoint = (index) => {
+                    const tryEndpoint = (index) => {
                         if (index >= endpoints.length) {
-                            return;
+                            return Promise.reject(new Error('Nessun endpoint prodotti disponibile.'));
                         }
-
-                        $.ajax({
+                        return $.ajax({
                             url: endpoints[index],
                             method: 'GET',
                             dataType: 'json'
-                        }).done((data) => {
-                            const newProducts = parseProducts(data);
-                            this.products = newProducts;
-                            this.allProductCategories = Array.from(new Set(this.products.map((product) => String(product.category || 'Senza categoria')).filter(Boolean)));
-                            const savedPreference = this.loadCategoryPreference();
-                            this.categoryFilterMode = ['all', 'cucina', 'bar', 'custom'].includes(savedPreference.mode) ? savedPreference.mode : 'all';
-                            this.selectedCustomCategories = Array.isArray(savedPreference.categories)
-                                ? savedPreference.categories.filter((category) => this.allProductCategories.includes(category))
-                                : [];
-                            if (this.categoryFilterMode === 'custom' && this.selectedCustomCategories.length === 0 && this.allProductCategories.length > 0) {
-                                this.selectedCustomCategories = [this.allProductCategories[0]];
-                            }
-                            this.saveCategoryPreference();
-                        }).fail(() => {
-                            loadFromEndpoint(index + 1);
-                        });
+                        }).then(parseProducts).catch(() => tryEndpoint(index + 1));
                     };
 
-                    loadFromEndpoint(0);
+                    const newProducts = await tryEndpoint(0);
+                    this.mergeProducts(newProducts);
+
+                    // L'elenco delle categorie disponibili si ricalcola ad ogni caricamento
+                    // (un nuovo prodotto puo' introdurre una categoria nuova), ma l'applicazione
+                    // della preferenza salvata (categoryFilterMode/selectedCustomCategories) e il
+                    // suo ri-salvataggio avvengono una sola volta: altrimenti ogni poll silenzioso
+                    // riscriverebbe sopra un cambio di filtro appena fatto dall'utente.
+                    this.allProductCategories = Array.from(new Set(this.products.map((product) => String(product.category || 'Senza categoria')).filter(Boolean)));
+                    if (!this._categoriesInitialized) {
+                        const savedPreference = this.loadCategoryPreference();
+                        this.categoryFilterMode = ['all', 'cucina', 'bar', 'custom'].includes(savedPreference.mode) ? savedPreference.mode : 'all';
+                        this.selectedCustomCategories = Array.isArray(savedPreference.categories)
+                            ? savedPreference.categories.filter((category) => this.allProductCategories.includes(category))
+                            : [];
+                        if (this.categoryFilterMode === 'custom' && this.selectedCustomCategories.length === 0 && this.allProductCategories.length > 0) {
+                            this.selectedCustomCategories = [this.allProductCategories[0]];
+                        }
+                        this.saveCategoryPreference();
+                        this._categoriesInitialized = true;
+                    }
+                },
+                // Interroga solo api/products_version.php (poche decine di byte) e scarica la
+                // lista completa via loadProducts() unicamente se qualcosa e' davvero cambiato.
+                // Si auto-pianifica da sola (setTimeout ricorsivo, non setInterval): cosi' non
+                // parte mai un nuovo giro finche' il precedente non e' finito, niente richieste
+                // accodate se la rete e' lenta.
+                async pollProductsVersion() {
+                    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+                        // Niente richieste a tab nascosto: il listener visibilitychange in
+                        // mounted() rilancia un poll immediato al ritorno in primo piano.
+                        return;
+                    }
+                    if (this._pollInFlight) {
+                        return;
+                    }
+                    this._pollInFlight = true;
+                    try {
+                        const response = await $.ajax({
+                            url: '../api/products_version.php',
+                            method: 'GET',
+                            dataType: 'json',
+                            cache: false
+                        });
+                        const version = Number(response && response.version);
+                        const count = Number(response && response.count);
+                        const changed = this._lastProductsVersion === null
+                            || version !== this._lastProductsVersion
+                            || count !== this._lastProductsCount;
+
+                        if (changed) {
+                            await this.loadProducts();
+                        }
+                        this._lastProductsVersion = version;
+                        this._lastProductsCount = count;
+                        this._productsPollBackoffMs = null;
+                        this.scheduleProductsPoll(PRODUCTS_POLL_NORMAL_MS);
+                    } catch (err) {
+                        console.warn('Poll prodotti fallito, riprovo con backoff:', err);
+                        this._productsPollBackoffMs = this._productsPollBackoffMs
+                            ? Math.min(this._productsPollBackoffMs * 2, 60000)
+                            : 5000;
+                        this.scheduleProductsPoll(this._productsPollBackoffMs);
+                    } finally {
+                        this._pollInFlight = false;
+                    }
+                },
+                scheduleProductsPoll(delayMs) {
+                    if (this._productsPollTimer) {
+                        clearTimeout(this._productsPollTimer);
+                    }
+                    this._productsPollTimer = setTimeout(() => {
+                        this.pollProductsVersion();
+                    }, delayMs);
+                },
+                // Stabilisce la versione "di partenza" senza dover ripetere subito un
+                // loadProducts() (gia' fatto una volta in mounted()), poi avvia il loop.
+                async initProductsPolling() {
+                    try {
+                        const response = await $.ajax({
+                            url: '../api/products_version.php',
+                            method: 'GET',
+                            dataType: 'json',
+                            cache: false
+                        });
+                        this._lastProductsVersion = Number(response && response.version);
+                        this._lastProductsCount = Number(response && response.count);
+                    } catch (err) {
+                        // Se fallisce anche questo, restano null: il primo poll vero rifara'
+                        // comunque un loadProducts() (vedi "o al primo giro" in pollProductsVersion).
+                        console.warn('Impossibile leggere la versione iniziale prodotti:', err);
+                    }
+                    this.scheduleProductsPoll(PRODUCTS_POLL_NORMAL_MS);
                 },
                 async loadPaymentMethods() {
                     const cassaId = this.currentCassaId || localStorage.getItem('cassa_id') || 'ND';
@@ -1689,9 +1793,19 @@
                 window.addEventListener('scroll', this._popoverRepositionHandler, true);
                 this.loadProducts();
                 this.loadPaymentMethods();
-                this._productPollInterval = setInterval(() => {
-                    this.loadProducts();
-                }, 3000);
+                this._productsVisibilityHandler = () => {
+                    if (document.visibilityState === 'visible') {
+                        // Rientro in primo piano: annulla il timer eventualmente in attesa e
+                        // ricontrolla subito, invece di aspettare fino al prossimo giro schedulato.
+                        if (this._productsPollTimer) {
+                            clearTimeout(this._productsPollTimer);
+                            this._productsPollTimer = null;
+                        }
+                        this.pollProductsVersion();
+                    }
+                };
+                document.addEventListener('visibilitychange', this._productsVisibilityHandler);
+                this.initProductsPolling();
                 // matchMedia reacts immediately to viewport/orientation changes, unlike resize + getComputedStyle
                 // which can race with layout. Must stay in sync with the CSS breakpoint that switches
                 // .billing-shell to a single column (see billing.css): a plain width check would misfire on
@@ -1729,8 +1843,11 @@
                         this._productPickerMql.removeListener(this._productPickerMqlHandler);
                     }
                 }
-                if (this._productPollInterval) {
-                    clearInterval(this._productPollInterval);
+                if (this._productsPollTimer) {
+                    clearTimeout(this._productsPollTimer);
+                }
+                if (this._productsVisibilityHandler) {
+                    document.removeEventListener('visibilitychange', this._productsVisibilityHandler);
                 }
                 if (this._documentClickHandler) {
                     document.removeEventListener('click', this._documentClickHandler);

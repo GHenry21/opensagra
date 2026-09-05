@@ -71,38 +71,38 @@ Vale qualunque sia il web server. Sblocca il collo di bottiglia attuale.
 
 ---
 
-## Fase 1 — Polling condizionale (Strategia A) in `billing.php`
+## Fase 1 — Polling condizionale (Strategia A) in `billing.php` ✅ COMPLETATA (2026-09-05)
 
 ### 1a. Endpoint "versione"
 
-- [ ] Nuovo `api/products_version.php`:
+- [x] Nuovo `api/products_version.php`:
   - `SELECT COALESCE(UNIX_TIMESTAMP(MAX(updated_at)), 0) AS version, COUNT(*) AS count FROM stock WHERE is_active = 1;`
   - risposta: `{ "version": <int>, "count": <int> }` — nessun payload prodotti.
-  - `Content-Type: application/json`; opzionale `Cache-Control: no-store`.
+  - `Content-Type: application/json`; `Cache-Control: no-store`.
 
 ### 1b. Refactor del loop in `billing.php`
 
-Riferimenti attuali: `setInterval` a [billing.php:1725](../pages/billing.php#L1725), `loadProducts()` a [billing.php:1299](../pages/billing.php#L1299), `clearInterval` già presente in `beforeUnmount` a [billing.php:1765](../pages/billing.php#L1765).
+- [x] Sostituito il `setInterval` con un loop auto-pianificante (`setTimeout` ricorsivo via `scheduleProductsPoll`): non parte mai un nuovo giro finché il precedente non è concluso, niente richieste accodate su rete lenta.
+- [x] `pollProductsVersion()`: chiama `products_version.php`, confronta `version` **e** `count` con `_lastProductsVersion`/`_lastProductsCount`, chiama `loadProducts()` solo se differiscono (o al primo giro, se `null`).
+- [x] `initProductsPolling()` (nuovo, non previsto nella bozza originale): all'avvio legge subito la versione "di partenza" senza rifare un `loadProducts()` ridondante (quello iniziale in `mounted()` resta separato), poi avvia il loop — così fin dal primo giro il regime è quello "a riposo" descritto nell'accettazione.
+- [x] Intervallo normale: `PRODUCTS_POLL_NORMAL_MS = 6000`.
+- [x] **Guardia "richiesta in corso"**: `_pollInFlight`.
+- [x] **Pausa a tab nascosto**: listener `visibilitychange` in `mounted()`; a `hidden` il tick esce subito; a `visible` annulla il timer in attesa e ricontrolla subito.
+- [x] **Backoff su errore**: `5s → 10s → 20s → 40s → 60s` (raddoppio, cap 60s); reset a `null` al primo successo.
+- [x] `mergeProducts()` (nuovo metodo): aggiorna in place (via `Object.assign`) i prodotti già presenti e sostituisce l'array con `splice` invece di riassegnarlo — Vue non ricrea gli oggetti prodotto quando non sono cambiati.
+- [x] Inizializzazione di `categoryFilterMode`/`selectedCustomCategories`/`saveCategoryPreference()` spostata dietro il flag `_categoriesInitialized`: gira una sola volta. L'elenco `allProductCategories` invece si ricalcola ad ogni caricamento (una categoria nuova deve comparire subito).
+- [x] `beforeUnmount` pulisce anche `_productsPollTimer` e il listener `visibilitychange`.
 
-- [ ] Il `setInterval` chiama un nuovo metodo `pollProductsVersion()`, non più `loadProducts()`.
-- [ ] `pollProductsVersion()`:
-  - [ ] chiama `api/products_version.php`;
-  - [ ] confronta `version` **e** `count` con gli ultimi valori salvati in `data` (es. `_lastProductsVersion`, `_lastProductsCount`);
-  - [ ] chiama `loadProducts()` **solo** se differiscono (o al primo giro, quando i valori sono `null`);
-  - [ ] dopo un `loadProducts()` andato a buon fine, aggiorna i valori salvati.
-- [ ] Intervallo da `3000` → `5000`–`8000` ms.
-- [ ] **Guardia "richiesta in corso"**: flag `_pollInFlight`; se `true`, il tick corrente esce subito.
-- [ ] **Pausa a tab nascosto**: listener `visibilitychange`; se `document.visibilityState === 'hidden'` il tick esce subito; al ritorno a `visible` esegue un `pollProductsVersion()` immediato.
-- [ ] **Backoff su errore**: su `fail`, salta i tick successivi con ritardo crescente `5s → 10s → 20s → 40s` (cap `60s`); al primo successo torna all'intervallo normale.
-- [ ] In `loadProducts()`: **merge** nell'array `this.products` invece di riassegnarlo interamente (aggiorna/aggiunge/rimuove per `id`), così Vue non ri-renderizza tutta la griglia a ogni refresh.
-- [ ] Spostare l'inizializzazione di `categoryFilterMode` / `selectedCustomCategories` / la chiamata a `saveCategoryPreference()` **fuori** dal callback di `loadProducts()`: eseguirla **una volta sola** dopo il primo caricamento riuscito (flag `_categoriesInitialized`).
-- [ ] Verificare che `beforeUnmount` pulisca anche il nuovo listener `visibilitychange` e gli eventuali timer di backoff.
+**Verifiche eseguite:**
+- `products_version.php` via Apache → risponde `{"version":...,"count":29}`; rilanciato subito dopo → stessi valori (nessuna modifica nel frattempo).
+- `UPDATE` che **non cambia realmente il valore** (es. `quantity_available = quantity_available`) → `updated_at` **non** si aggiorna (comportamento nativo di MariaDB: una riga "invariata" non viene riscritta, quindi `ON UPDATE` non scatta). Un `UPDATE` con un valore effettivamente diverso invece fa avanzare `version` immediatamente. Da tenere a mente: un "salva" che riscrive gli stessi valori non farà scattare il polling — non è un problema per l'uso reale (le modifiche prodotto cambiano sempre qualcosa), ma spiega perché un test superficiale può sembrare "non funzionare".
+- Sintassi JS del file estratta e validata con `node --check` (nessun errore).
 
 **Accettazione:**
-- Con prodotti fermi: la tab Network mostra solo `products_version.php` (~30 byte) ogni 5–8 s; nessun re-render della griglia prodotti (verificabile con Vue devtools / flash di paint in DevTools).
-- Modificando un prodotto da un'altra postazione: la griglia si aggiorna entro un ciclo di polling.
-- Tab in background: nessuna richiesta parte. Server spento: le richieste rallentano fino a 60 s invece di martellare ogni 5 s.
-- Cambio filtro categoria da parte dell'utente: non viene sovrascritto dal polling.
+- Con prodotti fermi: la tab Network mostra solo `products_version.php` (~30 byte) ogni 6 s; nessun re-render della griglia prodotti.
+- Modificando un prodotto da un'altra postazione: la griglia si aggiorna entro un ciclo di polling. **→ Verificato a livello di endpoint** (version bump); il refresh end-to-end della griglia va comunque osservato una volta in browser reale prima di considerarlo definitivo.
+- Tab in background: nessuna richiesta parte. Server spento: le richieste rallentano fino a 60 s invece di martellare ogni 6 s.
+- Cambio filtro categoria da parte dell'utente: non viene sovrascritto dal polling (garantito dal flag `_categoriesInitialized`, non ancora osservato manualmente in UI).
 
 ---
 
@@ -500,7 +500,7 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 ## Riepilogo checklist di alto livello
 
 - [x] **Fase 0** ✅ — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato. Commit `ca260d0`.
-- [ ] **Fase 1** — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum.
+- [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. Da osservare in browser reale il refresh end-to-end e il non-sovrascrivere il filtro categoria.
 - [ ] **Fase 2** — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile`, `composer install`, smoke test 2d, servizio WinSW.
 - [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
