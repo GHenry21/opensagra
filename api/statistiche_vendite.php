@@ -3,6 +3,11 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/get_db_connection.php';
 
+// Stessa auto-migrazione idempotente usata in api/stampanti.php e api/chiudi_cassa.php:
+// qui serve perché la query per cassa fa JOIN su casse_stampanti.fondo_cassa/ultima_chiusura.
+$connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS fondo_cassa DECIMAL(10,2) NOT NULL DEFAULT 0");
+$connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS ultima_chiusura DATETIME NULL DEFAULT NULL");
+
 // Ricezione parametri POST
 $from = $_POST['from'] ?? '';
 $to = $_POST['to'] ?? '';
@@ -141,20 +146,31 @@ try {
     // dal filtro cassa attivo, così selezionare una cassa nella sidebar non fa sparire
     // le altre dall'elenco)
     $queryCasse = "
-        SELECT COALESCE(NULLIF(TRIM(cassa_id), ''), 'N/D') AS cassa, SUM(totale) AS totale, COUNT(*) AS ordini
-        FROM vendite
-        WHERE data_ora BETWEEN ? AND ?
-          AND stornato = 0
-          AND (? = '' OR UPPER(cassa_id) = UPPER(?))
-        GROUP BY COALESCE(NULLIF(TRIM(cassa_id), ''), 'N/D')
+        SELECT COALESCE(NULLIF(TRIM(v.cassa_id), ''), 'N/D') AS cassa,
+               SUM(v.totale) AS totale,
+               SUM(CASE WHEN v.metodo_pagamento = 'contanti' THEN v.totale ELSE 0 END) AS contanti,
+               COUNT(*) AS ordini,
+               MAX(cs.fondo_cassa) AS fondo_cassa,
+               MAX(cs.ultima_chiusura) AS ultima_chiusura
+        FROM vendite v
+        LEFT JOIN casse_stampanti cs ON cs.cassa_id = v.cassa_id
+        WHERE v.data_ora BETWEEN ? AND ?
+          AND v.stornato = 0
+          AND (? = '' OR UPPER(v.cassa_id) = UPPER(?))
+        GROUP BY COALESCE(NULLIF(TRIM(v.cassa_id), ''), 'N/D')
         ORDER BY totale DESC";
 
     $casseRows = runFilteredQuery($connectionDB, $queryCasse, $from, $to, '');
     $casse = array_map(function ($row) {
+        $fondoCassa = (float)($row['fondo_cassa'] ?? 0);
+        $contanti = (float)$row['contanti'];
         return [
             'cassa' => $row['cassa'],
             'totale' => (float)$row['totale'],
-            'ordini' => (int)$row['ordini']
+            'ordini' => (int)$row['ordini'],
+            'fondo_cassa' => $fondoCassa,
+            'ultima_chiusura' => $row['ultima_chiusura'],
+            'totale_atteso' => $fondoCassa + $contanti
         ];
     }, $casseRows);
 

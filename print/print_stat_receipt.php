@@ -1,4 +1,5 @@
 <?php
+header('Content-Type: application/json; charset=utf-8');
 date_default_timezone_set('Europe/Rome');
 require __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../config/get_printer.php';
@@ -6,7 +7,7 @@ require_once __DIR__ . '/../config/get_printer.php';
 use Mike42\Escpos\Printer;
 use Mike42\Escpos\PrintConnectors\FilePrintConnector;
 
-function printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr) {
+function printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura = null, $fondoCassa = null, $totaleAtteso = null) {
     $printer->setJustification(Printer::JUSTIFY_CENTER);
     $printer->text("La gent di Cavalè e Fumè\n\n");
     $printer->setEmphasis(true);
@@ -17,6 +18,12 @@ function printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale
     $printer->text(sprintf("Dalla data/ora: %s\n", $from));
     $printer->text(sprintf("Alla data/ora: %s\n", $to));
     $printer->text(sprintf("Cassa: %s\n", $cassa));
+    if (!empty($ultimaChiusura)) {
+        $printer->text(sprintf("Chiusura cassa %s ore: %s\n", $cassa, $ultimaChiusura));
+    }
+    if ($fondoCassa !== null && $totaleAtteso !== null) {
+        $printer->text(str_replace('.', ',', sprintf("Fondo cassa: EUR %.2f - Totale atteso: EUR %.2f\n", $fondoCassa, $totaleAtteso)));
+    }
     $printer->setEmphasis(false);
     $printer->text(sprintf("\nData/ora estrazione: %s\n", $dataOraEstr));
     $printer->setJustification(Printer::JUSTIFY_CENTER);
@@ -40,7 +47,7 @@ function printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale
     $printer->cut();
 }
 
-function buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr) {
+function buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura = null, $fondoCassa = null, $totaleAtteso = null) {
     $tmpFile = tempnam(sys_get_temp_dir(), 'escpos_');
     if ($tmpFile === false) {
         throw new Exception('Impossibile creare il file temporaneo per le statistiche.');
@@ -48,7 +55,7 @@ function buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $scont
 
     $connector = new FilePrintConnector($tmpFile);
     $printer = new Printer($connector);
-    printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr);
+    printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
     $printer->close();
 
     $raw = file_get_contents($tmpFile);
@@ -164,6 +171,9 @@ $totale = $data['totale'] ?? 0;
 $sconti = $data['sconti'] ?? 0;
 $dataOraEstr = $data['dataEstr'] ?? '';
 $cassa_id = $data['cassaId'] ?? ''; // cassa per stampante
+$ultimaChiusura = $data['ultimaChiusura'] ?? null;
+$fondoCassa = isset($data['fondoCassa']) ? (float)$data['fondoCassa'] : null;
+$totaleAtteso = isset($data['totaleAtteso']) ? (float)$data['totaleAtteso'] : null;
 
 if ($cassa == null || $cassa == '') {
     $cassa = '(tutte)';
@@ -183,7 +193,7 @@ try {
             throw new Exception('Configurazione bridge non valida: host QZ mancante.');
         }
 
-        $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr);
+        $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
 
         echo json_encode([
             'success' => true,
@@ -197,7 +207,7 @@ try {
     }
 
     $printer = getPrinter($connectionDB, $cassa_id);
-    printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr);
+    printStatReceiptContent($printer, $from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
     $printer->close();
 
     echo json_encode(['success' => true, 'method' => 'direct']);

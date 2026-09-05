@@ -34,7 +34,10 @@ if (!function_exists('pos_icon')) {
             '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2"></path><path d="M8 7h8"></path><path d="M8 11h8"></path><path d="M8 15h5"></path>',
         'printer' =>
             '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"></path><rect x="6" y="14" width="12" height="8" rx="1"></rect>',
-
+        'open-drawer' =>
+            '<path d="M4 10h12"/><path d="M4 14h9"/><path d="M19 6a7.7 7.7 0 0 0-5.2-2A7.9 7.9 0 0 0 6 12c0 4.4 3.5 8 7.8 8 2 0 3.8-.8 5.2-2"/>',
+        'coins' =>
+            '<path d="M13.744 17.736a6 6 0 1 1-7.48-7.48"/><path d="M15 6h1v4"/><path d="m6.134 14.768.866-.5 2 3.464"/><circle cx="16" cy="8" r="6"/>',
         // === strumenti sidebar ==========================================
         'database-table' =>
             '<ellipse cx="12" cy="7" rx="9" ry="3"></ellipse><path d="M3 7v10c0 1.66 4 3 9 3s9-1.34 9-3V7"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path><rect x="7" y="10" width="10" height="10" rx="1" fill="white" stroke-width="0"></rect><path d="M10 17v-3"></path><path d="M14 17v-6"></path><path d="M7 10h10v10H7z" fill="none" stroke="currentColor" stroke-width="2"></path>',
@@ -52,7 +55,8 @@ if (!function_exists('pos_icon')) {
             '<path d="M12 3a7 7 0 1 0 9 9 9 9 0 1 1-9-9z"></path>',
         'sun' =>
             '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>',
-
+        'logout' =>
+            '',
         // === azioni generiche ==========================================
         'x' =>
             '<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>',
@@ -105,7 +109,7 @@ if (!function_exists('pos_icon')) {
         ],
         'receipt-lines' =>
             '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"></path><path d="M16 8h-6"></path><path d="M16 12h-6"></path><path d="M13 16H10"></path>',
-
+            
         // === statistiche ===============================================
         'trending-up' =>
             '<path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path>',

@@ -659,7 +659,7 @@ body.sidebar-page {
   border-radius: var(--ui-radius-sm);
   border: 1px solid var(--mc-border);
   background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
-  color: #fff;
+  color: var(--mc-text);
   font-weight: 700;
   cursor: pointer;
   transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
@@ -671,7 +671,7 @@ body.sidebar-page {
   border-radius: var(--ui-radius-sm);
   border: 1px solid var(--mc-border);
   background: color-mix(in srgb, var(--mc-danger) 90%, #000 10%);
-  color: #fff;
+  color: var(--mc-text);
   font-weight: 700;
   cursor: pointer;
 }
@@ -685,13 +685,13 @@ body.sidebar-page {
 .management-page button#btnReload:not(.pos-icon-btn) {
   background: #34495e;
   border-color: #34495e;
-  color: #ffffff;
+  color: var(--mc-text);
 }
 
 .management-page button#btnReload:not(.pos-icon-btn):hover {
   background: #2c3e50;
   border-color: #34495e;
-  color: #ffffff;
+  color: var(--mc-text);
   filter: none;
 }
 
@@ -702,7 +702,7 @@ body.sidebar-page {
 
 .management-page button.btn-delete:not(.pos-icon-btn) {
   background: color-mix(in srgb, var(--mc-danger) 90%, #000 10%);
-  color: #fff;
+  color: var(--mc-text);
 }
 
 .management-page button.btn-delete:not(.pos-icon-btn):hover {
@@ -740,10 +740,6 @@ body.sidebar-page {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-}
-
-.management-page tr:nth-child(even) {
-  background: color-mix(in srgb, var(--mc-panel-muted) 55%, transparent);
 }
 
 .management-note {

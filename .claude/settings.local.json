@@ -24,7 +24,18 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:mysagra.com)",
-      "WebFetch(domain:docs.mysagra.com)"
+      "WebFetch(domain:docs.mysagra.com)",
+      "Bash(php -S 127.0.0.1:8899)",
+      "Bash(curl -s \"http://127.0.0.1:8899/api/get_ordini.php?cassa_id=henry&limit=5\")",
+      "Bash(curl -s \"http://127.0.0.1:8899/api/get_ordini.php?cassa_id=henry&q=110\")",
+      "Bash(curl -s \"http://127.0.0.1:8899/api/get_ordini.php?cassa_id=henry&q=abc\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8899/api/get_ordini.php\")",
+      "Bash(pkill -f \"php -S 127.0.0.1:8899\")",
+      "Bash(php -l pages/billing.php)",
+      "Read(//c/Users/enrig/AppData/Local/Temp/claude/c--xampp-htdocs-opensagra/71c732bf-6fc6-47ef-a041-53e981f8d9d7/scratchpad/qz-debug/**)",
+      "Bash(node sidebar-test.js)",
+      "Read(//c/Users/enrig/AppData/Local/Temp/claude/c--xampp-htdocs-opensagra/71c732bf-6fc6-47ef-a041-53e981f8d9d7/scratchpad/qz-debug/node_modules/**)",
+      "Bash(git mv *)"
     ]
   }
 }

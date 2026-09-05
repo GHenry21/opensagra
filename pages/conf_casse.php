@@ -5,11 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="../assets/css/pos-redesign.css">
-    <link rel="stylesheet" href="../assets/css/conf_stampanti.css">
+    <link rel="stylesheet" href="../assets/css/conf_casse.css">
     <!-- Importa tutte le favicon con una sola riga -->
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
     <?php require_once __DIR__ . '/../includes/icons.php'; ?>
-    <title>Configurazione Stampanti</title>
+    <title>Configurazione Casse</title>
     <script src="../assets/js/vue.global.js"></script>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
@@ -27,19 +27,19 @@
             <div id="container">
                 <div id="top" class="management-panel">
                     <div class="panel-title-row">
-                        <?= pos_icon('print', ['class' => 'panel-title-icon']) ?>
-                        <h2>Configurazione Stampanti</h2>
+                        <?= pos_icon('coins', ['class' => 'panel-title-icon']) ?>
+                        <h2>Configurazione Casse</h2>
                     </div>
                     <div id="message"></div>
                     <div class="printer-toolbar">
                         <div class="search-wrap">
                             <?= pos_icon('search') ?>
-                            <input type="text" id="searchPrinter" placeholder="Cerca stampanti..."
-                                aria-label="Cerca stampanti" v-model="searchQuery">
+                            <input type="text" id="searchPrinter" placeholder="Cerca casse..."
+                                aria-label="Cerca casse" v-model="searchQuery">
                         </div>
                         <button class="btn-add" id="btnAddRow" @click="openModal(null)">
                             <?= pos_icon('plus') ?>
-                            Nuova Stampante
+                            Nuova Cassa
                         </button>
                     </div>
 
@@ -81,7 +81,8 @@
                                         <tr v-if="filteredStampanti.length === 0">
                                             <td colspan="7" class="empty-state">Nessuna stampante trovata.</td>
                                         </tr>
-                                        <tr v-for="item in filteredStampanti" :key="item.record.cassa_id || item.index" class="printer-card-row">
+                                        <tr v-for="item in filteredStampanti" :key="item.record.cassa_id || item.index" class="printer-card-row"
+                                            :class="{ 'is-row-expanded': isRowExpanded(item.record.cassa_id) }">
                                             <td class="printer-col-actions" data-label="AZIONI">
                                                 <button type="button" class="row-test-btn" title="Test stampa"
                                                     aria-label="Test stampa" @click="testPrinterConfig(item.record)">
@@ -90,6 +91,13 @@
                                                 <button type="button" class="row-edit-btn" title="Modifica"
                                                     aria-label="Modifica stampante" @click="openModal(item.index)">
                                                     <?= pos_icon('pencil-line') ?>
+                                                </button>
+                                                <button type="button" class="row-toggle-btn"
+                                                    :class="{ 'is-open': isRowExpanded(item.record.cassa_id) }"
+                                                    :aria-expanded="isRowExpanded(item.record.cassa_id) ? 'true' : 'false'"
+                                                    aria-label="Espandi dettagli cassa"
+                                                    @click="toggleRowExpanded(item.record.cassa_id)">
+                                                    <?= pos_icon('chevron-down', ['class' => 'row-toggle-icon']) ?>
                                                 </button>
                                             </td>
                                             <td data-label="Cassa ID">{{ item.record.cassa_id || '-' }}</td>
@@ -101,23 +109,23 @@
                                                         <input type="checkbox" :checked="isPaymentEnabled(item.record, 'abilita_contanti')"
                                                             @click="preventCashDisable(item.record, $event)"
                                                             @change="updatePaymentMethod(item.record, 'abilita_contanti', $event.target.checked)">
-                                                        <span>Contanti</span>
+                                                        <span><?= pos_icon('cash', ['class' => 'payment-toggle-icon']) ?>Contanti</span>
                                                     </label>
                                                     <label class="payment-toggle" title="Abilita Carta">
                                                         <input type="checkbox" :checked="isPaymentEnabled(item.record, 'abilita_carta')"
                                                             @change="updatePaymentMethod(item.record, 'abilita_carta', $event.target.checked)">
-                                                        <span>Carta</span>
+                                                        <span><?= pos_icon('credit-card', ['class' => 'payment-toggle-icon']) ?>Carta</span>
                                                     </label>
                                                     <label class="payment-toggle" title="Abilita Satispay">
                                                         <input type="checkbox" :checked="isPaymentEnabled(item.record, 'abilita_satispay')"
                                                             @change="updatePaymentMethod(item.record, 'abilita_satispay', $event.target.checked)">
-                                                        <span>Satispay</span>
+                                                        <span><?= pos_icon('satispay', ['class' => 'payment-toggle-icon payment-toggle-icon--satispay']) ?>Satispay</span>
                                                     </label>
                                                 </div>
                                             </td>
                                             <td data-label="Nome/IP">{{ item.record.nome_indirizzo || '-' }}</td>
-                                            <td data-label="QZ Host">{{ item.record.qz_host || '-' }}</td>
-                                            <td class="printer-col-porta" data-label="Porta">{{ item.record.porta || '0' }}</td>
+                                            <td data-label="QZ Host" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE' }">{{ item.record.qz_host || '-' }}</td>
+                                            <td class="printer-col-porta" data-label="Porta" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'RETE' }">{{ item.record.porta || '0' }}</td>
 
                                         </tr>
                                     </tbody>
@@ -133,7 +141,7 @@
             :aria-hidden="modalOpen ? 'false' : 'true'" @click.self="closeModal">
             <div class="printer-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
                 <div class="printer-modal-head">
-                    <h3 id="modalTitle">{{ isCreatingRecord ? 'Nuova Stampante' : 'Modifica Stampante' }}</h3>
+                    <h3 id="modalTitle">{{ isCreatingRecord ? 'Nuova Cassa' : 'Modifica Cassa' }}</h3>
                     <button type="button" class="modal-close" id="modalClose" aria-label="Chiudi" @click="closeModal">
                         <?= pos_icon('x') ?>
                     </button>
@@ -235,23 +243,27 @@
                     </div>
                     <div class="modal-field payment-config-field">
                         <label>Metodi di pagamento abilitati</label>
-                        <div class="payment-toggles payment-toggles--modal">
+                        <div class="payment-toggles">
                             <label class="payment-toggle">
                                 <input type="checkbox" v-model="modalData.abilita_contanti"
                                     @click="preventModalCashDisable">
-                                <span>Contanti</span>
+                                <span><?= pos_icon('cash', ['class' => 'payment-toggle-icon']) ?>Contanti</span>
                             </label>
                             <label class="payment-toggle">
                                                         <input type="checkbox" v-model="modalData.abilita_carta"
                                                             @change="ensureModalCashFallback">
-                                <span>Carta</span>
+                                <span><?= pos_icon('credit-card', ['class' => 'payment-toggle-icon']) ?>Carta</span>
                             </label>
                             <label class="payment-toggle">
                                                         <input type="checkbox" v-model="modalData.abilita_satispay"
                                                             @change="ensureModalCashFallback">
-                                <span>Satispay</span>
+                                <span><?= pos_icon('satispay', ['class' => 'payment-toggle-icon payment-toggle-icon--satispay']) ?>Satispay</span>
                             </label>
                         </div>
+                    </div>
+                    <div class="modal-field">
+                        <label for="modalFondoCassa">Fondo cassa (€)</label>
+                        <input type="number" id="modalFondoCassa" min="0" step="0.01" v-model.number="modalData.fondo_cassa">
                     </div>
                 </div>
 
@@ -432,10 +444,11 @@
                     modalOpen: false,
                     isCreatingRecord: false,
                     currentEditIndex: null,
-                    modalData: { cassa_id: '', tipo_stampante: 'WIN_USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false },
+                    modalData: { cassa_id: '', tipo_stampante: 'WIN_USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
                     winSelectValue: '__manual__',
                     _windowsPrintersPromise: null,
-                    _linuxPrintersPromise: null
+                    _linuxPrintersPromise: null,
+                    expandedRows: {}
                 };
             },
             computed: {
@@ -513,6 +526,14 @@
                     return Number(record && record[key]) === 1;
                 },
 
+                isRowExpanded(cassaId) {
+                    return Boolean(this.expandedRows[cassaId]);
+                },
+
+                toggleRowExpanded(cassaId) {
+                    this.expandedRows[cassaId] = !this.isRowExpanded(cassaId);
+                },
+
                 ensureModalCashFallback() {
                     if (!this.modalData.abilita_carta && !this.modalData.abilita_satispay) {
                         this.modalData.abilita_contanti = true;
@@ -559,7 +580,8 @@
                                 qz_host: record.qz_host || '',
                                 abilita_contanti: nextRecord.abilita_contanti,
                                 abilita_carta: nextRecord.abilita_carta,
-                                abilita_satispay: nextRecord.abilita_satispay
+                                abilita_satispay: nextRecord.abilita_satispay,
+                                fondo_cassa: record.fondo_cassa
                             })
                         });
                         if (data.error) {
@@ -893,7 +915,7 @@
                     this.currentEditIndex = index;
 
                     this.modalData = this.isCreatingRecord
-                        ? { cassa_id: '', tipo_stampante: 'WIN_USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false }
+                        ? { cassa_id: '', tipo_stampante: 'WIN_USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
                         : {
                             ...this.stampantiData[index],
                             abilita_contanti: Number(this.stampantiData[index].abilita_contanti) === 1,
@@ -973,7 +995,8 @@
                                 qz_host: qzHost,
                                 abilita_contanti: this.modalData.abilita_contanti ? 1 : 0,
                                 abilita_carta: this.modalData.abilita_carta ? 1 : 0,
-                                abilita_satispay: this.modalData.abilita_satispay ? 1 : 0
+                                abilita_satispay: this.modalData.abilita_satispay ? 1 : 0,
+                                fondo_cassa: Number(this.modalData.fondo_cassa) || 0
                             })
                         });
 

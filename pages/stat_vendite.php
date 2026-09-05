@@ -15,6 +15,7 @@
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
     <script src="../assets/js/qz-tray.js"></script>
+    <script src="../assets/js/qz-helper.js"></script>
     <script src="../assets/js/chart.min.js"></script>
     <!-- jQuery incluso -->
 </head>
@@ -92,6 +93,7 @@
                                     <div class="side-list__meter-fill" :style="{ width: cassaSharePercent(c) + '%' }"></div>
                                 </div>
                                 <span class="side-list__sub">{{ c.ordini }} ordini &middot; {{ cassaSharePercent(c) }}%</span>
+                                <span class="side-list__sub">Fondo: {{ formatEuro(c.fondo_cassa) }} &middot; Atteso: {{ formatEuro(c.totale_atteso) }} &middot; Ultima chiusura: {{ formatDataOra(c.ultima_chiusura) }}</span>
                             </li>
                         </ul>
                         <p v-else class="side-panel__empty">Nessun dato</p>
@@ -299,11 +301,19 @@
                     }
                 },
                 setupQzSecurity() {
-                    return;
+                    // La configurazione certificato/firma (necessaria perché QZ Tray accetti
+                    // il job senza mostrare il popup di conferma non presidiato) è definita
+                    // globalmente in assets/js/qz-helper.js, la stessa usata da billing.php.
+                    if (typeof window.setupQzSecurity === 'function') {
+                        window.setupQzSecurity();
+                    }
                 },
                 async ensureQzConnected(host, port = 8182) {
+                    console.debug('[QZ] ensureQzConnected: caricamento libreria...');
                     await this.ensureQzLibraryLoaded();
+                    console.debug('[QZ] libreria caricata, versione:', window.qz && qz.VERSION);
                     this.setupQzSecurity();
+                    console.debug('[QZ] setupQzSecurity eseguito');
 
                     const cleanHost = this.normalizeQzHost(host);
                     if (!cleanHost) {
@@ -312,28 +322,36 @@
 
                     const targetKey = cleanHost + ':' + Number(port || 8182);
                     if (qz.websocket.isActive() && this.qzConnectionTarget === targetKey) {
+                        console.debug('[QZ] connessione già attiva verso', targetKey);
                         return;
                     }
 
                     if (qz.websocket.isActive()) {
                         try {
+                            console.debug('[QZ] disconnessione connessione precedente...');
                             await qz.websocket.disconnect();
                         } catch (err) {
                             console.warn('Disconnessione QZ precedente fallita:', err);
                         }
                     }
 
+                    console.debug('[QZ] connessione a', cleanHost, 'porta', port);
                     await qz.websocket.connect({
                         host: cleanHost,
-                        port: Number(port || 8182),
                         usingSecure: false,
+                        port: {
+                            secure: [],
+                            insecure: [Number(port || 8182)]
+                        },
                         retries: 2,
                         delay: 0.25
                     });
+                    console.debug('[QZ] connesso');
 
                     this.qzConnectionTarget = targetKey;
                 },
                 async printBridgeViaQz(response) {
+                    console.debug('[QZ] printBridgeViaQz payload:', response);
                     const payload = response && typeof response === 'object' ? response : null;
                     if (!payload) {
                         throw new Error('Risposta bridge non valida.');
@@ -355,11 +373,20 @@
                     }
 
                     await this.ensureQzConnected(qzHost, qzPort);
-                    await qz.printers.find(printerName);
+
+                    try {
+                        const found = await qz.printers.find(printerName);
+                        console.debug('[QZ] stampante trovata:', found);
+                    } catch (err) {
+                        // Non bloccante: qz.configs.create funziona anche senza una find() riuscita,
+                        // e billing.php (che stampa correttamente) non la usa affatto.
+                        console.warn('[QZ] qz.printers.find fallita, si prosegue comunque:', err);
+                    }
 
                     const config = qz.configs.create(printerName, {
                         encoding: 'ISO-8859-1'
                     });
+                    console.debug('[QZ] config creata per', printerName, 'invio dati raw base64, lunghezza', rawBase64.length);
 
                     const data = [{
                         type: 'raw',
@@ -368,7 +395,9 @@
                         data: rawBase64
                     }];
 
+                    console.debug('[QZ] invio qz.print...');
                     await qz.print(config, data);
+                    console.debug('[QZ] qz.print completato senza errori');
                 },
                 convertToMySQLDatetime(datetimeLocal) {
                     const date = new Date(datetimeLocal);
@@ -446,6 +475,16 @@
                     }
                     return `${parsed.toFixed(2).replace('.', ',')} €`;
                 },
+                formatDataOra(value) {
+                    if (!value) return 'mai';
+                    const d = new Date(String(value).replace(' ', 'T'));
+                    if (Number.isNaN(d.getTime())) return 'mai';
+                    const giorno = String(d.getDate()).padStart(2, '0');
+                    const mese = String(d.getMonth() + 1).padStart(2, '0');
+                    const ore = String(d.getHours()).padStart(2, '0');
+                    const minuti = String(d.getMinutes()).padStart(2, '0');
+                    return `${giorno}/${mese} ${ore}:${minuti}`;
+                },
                 cassaSharePercent(c) {
                     const totaleCasse = this.casse.reduce((sum, item) => sum + parseFloat(item.totale || 0), 0);
                     if (!totaleCasse) return 0;
@@ -457,6 +496,11 @@
                 },
                 isCassaActive(cassa) {
                     return !!this.filters.cassa && this.filters.cassa.trim().toUpperCase() === String(cassa).toUpperCase();
+                },
+                findCassaInfo(cassaId) {
+                    if (!cassaId) return null;
+                    const needle = String(cassaId).trim().toUpperCase();
+                    return this.casse.find(c => String(c.cassa).trim().toUpperCase() === needle) || null;
                 },
                 toggleCassaFilter(cassa) {
                     if (!cassa || cassa === 'N/D') {
@@ -611,6 +655,12 @@
                         cassaValue = '(tutte)';
                     }
 
+                    const cassaInfo = this.filters.cassa ? this.findCassaInfo(this.filters.cassa) : null;
+                    const chiusuraLine = cassaInfo
+                        ? `<h3>Chiusura cassa ${cassaValue} ore: ${this.formatDataOra(cassaInfo.ultima_chiusura)}</h3>
+    <h3>Fondo cassa: ${this.formatEuro(cassaInfo.fondo_cassa)} &middot; Totale atteso: ${this.formatEuro(cassaInfo.totale_atteso)}</h3>`
+                        : '';
+
                     let updatedHtml = `<!DOCTYPE html>
 <html lang="it">
 <head>
@@ -632,6 +682,7 @@
     <h3>Dalla data/ora: ${fromValue}</h3>
     <h3>Alla data/ora: ${toValue}</h3>
     <h3>Cassa: ${cassaValue}</h3>
+    ${chiusuraLine}
     <hr>`;
 
                     updatedHtml += `<div id="results">`;
@@ -654,12 +705,15 @@
                 },
                 async stampaReceipt() {
                     const cassa_id = localStorage.getItem('cassa_id');
+                    const cassaInfo = this.cassaStat ? this.findCassaInfo(this.cassaStat) : null;
+                    console.debug('[QZ] stampaReceipt: cassa_id=', cassa_id, 'cassaStat=', this.cassaStat);
 
                     try {
                         const response = await $.ajax({
                             url: '../print/print_stat_receipt.php',
                             method: 'POST',
                             contentType: 'application/json',
+                            dataType: 'json',
                             data: JSON.stringify({
                                 from: this.fromStat,
                                 to: this.toStat,
@@ -668,9 +722,14 @@
                                 totale: this.totaleComplessivo,
                                 sconti: this.sconti,
                                 dataEstr: this.dataOraEstr,
-                                cassaId: cassa_id
+                                cassaId: cassa_id,
+                                ultimaChiusura: cassaInfo ? cassaInfo.ultima_chiusura : null,
+                                fondoCassa: cassaInfo ? cassaInfo.fondo_cassa : null,
+                                totaleAtteso: cassaInfo ? cassaInfo.totale_atteso : null
                             })
                         });
+
+                        console.debug('[QZ] risposta print_stat_receipt.php:', response);
 
                         if (response && response.method === 'bridge_qz') {
                             await this.printBridgeViaQz(response);
@@ -680,8 +739,8 @@
                         const printer = response && response.printer ? ' (' + response.printer + ')' : '';
                         window.showToast('Scontrino stampato con successo! Metodo: ' + method + printer, 'success');
                     } catch (error) {
-                        console.error('Errore stampa scontrino:', error);
-                        window.showToast('Errore durante la stampa dello scontrino.', 'error');
+                        console.error('[QZ] Errore stampa scontrino:', error);
+                        window.showToast('Errore durante la stampa dello scontrino: ' + (error && error.message ? error.message : error), 'error');
                     }
                 }
             },

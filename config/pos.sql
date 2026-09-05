@@ -35,7 +35,9 @@ CREATE TABLE `casse_stampanti` (
   `qz_host` varchar(255) DEFAULT NULL,
   `abilita_contanti` tinyint(1) NOT NULL DEFAULT 1,
   `abilita_carta` tinyint(1) NOT NULL DEFAULT 0,
-  `abilita_satispay` tinyint(1) NOT NULL DEFAULT 0
+  `abilita_satispay` tinyint(1) NOT NULL DEFAULT 0,
+  `fondo_cassa` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `ultima_chiusura` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -99,7 +101,8 @@ CREATE TABLE `stock` (
   `item_sort` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `quantity_available` int(11) DEFAULT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT 1
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 
@@ -143,7 +146,8 @@ ALTER TABLE `receipt_config`
 -- Indici per le tabelle `stock`
 --
 ALTER TABLE `stock`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_stock_updated_at` (`updated_at`);
 
 --
 -- Indici per le tabelle `vendite`

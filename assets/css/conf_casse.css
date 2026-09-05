@@ -119,7 +119,7 @@
      .printer-table td {
          border: 0;
          border-bottom: 1px solid color-mix(in srgb, var(--mc-border) 70%, transparent);
-         padding: 10px 8px;
+         padding: 4px 8px;
          text-align: left;
          vertical-align: middle;
          border-radius: 0;
@@ -219,38 +219,67 @@
          min-width: 250px;
      }
 
+     /* Metodi di pagamento: pillole "illuminate al tocco", stesso pattern
+        visivo di .pay-pill in billing.css - usate ovunque (riga tabella,
+        modale, desktop e mobile). */
      .payment-toggles {
-         display: flex;
-         align-items: center;
-         gap: 20px;
-         flex-wrap: wrap;
+         display: grid;
+         grid-template-columns: repeat(3, minmax(0, 1fr));
+         gap: 8px;
+         width: 100%;
      }
 
      .payment-toggle {
+         position: relative;
          display: inline-flex;
-         align-items: center;
-         gap: 4px;
-         color: var(--mc-text);
-         font-size: 12px;
-         font-weight: 600;
          cursor: pointer;
      }
 
      .payment-toggle input[type="checkbox"] {
-         width: 15px;
-         height: 15px;
-         margin: 0px 8px 0px 0px;
-         border: 0;
-         background: none;
-         padding: 0;
-         accent-color: var(--mc-primary);
+         position: absolute;
+         inset: 0;
+         opacity: 0;
+         width: 100%;
+         height: 100%;
+         margin: 0;
      }
 
-     .payment-toggles--modal {
-         padding: 8px 10px;
+     .payment-toggle span {
+         width: 100%;
+         min-height: 40px;
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         border-radius: var(--ui-radius-sm);
          border: 1px solid var(--mc-border);
-         border-radius: 8px;
          background: var(--mc-panel-muted);
+         color: var(--mc-text);
+         font-size: 12px;
+         font-weight: 700;
+         transition: border-color 0.2s ease, background-color 0.2s ease;
+     }
+
+     .payment-toggle input:checked + span {
+         background: var(--mc-hover-strong);
+         border-color: var(--mc-hover-border);
+         border-width: var(--mc-hover-border-width);
+     }
+
+     .payment-toggle-icon {
+         width: 16px;
+         height: 16px;
+         margin-right: 6px;
+         flex-shrink: 0;
+     }
+
+     /* Simbolo Satispay - stessa palette brand 2024 di billing.css */
+     .payment-toggle-icon--satispay {
+         color: #290402;
+     }
+
+     :root.dark-mode .payment-toggle-icon--satispay,
+     body.dark-mode .payment-toggle-icon--satispay {
+         color: #fffbef;
      }
 
      .printer-col-type {
@@ -320,6 +349,12 @@
      .row-test-btn svg {
          width: 14px;
          height: 14px;
+     }
+
+     /* Il toggle accordion esiste solo nella vista mobile: in desktop la tabella
+        mostra già tutti i campi, quindi qui resta nascosto. */
+     .row-toggle-btn {
+         display: none;
      }
 
      .tipo-pill {
@@ -592,7 +627,7 @@
          cursor: not-allowed;
      }
 
-     @media (max-width: 760px) {
+     @media (max-width: 760px), (orientation: landscape) and (max-width: 950px) {
          #bottom {
              max-height: none;
          }
@@ -650,27 +685,31 @@
              background: transparent;
          }
 
-         /* Configurazione Griglia Card: 3 colonne di contenuto + colonna Azioni */
+         /* Accordion: header compatto a 2 righe (id/tipo/azioni + nome-ip), pannello dettagli sotto quando espansa */
          .printer-card-row {
              display: grid !important;
-             grid-template-columns: minmax(0, 1.fr) minmax(0, 1.75fr) minmax(0, 1.5fr) 85px;
+             grid-template-columns: auto auto minmax(0, 1fr) auto;
              grid-template-areas:
-                 "cassa tipo   pagamenti actions"
-                 "nome  qzhost porta     actions";
-             padding: 6px;
-             background: color-mix(in srgb, var(--mc-panel) 50%, #111 50%);
+                 "cassa tipo .    actions"
+                 "nome  nome nome actions";
+             align-items: center;
+             column-gap: 10px;
+             row-gap: 6px;
+             padding: 10px 12px;
+             background: var(--mc-panel-muted);
+             color: var(--mc-text);
              border: 1px solid color-mix(in srgb, var(--mc-border) 60%, transparent);
              border-radius: 12px;
          }
 
-         .printer-card-row::after {
-             content: "";
-             grid-column: 1 / 4;
-             grid-row: 2;
-             align-self: start;
-             width: 100%;
-             border-top: 1px solid var(--mc-border) !important;
-             pointer-events: none;
+         .printer-card-row.is-row-expanded {
+             grid-template-areas:
+                 "cassa     tipo      .        actions"
+                 "nome      nome      nome     actions"
+                 "hostinfo  hostinfo  .        ."
+                 "pagamenti pagamenti pagamenti pagamenti";
+             row-gap: 14px;
+             padding-bottom: 14px;
          }
 
          .printer-table td {
@@ -697,61 +736,84 @@
          }
 
          /* --- Assegnazione Aree Grid (basato su classi/indici attuali) --- */
-         .printer-card-row td:nth-child(2) { grid-area: cassa; font-size: 1.3rem; font-weight: 500; color: #fff;} /* Cassa ID */
-         .printer-card-row td:nth-child(3) { grid-area: tipo; display: flex !important; } /* Tipo */
-         .printer-card-row td:nth-child(4) { grid-area: pagamenti; } /* Pagamenti */
-         .printer-card-row td:nth-child(5) { grid-area: nome; } /* Nome/Indirizzo */
-         .printer-card-row td:nth-child(6) { grid-area: qzhost; } /* QZ Host */
-         .printer-card-row td:nth-child(7) { grid-area: porta; display: flex; width: auto; text-align: left; } /* Porta */
+         .printer-card-row td:nth-child(2) { grid-area: cassa; font-size: 1rem; font-weight: 600; white-space: nowrap; } /* Cassa ID */
+         .printer-card-row td:nth-child(3) { grid-area: tipo; display: flex !important; white-space: nowrap; } /* Tipo */
+         .printer-card-row td:nth-child(4) { grid-area: pagamenti; display: none; } /* Pagamenti */
+         .printer-card-row td:nth-child(5) {
+             grid-area: nome;
+             display: block;
+             width: 100%;
+             overflow: hidden;
+             text-overflow: ellipsis;
+             white-space: nowrap;
+         } /* Nome/Indirizzo */
+         .printer-card-row td:nth-child(6) { grid-area: hostinfo; display: none; } /* QZ Host */
+         .printer-card-row td:nth-child(7) { grid-area: hostinfo; display: none; width: auto; text-align: left; } /* Porta */
 
-         /* Colonna Azioni laterale */
-         .printer-card-row td:nth-child(1) { 
-             grid-area: actions;
-             border-left: 1px solid color-mix(in srgb, var(--mc-border) 40%, transparent) !important;
-             padding-left: 8px !important;
+         /* Riga chiusa: niente etichette sopra i valori, resta una sola riga compatta */
+         .printer-card-row td:nth-child(2)::before,
+         .printer-card-row td:nth-child(3)::before,
+         .printer-card-row td:nth-child(5)::before {
+             display: none;
+         }
+
+         /* Pannello dettagli: visibile solo a riga espansa */
+         .printer-card-row.is-row-expanded td:nth-child(4) { display: flex; }
+         .printer-card-row.is-row-expanded td:nth-child(6),
+         .printer-card-row.is-row-expanded td:nth-child(7) {
              display: flex;
-             flex-direction: column;
-             gap: 10px;
-             align-items: stretch;
-             justify-content: flex-start;
-             
-        /* Aggiungi queste due righe per far stare i bottoni in primo piano */
-             position: relative;
-             z-index: 10;       
-             width: auto !important;      
+             border-top: 1px solid var(--mc-border) !important;
+             padding-top: 10px;
+         }
+
+         /* Campo non pertinente al tipo cassa (es. QZ Host se non BRIDGE,
+            Porta se non RETE): niente da mostrare, si nasconde anche da espansa. */
+         .printer-card-row.is-row-expanded td.field-not-applicable {
+             display: none;
+         }
+
+         /* Colonna Azioni: riga compatta di bottoni inline (Test, Edit, toggle) */
+         .printer-card-row td:nth-child(1) {
+             grid-area: actions;
+             display: flex;
+             flex-direction: row;
+             gap: 6px;
+             align-items: center;
+             justify-content: flex-end;
          }
 
          .printer-card-row td:nth-child(1)::before {
-             text-align: center;
-             margin-bottom: 8px;
+             display: none;
          }
 
-         /* Styling Bottoni Azioni per simulare le rect-button della foto */
-         .row-edit-btn, .row-test-btn {
-             width: 100%;
-             height: 48px !important;
+         .row-edit-btn, .row-test-btn, .row-toggle-btn {
+             width: 36px;
+             height: 36px;
+             flex-shrink: 0;
+             padding: 0;
              border: 1px solid color-mix(in srgb, var(--mc-border) 60%, transparent) !important;
              background: color-mix(in srgb, var(--mc-panel-muted) 40%, transparent) !important;
              border-radius: 6px;
+             display: inline-flex;
+             align-items: center;
              justify-content: center;
          }
-         
-         /* Riordina i bottoni tramite Flexbox: Edit in alto, Stampa (test) in basso */
-         .row-edit-btn { order: 1; }
-         .row-test-btn { order: 2; }
 
-         .row-edit-btn::after {
-             content: "Edit";
-             font-size: 13px;
-             margin-left: 6px;
-         }         
-
-         .row-test-btn::after {
-             content: "Test";
-             font-size: 13px;
-             margin-left: 6px;
+         .row-toggle-btn {
+             color: var(--mc-text-soft);
          }
-        
+
+         .row-toggle-icon {
+             width: 16px;
+             height: 16px;
+             flex-shrink: 0;
+             transition: transform 0.2s ease;
+         }
+
+         .row-toggle-btn.is-open .row-toggle-icon {
+             transform: rotate(180deg);
+         }
+
          /* Reset tipografia pillola/checkbox */
          .tipo-pill {
              white-space: nowrap; /* Evita che il testo vada a capo */
@@ -761,16 +823,10 @@
              border-color: color-mix(in srgb, var(--mc-border) 60%, transparent);
          }
 
-         .payment-toggles {
-             flex-direction: column;
-             gap: 4px;
-             align-items: flex-start;
+         /* Touch target 48px per le pillole pagamento nel pannello espanso mobile */
+         .printer-card-row.is-row-expanded .payment-toggle span {
+             min-height: 48px;
          }
-
-         .payment-toggle {
-             font-size: 12px;
-             gap: 6px;
-         }         
 
          /* Comportamento originale del modal mobile */
          .printer-modal-foot {

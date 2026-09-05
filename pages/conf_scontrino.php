@@ -31,7 +31,7 @@
                 </div>
                 <p class="inline-muted">Questa configurazione e globale per tutte le stampanti/casse: definisci testo, cut e logo.</p>
                 <div class="link-row">
-                    <a href="conf_stampanti.php">Configura Stampanti</a>
+                    <a href="conf_casse.php">Configura Stampanti</a>
                     <a href="billing.php">Vai a Vendite</a>
                 </div>
             </section>

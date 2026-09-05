@@ -64,7 +64,7 @@
 
                 const badge = document.getElementById('pos-cassa-badge');
                 if (badge) {
-                    badge.textContent = 'Cassa ID: ' + value;
+                    badge.textContent = 'Cassa: ' + value;
                 }
             });
         })();
@@ -114,9 +114,9 @@
             </a>
 
             <!-- Configura Stampanti -->
-            <a href="conf_stampanti.php" class="home-action">
-                <span class="home-action__icon home-action__icon--stampanti"><?= pos_icon('printer') ?></span>
-                <span class="home-action__title">Configura Stampanti</span>
+            <a href="conf_casse.php" class="home-action">
+                <span class="home-action__icon home-action__icon--stampanti"><?= pos_icon('coins') ?></span>
+                <span class="home-action__title">Configura Casse</span>
                 <span class="home-action__desc">Imposta stampante ricevute e dispositivi della cassa.</span>
             </a>
 

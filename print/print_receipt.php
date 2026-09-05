@@ -239,11 +239,15 @@ function formatReceiptDiscountLine($label, $discountText, $value, $labelColumnWi
     return $line . "\n";
 }
 
-function printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig = [], $printLogo = true) {
+function printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig = [], $printLogo = true, $dataOra = null) {
     $customHeaderText = trim((string)($receiptConfig['custom_header_text'] ?? ''));
     if ($customHeaderText === '') {
         $customHeaderText = DEFAULT_RECEIPT_HEADER; // Default header if not set
     }
+
+    // In ristampa si passa la data_ora originale della vendita: senza, si usa l'ora corrente.
+    $timestamp = $dataOra !== null ? strtotime((string)$dataOra) : false;
+    $dateText = $timestamp !== false ? date('d/m/Y H:i', $timestamp) : date('d/m/Y H:i');
 
     $cutEachItem = ((int)($receiptConfig['cut_each_item'] ?? 1)) === 1;
     if ($cutEachItem) {
@@ -251,7 +255,7 @@ function printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto
             for ($i = 0; $i < $item['quantity']; $i++) {
                 $printer->setJustification(Printer::JUSTIFY_CENTER);
                 $printer->text($customHeaderText . "\n");
-                $printer->text(date('d/m/Y H:i') . "\n");
+                $printer->text($dateText . "\n");
                 $printer->text("---------------------------------\n");
                 $printer->feed(1);
                 $printer->setTextSize(2, 2);
@@ -274,7 +278,7 @@ function printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto
     $printer->setJustification(Printer::JUSTIFY_CENTER);
     $printer->text($customHeaderText . "\n");
     $printer->text("CASSA #$cassa_id\n");
-    $printer->text(date('d/m/Y H:i') . "  --  #$id_vendita \n");
+    $printer->text($dateText . "  --  #$id_vendita \n");
     $printer->text("---------------------------------\n");
 
     $printer->setJustification(Printer::JUSTIFY_LEFT);
@@ -316,14 +320,14 @@ function printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto
     $printer->pulse();
 }
 
-function buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig = [], $printLogo = true) {
+function buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig = [], $printLogo = true, $dataOra = null) {
     $tmpFile = tempnam(sys_get_temp_dir(), 'escpos_');
     if ($tmpFile === false) {
         throw new Exception('Impossibile creare il file temporaneo per lo scontrino.');
     }
     $connector = new FilePrintConnector($tmpFile);
     $printer = new Printer($connector);
-    printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, $printLogo);
+    printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, $printLogo, $dataOra);
     $printer->close();
     $raw = file_get_contents($tmpFile);
     unlink($tmpFile);
@@ -421,7 +425,7 @@ function postToPrintrzJob($host, $port, $printerName, $rawData) {
 
 // Gestisce l'instradamento della stampa (Bridge, Bluetooth o Diretta)
 
-function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $sconto, $pagato, $resto) {
+function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $sconto, $pagato, $resto, $dataOra = null) {
     $printerSettings = getPrinterSettings($connectionDB, $cassa_id);
     $receiptConfig = getReceiptConfig($connectionDB);
     $tipoStampante = $printerSettings['tipo_stampante'] ?? '';
@@ -434,7 +438,7 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
         if ($printerName === '') {
             http_response_code(400);
             echo json_encode([
-                'error' => 'Configurazione bridge non valida: nome stampante QZ mancante. Verificare conf_stampanti.html',
+                'error' => 'Configurazione bridge non valida: nome stampante QZ mancante. Verificare conf_casse.php',
                 'cassa_id' => $cassa_id,
                 'printer_settings' => $printerSettings
             ]);
@@ -443,7 +447,7 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
         if ($qzHost === '') {
             http_response_code(400);
             echo json_encode([
-                'error' => 'Configurazione bridge non valida: host QZ mancante. Inserire l\'indirizzo IP o hostname del bridge QZ Tray in conf_stampanti.html',
+                'error' => 'Configurazione bridge non valida: host QZ mancante. Inserire l\'indirizzo IP o hostname del bridge QZ Tray in conf_casse.php',
                 'cassa_id' => $cassa_id,
                 'nome_stampante' => $printerName,
                 'printer_settings' => $printerSettings
@@ -452,7 +456,7 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
         }
 
         // QZ Tray: il browser stampa localmente usando i byte ESC/POS restituiti dal backend.
-        $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true);
+        $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
         
         return [
             'method' => 'bridge_qz',
@@ -464,7 +468,7 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
     }
         // CASO 2: BLUETOOTH (RawBT via Intent Android)
         if (($printerSettings['tipo_stampante'] ?? '') === 'BLUETOOTH') {
-            $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true);
+            $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
 
         return [
             'method' => 'bluetooth_rawbt',
@@ -473,7 +477,7 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
     }
          // CASO 3: DIRECT (USB Windows/Linux o Network)
         $printer = getPrinter($connectionDB, $cassa_id);
-        printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true);
+        printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
         $printer->close();
     
         return [

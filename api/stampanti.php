@@ -66,6 +66,11 @@ function ensurePaymentMethodColumns($connectionDB) {
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_satispay TINYINT(1) NOT NULL DEFAULT 0 AFTER abilita_carta");
 }
 
+function ensureFondoCassaColumn($connectionDB) {
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS fondo_cassa DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER abilita_satispay");
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS ultima_chiusura DATETIME NULL DEFAULT NULL AFTER fondo_cassa");
+}
+
 function normalizePaymentFlag($value, $default) {
     if ($value === null) {
         return $default;
@@ -82,6 +87,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 try {
     ensurePaymentMethodColumns($connectionDB);
+    ensureFondoCassaColumn($connectionDB);
 
     // ------------------------------------------
     // 1. RICHIESTE GET (Lettura)
@@ -107,7 +113,7 @@ try {
                     break;
                 }
 
-                $stmt = $connectionDB->prepare("SELECT abilita_contanti, abilita_carta, abilita_satispay FROM casse_stampanti WHERE cassa_id = ? LIMIT 1");
+                $stmt = $connectionDB->prepare("SELECT abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa, ultima_chiusura FROM casse_stampanti WHERE cassa_id = ? LIMIT 1");
                 $stmt->bind_param('s', $cassa_id);
                 $stmt->execute();
                 $result = $stmt->get_result();
@@ -118,13 +124,15 @@ try {
                     'configured' => (bool)$config,
                     'abilita_contanti' => $config ? (int)$config['abilita_contanti'] : 1,
                     'abilita_carta' => $config ? (int)$config['abilita_carta'] : 0,
-                    'abilita_satispay' => $config ? (int)$config['abilita_satispay'] : 0
+                    'abilita_satispay' => $config ? (int)$config['abilita_satispay'] : 0,
+                    'fondo_cassa' => $config ? (float)$config['fondo_cassa'] : 0,
+                    'ultima_chiusura' => $config ? $config['ultima_chiusura'] : null
                 ]);
                 break;
 
             case 'list':
             default:
-                $result = $connectionDB->query("SELECT cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, abilita_contanti, abilita_carta, abilita_satispay FROM casse_stampanti ORDER BY cassa_id ASC");
+                $result = $connectionDB->query("SELECT cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa, ultima_chiusura FROM casse_stampanti ORDER BY cassa_id ASC");
                 $stampanti = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
                 echo json_encode($stampanti);
                 break;
@@ -156,6 +164,7 @@ try {
             $abilita_contanti = normalizePaymentFlag($input['abilita_contanti'] ?? null, 1);
             $abilita_carta = normalizePaymentFlag($input['abilita_carta'] ?? null, 0);
             $abilita_satispay = normalizePaymentFlag($input['abilita_satispay'] ?? null, 0);
+            $fondo_cassa = isset($input['fondo_cassa']) ? (float)str_replace(',', '.', (string)$input['fondo_cassa']) : 0;
 
             if ($tipo_stampante === 'BLUETOOTH' && $nome_indirizzo === '') {
                 $nome_indirizzo = '-';
@@ -191,8 +200,8 @@ try {
                     exit;
                 }
 
-                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, abilita_contanti, abilita_carta, abilita_satispay) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssisiii", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $abilita_contanti, $abilita_carta, $abilita_satispay);
+                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("sssisiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Stampante aggiunta con successo.']);
@@ -203,8 +212,8 @@ try {
                 break;
 
             case 'update':
-                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, qz_host = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ? WHERE cassa_id = ?");
-                $stmt->bind_param("sssisiiis", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $abilita_contanti, $abilita_carta, $abilita_satispay, $cassa_id_old);
+                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, qz_host = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
+                $stmt->bind_param("sssisiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Configurazione aggiornata con successo.']);

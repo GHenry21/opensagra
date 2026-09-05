@@ -19,7 +19,7 @@ if (!$id_vendita) {
 
 try {
     // A. Recuperiamo i dati testata della vendita dal DB
-    $stmtV = $connectionDB->prepare("SELECT cassa_id, totale, sconto, importo_pagato, resto FROM vendite WHERE id = ? LIMIT 1");
+    $stmtV = $connectionDB->prepare("SELECT cassa_id, totale, sconto, importo_pagato, resto, data_ora FROM vendite WHERE id = ? LIMIT 1");
     $stmtV->bind_param('i', $id_vendita);
     $stmtV->execute();
     $vendita = $stmtV->get_result()->fetch_assoc();
@@ -49,7 +49,8 @@ try {
         $vendita['cassa_id'],
         $id_vendita,
         $receiptConfig,
-        true // printLogo
+        true, // printLogo
+        $vendita['data_ora'] ?? null // ristampa: ora originale della vendita
     );
 
     // E. Convertiamo in Base64 e lo restituiamo a RawBT

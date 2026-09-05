@@ -89,10 +89,6 @@
             <aside class="billing-panel cart-panel" id="bill" aria-label="Carrello e checkout">
                 <header class="cart-head">
                     <h2 class="cart-title">Carrello</h2>
-                    <button id="clear-cart-btn" class="danger-btn icon-btn cart-head__clear" type="button"
-                        title="Svuota carrello" aria-label="Svuota carrello" @click="clearCart">
-                        <?= pos_icon('trash', ['width' => '16', 'height' => '16']) ?>
-                    </button>
                 </header>
 
                 <section class="cart-items">
@@ -209,7 +205,8 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="mobile-summary-control">
+                        <div class="mobile-summary-control"
+                            v-show="isMobileView || paymentMethod === 'contanti'">
                             <button type="button" class="mobile-summary-toggle"
                                 :class="{ 'is-open': mobilePaidOpen }"
                                 :aria-expanded="mobilePaidOpen ? 'true' : 'false'"
@@ -223,8 +220,12 @@
                                 :class="{ 'is-open': mobilePaidOpen }">
                                 <div class="field-row">
                                     <label for="amount-paid" class="field-label">Importo pagato</label>
-                                    <button v-for="amount in [5,10,20,50,100]" :key="amount" type="button"
-                                        class="amount paid-preset" @click="addPaidAmount(amount)">{{ amount }}€</button>
+                                    <button v-for="amount in [5,10,20,50,100,200,500]" :key="amount" type="button"
+                                        class="amount paid-preset" :class="'paid-preset--' + amount"
+                                        @click="addPaidAmount(amount)">{{ amount }}€</button>
+                                    <button type="button" class="paid-reset" :disabled="!amountPaid"
+                                        title="Azzera importo pagato" aria-label="Azzera importo pagato"
+                                        @click="resetPaidAmount">Azzera</button>
                                     <input type="number" id="amount-paid" min="0" step="0.01" class="field-input"
                                         placeholder="€ 0.00" v-model.number="amountPaid">
                                 </div>
@@ -265,16 +266,22 @@
                 </section>
 
                 <section class="cart-actions">
-                    <button id="open-drawer-btn" class="neutral-btn drawer-btn" type="button"
-                        @click="openDrawer">Apri Cassetto</button>
-                    <button id="checkout-btn" class="primary-btn" type="button" @click="checkout">
-                        <span>Stampa Scontrino</span>
-                        <?= pos_icon('print-receipt', ['class' => 'checkout-icon', 'aria-hidden' => 'true']) ?>
+                    <button id="open-drawer-btn" class="neutral-btn icon-btn drawer-btn" type="button"
+                        title="Apri cassetto" aria-label="Apri cassetto" @click="openDrawer">
+                        <?= pos_icon('open-drawer', ['width' => '18', 'height' => '18', 'class' => 'open-drawer', 'aria-hidden' => 'true']) ?>
                     </button>
-                    <button id="print-last-receipt-btn" class="neutral-btn icon-btn print-last-btn" type="button"
-                        title="Ristampa ultimo scontrino" aria-label="Ristampa ultimo scontrino"
-                        @click="printLastReceipt">
-                        <?= pos_icon('print', ['width' => '18', 'height' => '18']) ?>
+                    <button id="checkout-btn" class="primary-btn" type="button" 
+                        title="Stampa scontrino" aria-label="Stampa scontrino" @click="checkout">
+                        <span>Stampa</span>
+                        <?= pos_icon('print-receipt', ['width' => '18', 'height' => '18', 'class' => 'checkout-icon', 'aria-hidden' => 'true']) ?>
+                    </button>
+                    <button id="orders-btn" class="neutral-btn icon-btn" type="button"
+                        title="Ordini" aria-label="Ordini" @click="openOrdersPanel">
+                        <?= pos_icon('receipt-lines', ['width' => '18', 'height' => '18']) ?>
+                    </button>
+                    <button id="clear-cart-btn" class="danger-btn icon-btn" type="button"
+                        title="Svuota carrello" aria-label="Svuota carrello" @click="clearCart">
+                        <?= pos_icon('trash', ['width' => '18', 'height' => '18']) ?>
                     </button>
                 </section>
 
@@ -294,6 +301,118 @@
                 </div>
             </aside>
         </main>
+
+        <transition name="orders-backdrop">
+            <div v-if="isOrdersPanelOpen" class="orders-backdrop" @click="closeOrdersPanel"></div>
+        </transition>
+        <aside class="orders-panel" :class="{ 'is-open': isOrdersPanelOpen, 'is-closing': isOrdersPanelClosing }"
+            role="dialog" aria-modal="true" aria-label="Ordini">
+            <header class="orders-panel__header">
+                <h2 class="orders-panel__title">Ordini</h2>
+                <button type="button" class="orders-panel__refresh" @click="loadOrders"
+                    title="Aggiorna" aria-label="Aggiorna" :disabled="ordersLoading">
+                    <?= pos_icon('refresh-cw', ['width' => '18', 'height' => '18']) ?>
+                </button>
+                <button type="button" class="modal-close" @click="closeOrdersPanel"
+                    title="Chiudi" aria-label="Chiudi">
+                    <?= pos_icon('x', ['stroke-width' => '2.5']) ?>
+                </button>
+            </header>
+
+            <div v-if="!selectedOrder" class="orders-panel__body">
+                <div class="orders-toolbar">
+                    <input type="search" class="orders-search" v-model.trim="orderSearch"
+                        @keyup.enter="loadOrders" placeholder="Cerca per numero ordine…"
+                        inputmode="numeric" aria-label="Cerca per numero ordine">
+                    <button type="button" class="neutral-btn" @click="loadOrders">Cerca</button>
+                </div>
+
+                <p v-if="ordersLoading" class="orders-empty">Caricamento…</p>
+                <p v-else-if="ordersError" class="orders-empty">{{ ordersError }}</p>
+                <p v-else-if="ordersList.length === 0" class="orders-empty">Nessun ordine.</p>
+                <ul v-else class="orders-list">
+                    <li v-for="o in ordersList" :key="o.id" class="order-card"
+                        :class="{ 'order-card--void': o.stornato }">
+                        <div class="order-card__top">
+                            <span class="order-card__num">#{{ o.id }}</span>
+                            <span class="order-badge"
+                                :class="o.stornato ? 'order-badge--void' : 'order-badge--ok'">
+                                {{ o.stornato ? 'Stornato' : 'Attivo' }}
+                            </span>
+                        </div>
+                        <div class="order-card__meta">
+                            <span>{{ formatOrderDateTime(o.data_ora) }}</span>
+                            <span>{{ o.metodo_pagamento || '—' }}</span>
+                            <span>{{ o.n_articoli }} art.</span>
+                        </div>
+                        <div class="order-card__bottom">
+                            <strong class="order-card__total">{{ formatCurrency(o.totale) }}</strong>
+                            <div class="order-card__actions">
+                                <button type="button" class="neutral-btn"
+                                    @click="openOrderDetail(o.id)">Dettaglio</button>
+                                <button type="button" class="neutral-btn"
+                                    :disabled="orderActionBusyId === o.id"
+                                    @click="reprintOrder(o)">Ristampa</button>
+                                <button type="button" class="danger-btn" v-if="!o.stornato"
+                                    :disabled="orderActionBusyId === o.id"
+                                    @click="voidOrder(o)">Storna</button>
+                            </div>
+                        </div>
+                    </li>
+                </ul>
+                <p class="orders-foot">Ultimi {{ ordersLimit }} ordini di questa cassa</p>
+            </div>
+
+            <div v-else class="orders-panel__body">
+                <button type="button" class="orders-back" @click="closeOrderDetail">
+                    <?= pos_icon('chevron-left', ['width' => '16', 'height' => '16']) ?> Ordini
+                </button>
+                <div class="order-detail" v-if="orderDetailLoading">
+                    <p class="orders-empty">Caricamento…</p>
+                </div>
+                <div class="order-detail" v-else>
+                    <div class="order-card__top">
+                        <span class="order-card__num">#{{ selectedOrder.ordine.id }}</span>
+                        <span class="order-badge"
+                            :class="selectedOrder.ordine.stornato ? 'order-badge--void' : 'order-badge--ok'">
+                            {{ selectedOrder.ordine.stornato ? 'Stornato' : 'Attivo' }}
+                        </span>
+                    </div>
+                    <div class="order-card__meta">
+                        <span>{{ formatOrderDateTime(selectedOrder.ordine.data_ora) }}</span>
+                        <span>{{ selectedOrder.ordine.metodo_pagamento || '—' }}</span>
+                    </div>
+                    <table class="order-detail__table">
+                        <thead>
+                            <tr><th>Articolo</th><th>Qtà</th><th>Prezzo</th><th>Sconto</th><th>Totale</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(r, i) in selectedOrder.righe" :key="i">
+                                <td>{{ r.prodotto }}</td>
+                                <td>{{ r.quantita }}</td>
+                                <td>{{ formatCurrency(r.prezzo_unitario) }}</td>
+                                <td>{{ Number(r.line_discount_value) > 0 ? '-' + formatCurrency(r.line_discount_value) : '—' }}</td>
+                                <td>{{ formatCurrency(r.totale) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <dl class="order-detail__totals">
+                        <div><dt>Sconto</dt><dd>{{ formatCurrency(selectedOrder.ordine.sconto) }}</dd></div>
+                        <div><dt>Totale</dt><dd>{{ formatCurrency(selectedOrder.ordine.totale) }}</dd></div>
+                        <div><dt>Pagato</dt><dd>{{ formatCurrency(selectedOrder.ordine.importo_pagato) }}</dd></div>
+                        <div><dt>Resto</dt><dd>{{ formatCurrency(selectedOrder.ordine.resto) }}</dd></div>
+                    </dl>
+                    <div class="order-detail__actions">
+                        <button type="button" class="neutral-btn"
+                            :disabled="orderActionBusyId === selectedOrder.ordine.id"
+                            @click="reprintOrder(selectedOrder.ordine)">Ristampa</button>
+                        <button type="button" class="danger-btn" v-if="!selectedOrder.ordine.stornato"
+                            :disabled="orderActionBusyId === selectedOrder.ordine.id"
+                            @click="voidOrder(selectedOrder.ordine)">Storna</button>
+                    </div>
+                </div>
+            </div>
+        </aside>
 
         <div id="message"></div>
     </div>
@@ -504,6 +623,17 @@
                     isProductPickerClosing: false,
                     productPickerSwipeStartY: null,
                     _productPickerCloseTimer: null,
+                    isOrdersPanelOpen: false,
+                    isOrdersPanelClosing: false,
+                    ordersList: [],
+                    ordersLoading: false,
+                    ordersError: '',
+                    ordersLimit: 20,
+                    orderSearch: '',
+                    selectedOrder: null,
+                    orderDetailLoading: false,
+                    orderActionBusyId: null,
+                    _ordersPanelCloseTimer: null,
                     lineDiscountPopover: {
                         visible: false,
                         itemId: null,
@@ -517,7 +647,11 @@
                     _productPickerMql: null,
                     _productPickerMqlHandler: null,
                     _productPickerResizeFallbackHandler: null,
-                    isMobileView: false
+                    // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
+                    // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
+                    isMobileView: typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+                        ? window.matchMedia('(max-width: 1000px), (orientation: portrait) and (max-width: 1180px)').matches
+                        : false
                 };
             },
             computed: {
@@ -802,7 +936,19 @@
                     }
                 },
                 handleProductPickerKeydown(event) {
-                    if (event.key === 'Escape' && this.isProductPickerOpen) {
+                    if (event.key !== 'Escape') {
+                        return;
+                    }
+                    if (this.isOrdersPanelOpen) {
+                        event.preventDefault();
+                        if (this.selectedOrder) {
+                            this.closeOrderDetail();
+                        } else {
+                            this.closeOrdersPanel();
+                        }
+                        return;
+                    }
+                    if (this.isProductPickerOpen) {
                         event.preventDefault();
                         this.closeProductPicker();
                     }
@@ -1103,6 +1249,9 @@
                     }
                     this.amountPaid = Number((current + increment).toFixed(2));
                 },
+                resetPaidAmount() {
+                    this.amountPaid = 0;
+                },
                 async clearCart() {
                     const shouldClear = await window.showConfirm('Sei sicuro di voler svuotare il carrello?', {
                         title: 'Svuota carrello',
@@ -1212,7 +1361,7 @@
                                 'error',
                                 {
                                     duration: 0,
-                                    action: { label: 'Configura stampanti', href: 'conf_stampanti.php' }
+                                    action: { label: 'Configura stampanti', href: 'conf_casse.php' }
                                 }
                             );
                         }
@@ -1347,9 +1496,84 @@
                     });
                 },
 
-                printLastReceipt() {
+                openOrdersPanel() {
+                    if (this._ordersPanelCloseTimer) {
+                        clearTimeout(this._ordersPanelCloseTimer);
+                        this._ordersPanelCloseTimer = null;
+                    }
+                    this.isOrdersPanelClosing = false;
+                    this.isOrdersPanelOpen = true;
+                    this.selectedOrder = null;
+                    document.body.classList.add('orders-panel-open');
+                    this.$nextTick(() => document.querySelector('.orders-panel .modal-close')?.focus());
+                    this.loadOrders();
+                },
+                closeOrdersPanel() {
+                    if (!this.isOrdersPanelOpen || this.isOrdersPanelClosing) {
+                        return;
+                    }
+                    this.isOrdersPanelClosing = true;
+                    this._ordersPanelCloseTimer = setTimeout(() => {
+                        this.isOrdersPanelOpen = false;
+                        this.isOrdersPanelClosing = false;
+                        this.selectedOrder = null;
+                        this._ordersPanelCloseTimer = null;
+                        document.body.classList.remove('orders-panel-open');
+                        this.$nextTick(() => document.querySelector('#orders-btn')?.focus());
+                    }, 300);
+                },
+                loadOrders() {
                     const cassaId = localStorage.getItem('cassa_id');
-                    $.get('../print/print_last_receipt.php', { cassa_id: cassaId })
+                    if (!cassaId) {
+                        this.ordersError = 'Nessuna cassa selezionata.';
+                        return;
+                    }
+                    this.ordersLoading = true;
+                    this.ordersError = '';
+                    const params = { cassa_id: cassaId, limit: this.ordersLimit };
+                    if (this.orderSearch) {
+                        params.q = this.orderSearch;
+                    }
+                    $.get('../api/get_ordini.php', params)
+                        .done((response) => {
+                            this.ordersList = Array.isArray(response && response.ordini) ? response.ordini : [];
+                        })
+                        .fail(() => {
+                            this.ordersError = 'Errore nel caricamento degli ordini.';
+                            this.ordersList = [];
+                        })
+                        .always(() => {
+                            this.ordersLoading = false;
+                        });
+                },
+                openOrderDetail(id) {
+                    const cassaId = localStorage.getItem('cassa_id');
+                    this.orderDetailLoading = true;
+                    this.selectedOrder = { ordine: { id: id }, righe: [] };
+                    $.get('../api/get_ordine_dettaglio.php', { id: id, cassa_id: cassaId })
+                        .done((response) => {
+                            if (response && response.ordine) {
+                                this.selectedOrder = { ordine: response.ordine, righe: response.righe || [] };
+                            } else {
+                                this.selectedOrder = null;
+                                this.showToast('Ordine non trovato.', 'error');
+                            }
+                        })
+                        .fail(() => {
+                            this.selectedOrder = null;
+                            this.showToast('Errore nel caricamento del dettaglio ordine.', 'error');
+                        })
+                        .always(() => {
+                            this.orderDetailLoading = false;
+                        });
+                },
+                closeOrderDetail() {
+                    this.selectedOrder = null;
+                },
+                reprintOrder(order) {
+                    const cassaId = localStorage.getItem('cassa_id');
+                    this.orderActionBusyId = order.id;
+                    $.get('../print/print_last_receipt.php', { cassa_id: cassaId, id: order.id })
                         .done(async (response) => {
                             try {
                                 if (response && response.method === 'bridge_qz') {
@@ -1361,13 +1585,65 @@
                                         throw new Error('Dati stampa RawBT non disponibili');
                                     }
                                 }
-                            
-                                this.showToast('Ultimo scontrino stampato con successo! Metodo: ' + (response && response.method ? response.method : 'sconosciuto'), 'success');
+
+                                this.showToast('Ordine #' + order.id + ' ristampato. Metodo: ' + (response && response.method ? response.method : 'sconosciuto'), 'success');
                             } catch (bridgeErr) {
-                                this.showToast('Ristampa bridge QZ fallita: ' + bridgeErr.message, 'error');
+                                this.showToast('Ristampa fallita: ' + bridgeErr.message, 'error');
                             }
                         })
-                        .fail(() => this.showToast('Errore durante la stampa dell\'ultimo scontrino.', 'error'));
+                        .fail((xhr) => {
+                            let msg = 'Errore durante la ristampa dell\'ordine.';
+                            try {
+                                const err = JSON.parse(xhr.responseText);
+                                if (err && err.error) { msg = err.error; }
+                            } catch (e) {}
+                            this.showToast(msg, 'error');
+                        })
+                        .always(() => {
+                            this.orderActionBusyId = null;
+                        });
+                },
+                async voidOrder(order) {
+                    const confirmed = await window.showConfirm(
+                        'Stornare l\'ordine #' + order.id + '? Verranno ripristinate le giacenze.',
+                        { title: 'Storna ordine', confirmLabel: 'Storna', cancelLabel: 'Annulla' }
+                    );
+                    if (!confirmed) {
+                        return;
+                    }
+                    this.orderActionBusyId = order.id;
+                    $.post('../api/storna_scontrino.php', {
+                        idScontr: String(order.id),
+                        dat: String(order.data_ora || '').slice(0, 10)
+                    }, null, 'json')
+                        .done((response) => {
+                            if (response && (response.updatedCount || 0) > 0) {
+                                order.stornato = 1;
+                                const inList = this.ordersList.find((o) => o.id === order.id);
+                                if (inList) { inList.stornato = 1; }
+                                if (this.selectedOrder && this.selectedOrder.ordine && this.selectedOrder.ordine.id === order.id) {
+                                    this.selectedOrder.ordine.stornato = 1;
+                                }
+                                this.showToast(response.esito || 'Ordine stornato.', 'success');
+                            } else {
+                                this.showToast((response && response.esito) || (response && response.error) || 'Storno non riuscito.', 'error');
+                            }
+                        })
+                        .fail(() => {
+                            this.showToast('Errore durante lo storno dell\'ordine.', 'error');
+                        })
+                        .always(() => {
+                            this.orderActionBusyId = null;
+                        });
+                },
+                formatOrderDateTime(value) {
+                    const raw = String(value || '').replace(' ', 'T');
+                    const d = new Date(raw);
+                    if (Number.isNaN(d.getTime())) {
+                        return String(value || '');
+                    }
+                    const pad = (n) => String(n).padStart(2, '0');
+                    return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
                 },
                 openDrawer() {
                     $.post('../api/open_drawer.php')
@@ -1390,6 +1666,15 @@
                 },
                 selectedCustomCategories() {
                     this.saveCategoryPreference();
+                },
+                paymentMethod(method) {
+                    // La riga "Importo pagato" e' rilevante solo per i contanti: cambiando metodo
+                    // (dove la riga su desktop e' nascosta) azzeriamo l'importo per non lasciare
+                    // un valore residuo che finirebbe nel checkout o nel calcolo del resto.
+                    if (method !== 'contanti') {
+                        this.amountPaid = 0;
+                        this.mobilePaidOpen = false;
+                    }
                 }
             },
             mounted() {
@@ -1456,12 +1741,16 @@
                 if (this._productPickerCloseTimer) {
                     clearTimeout(this._productPickerCloseTimer);
                 }
+                if (this._ordersPanelCloseTimer) {
+                    clearTimeout(this._ordersPanelCloseTimer);
+                }
                 if (this._productPickerResizeFallbackHandler) {
                     window.removeEventListener('resize', this._productPickerResizeFallbackHandler);
                 }
                 window.removeEventListener('resize', this._popoverRepositionHandler);
                 window.removeEventListener('scroll', this._popoverRepositionHandler, true);
                 document.body.classList.remove('product-picker-open');
+                document.body.classList.remove('orders-panel-open');
             }
         });
 

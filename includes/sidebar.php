@@ -44,9 +44,9 @@ $_hNavGroups = [
             'icon' => 'receipt',
         ],
         [
-            'file' => 'conf_stampanti.php',
-            'label' => 'Configura Stampanti',
-            'icon' => 'printer',
+            'file' => 'conf_casse.php',
+            'label' => 'Configura Casse',
+            'icon' => 'coins',
         ],
     ],
 ];
@@ -90,10 +90,17 @@ $_hNavGroups = [
     </nav>
     <div class="pos-sidebar__divider"></div>
     <div class="pos-sidebar__footer">
-        <span id="pos-cassa-badge" class="pos-badge">Cassa ID: N/D</span>
-        <button type="button" id="theme-switch-btn" class="pos-icon-btn" title="Tema" aria-label="Cambia tema">
-            <?= pos_icon('moon') ?>
+        <button type="button" id="chiudiCassaBtn" class="pos-sidebar__link"
+            data-api-url="<?= $_hRoot ?>api/chiudi_cassa.php" data-stats-url="<?= $_hRoot ?>pages/stat_vendite.php">
+            <?= pos_icon('logout') ?>
+            <span>Chiudi Cassa</span>
         </button>
+        <div class="pos-sidebar__footer-row">
+            <span id="pos-cassa-badge" class="pos-badge">Cassa: N/D</span>
+            <button type="button" id="theme-switch-btn" class="pos-icon-btn" title="Tema" aria-label="Cambia tema">
+                <?= pos_icon('moon') ?>
+            </button>
+        </div>
     </div>
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
@@ -200,6 +207,54 @@ $_hNavGroups = [
                         .finally(function() {
                             button.style.pointerEvents = 'auto';
                             button.style.opacity = '1';
+                        });
+                });
+            }
+
+            var chiudiCassaBtn = document.getElementById('chiudiCassaBtn');
+            if (chiudiCassaBtn) {
+                chiudiCassaBtn.addEventListener('click', function() {
+                    var apiUrl = this.getAttribute('data-api-url');
+                    var statsUrl = this.getAttribute('data-stats-url');
+                    var cassaId = '';
+                    try {
+                        cassaId = localStorage.getItem('cassa_id') || '';
+                    } catch (err) {
+                        cassaId = '';
+                    }
+
+                    fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cassa_id: cassaId })
+                    })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (!data || data.error) {
+                                showToast((data && data.error) || 'Errore durante la chiusura cassa.', 'error');
+                                return;
+                            }
+
+                            var euro = function(value) {
+                                return (parseFloat(value || 0)).toFixed(2).replace('.', ',') + ' €';
+                            };
+                            var ora = new Date(String(data.ultima_chiusura).replace(' ', 'T'));
+                            var oraLabel = isNaN(ora.getTime())
+                                ? data.ultima_chiusura
+                                : String(ora.getHours()).padStart(2, '0') + ':' + String(ora.getMinutes()).padStart(2, '0');
+
+                            showToast(
+                                'Chiusura cassa ' + cassaId + ' ore ' + oraLabel + ' · Fondo: ' + euro(data.fondo_cassa) +
+                                ' · Contanti oggi: ' + euro(data.totale_contanti) + ' · Atteso: ' + euro(data.totale_atteso),
+                                'info',
+                                { duration: 0, action: { label: 'Vai a statistiche', href: statsUrl } }
+                            );
+                        })
+                        .catch(function(error) {
+                            console.error('Errore chiusura cassa:', error);
+                            showToast('Errore durante la chiusura cassa.', 'error');
                         });
                 });
             }

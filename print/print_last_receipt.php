@@ -6,8 +6,12 @@ require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/get_printer.php';
 header('Content-Type: application/json; charset=utf-8');
 
-// Recuperiamo il cassa_id inviato dal browser 
+// Recuperiamo il cassa_id inviato dal browser
 $cassa_id_richiesto = trim((string)($_GET['cassa_id'] ?? ''));
+
+// Ristampa di un ordine specifico: se arriva ?id= si ristampa quello (anche se stornato),
+// altrimenti si mantiene il comportamento storico (ultimo scontrino non stornato della cassa).
+$id_richiesto = (int)($_GET['id'] ?? 0);
 
 if ($cassa_id_richiesto === '') {
     http_response_code(400);
@@ -23,15 +27,24 @@ if ($cassa_id_richiesto === '') {
 try {
     ensureDettagliVenditaDiscountColumns($connectionDB);
 
-    // 1. Recupera l'ultima vendita non stornata per la cassa specificata
-    $queryVendita = 'SELECT id, totale, importo_pagato, resto, cassa_id, sconto FROM vendite WHERE stornato = 0 AND cassa_id = ? ORDER BY id DESC LIMIT 1';
-    
+    // 1. Recupera la vendita da ristampare: quella con id richiesto (qualsiasi stato) oppure
+    //    l'ultima vendita non stornata per la cassa specificata.
+    if ($id_richiesto > 0) {
+        $queryVendita = 'SELECT id, totale, importo_pagato, resto, cassa_id, sconto, data_ora FROM vendite WHERE id = ? AND cassa_id = ? LIMIT 1';
+    } else {
+        $queryVendita = 'SELECT id, totale, importo_pagato, resto, cassa_id, sconto, data_ora FROM vendite WHERE stornato = 0 AND cassa_id = ? ORDER BY id DESC LIMIT 1';
+    }
+
     $stmtVendita = $connectionDB->prepare($queryVendita);
     if (!$stmtVendita) {
         throw new RuntimeException('Errore prepare vendite: ' . $connectionDB->error);
     }
 
-    $stmtVendita->bind_param('s', $cassa_id_richiesto);
+    if ($id_richiesto > 0) {
+        $stmtVendita->bind_param('is', $id_richiesto, $cassa_id_richiesto);
+    } else {
+        $stmtVendita->bind_param('s', $cassa_id_richiesto);
+    }
     $stmtVendita->execute();
     $resultVendita = $stmtVendita->get_result();
 
@@ -89,12 +102,13 @@ try {
     $pagato = (float)($lastReceipt['importo_pagato'] ?? 0);
     $resto = (float)($lastReceipt['resto'] ?? 0);
     $cassa_id = (string)($lastReceipt['cassa_id'] ?? 'ND');
-    
+    $data_ora = $lastReceipt['data_ora'] ?? null; // ristampa: si stampa l'ora originale della vendita
+
     // 3. MANDIAMO IN STAMPA con la nuova funzione centralizzata!
     $printerSettings = getPrinterSettings($connectionDB, $cassa_id);
     $receiptConfig = getReceiptConfig($connectionDB);
 
-    $printResult = routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $sconto, $pagato, $resto);
+    $printResult = routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $sconto, $pagato, $resto, $data_ora);
 
     echo json_encode(array_merge([
         'success' => true,
