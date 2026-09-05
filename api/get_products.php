@@ -3,9 +3,9 @@ require_once __DIR__ . '/../config/get_db_connection.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-$connectionDB->query('ALTER TABLE stock ADD COLUMN IF NOT EXISTS quantity_available INT NULL DEFAULT NULL AFTER price');
-$connectionDB->query('ALTER TABLE stock ADD COLUMN IF NOT EXISTS item_sort INT NULL AFTER image_path');
-$connectionDB->query('UPDATE stock SET item_sort = id WHERE item_sort IS NULL');
+// Le colonne quantity_available/item_sort e il loro backfill sono gestiti
+// una tantum da config/migrations/001_stock_updated_at.php, non piu' ad
+// ogni richiesta (vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md, Fase 0).
 
 $category = isset($_GET['category']) ? trim((string) $_GET['category']) : '';
 $includeInactiveRaw = isset($_GET['include_inactive']) ? strtolower(trim((string) $_GET['include_inactive'])) : '0';
