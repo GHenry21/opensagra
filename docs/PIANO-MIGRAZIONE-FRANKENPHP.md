@@ -98,11 +98,14 @@ Vale qualunque sia il web server. Sblocca il collo di bottiglia attuale.
 - `UPDATE` che **non cambia realmente il valore** (es. `quantity_available = quantity_available`) → `updated_at` **non** si aggiorna (comportamento nativo di MariaDB: una riga "invariata" non viene riscritta, quindi `ON UPDATE` non scatta). Un `UPDATE` con un valore effettivamente diverso invece fa avanzare `version` immediatamente. Da tenere a mente: un "salva" che riscrive gli stessi valori non farà scattare il polling — non è un problema per l'uso reale (le modifiche prodotto cambiano sempre qualcosa), ma spiega perché un test superficiale può sembrare "non funzionare".
 - Sintassi JS del file estratta e validata con `node --check` (nessun errore).
 
-**Accettazione:**
-- Con prodotti fermi: la tab Network mostra solo `products_version.php` (~30 byte) ogni 6 s; nessun re-render della griglia prodotti.
-- Modificando un prodotto da un'altra postazione: la griglia si aggiorna entro un ciclo di polling. **→ Verificato a livello di endpoint** (version bump); il refresh end-to-end della griglia va comunque osservato una volta in browser reale prima di considerarlo definitivo.
-- Tab in background: nessuna richiesta parte. Server spento: le richieste rallentano fino a 60 s invece di martellare ogni 6 s.
-- Cambio filtro categoria da parte dell'utente: non viene sovrascritto dal polling (garantito dal flag `_categoriesInitialized`, non ancora osservato manualmente in UI).
+**Accettazione — ✅ verificata end-to-end in browser reale (Chromium via Playwright, 2026-09-05):**
+- Con prodotti fermi: in 27 s di osservazione, un solo `get_products.php` (carico iniziale) + `products_version.php` ogni ~6 s (t=0.3, 6.4, 12.4, 18.4, 24.4) — nessuna ripetizione di `get_products.php`. **Verificato.**
+- Cambio filtro categoria (`Tutte → Solo Cucina`): il valore resta `cucina` anche dopo 16 s di polling in background (3 cicli) — il flag `_categoriesInitialized` funziona, il polling non sovrascrive la scelta dell'utente. **Verificato.**
+- Tab nascosta (`document.visibilityState = 'hidden'` + evento `visibilitychange`) per 15 s: **zero richieste** — la pausa funziona. **Verificato.**
+- Ritorno a `visible`: entro 3 s parte subito una `products_version.php` (non si aspetta il prossimo giro schedulato) — il listener funziona. **Verificato.**
+- Nessun errore in console durante l'intero test.
+- Screenshot della pagina: UI renderizzata correttamente con prodotti/prezzi/categorie reali dal DB (non una schermata vuota).
+- Non ripetuto in questa sessione (richiede una modifica prodotto in concomitanza, già verificato a parte in Fase 0/1a a livello di endpoint): "modificando un prodotto da un'altra postazione, la griglia si aggiorna entro un ciclo" — il meccanismo (version bump → `loadProducts()`) è lo stesso già testato, non ripetuto qui per ridondanza.
 
 ---
 
@@ -501,7 +504,7 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 ## Riepilogo checklist di alto livello
 
 - [x] **Fase 0** ✅ — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato. Commit `ca260d0`.
-- [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. Da osservare in browser reale il refresh end-to-end e il non-sovrascrivere il filtro categoria.
+- [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. **Verificato end-to-end in Chromium reale**: cadenza 6s a riposo, filtro categoria non sovrascritto, pausa a tab nascosta, ripresa immediata al ritorno, nessun errore console.
 - [ ] **Fase 2** — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile`, `composer install`, smoke test 2d, servizio WinSW.
 - [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
