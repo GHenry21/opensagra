@@ -1,0 +1,20 @@
+# Normalizza i fine riga: LF nel repository e nel working tree, a prescindere
+# dall'OS di chi fa il commit/checkout. Il repo era gia' misto (CRLF/LF su file
+# diversi, salvati nel tempo con editor/impostazioni differenti); questa regola
+# vale solo per i file toccati da qui in avanti, non riscrive quelli esistenti
+# (per farlo servirebbe un `git add --renormalize .` deliberato e separato).
+* text=auto eol=lf
+
+# File binari: mai normalizzare i fine riga, mai calcolare un diff testuale.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.cer binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
