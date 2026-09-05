@@ -45,22 +45,29 @@ Su hardware datato (4 core ~2013, 4–8 GB RAM), dopo la Fase 0: **50–100+ cas
 
 ---
 
-## Fase 0 — Fix DB (indipendente, da fare per prima)
+## Fase 0 — Fix DB (indipendente, da fare per prima) ✅ COMPLETATA (2026-09-05)
 
 Vale qualunque sia il web server. Sblocca il collo di bottiglia attuale.
 
-- [ ] Creare `config/migrations/` con uno script eseguito **una sola volta** (registro migrazioni in una tabella `schema_migrations`, o check manuale):
-  - [ ] `ALTER TABLE stock ADD COLUMN IF NOT EXISTS quantity_available INT NULL DEFAULT NULL AFTER price;`
-  - [ ] `ALTER TABLE stock ADD COLUMN IF NOT EXISTS item_sort INT NULL AFTER image_path;`
-  - [ ] `UPDATE stock SET item_sort = id WHERE item_sort IS NULL;`
-  - [ ] `ALTER TABLE stock ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp();`
-  - [ ] backfill: `UPDATE stock SET updated_at = COALESCE(created_at, NOW());`
-  - [ ] indice per il polling: `ALTER TABLE stock ADD INDEX idx_stock_updated_at (updated_at);`
-- [ ] Rimuovere le righe 6–8 di `api/get_products.php` (le tre query DDL/UPDATE).
-- [ ] Aggiornare `config/pos.sql` con la nuova colonna `updated_at`, l'indice e la rimozione del disallineamento (così una install pulita nasce già corretta).
-- [ ] Verificare che gli endpoint che scrivono su `stock` (`insert_product.php`, `update_product.php`, `soft_delete_product.php`, `update_category.php`) tocchino righe di `stock` → `updated_at` si aggiorna da solo grazie a `ON UPDATE`.
+- [x] Creata `config/migrations/001_stock_updated_at.php`, eseguita **una sola volta** (idempotente: verifica via `information_schema` prima di ogni passo, rilanciabile senza effetti):
+  - [x] `ALTER TABLE stock ADD COLUMN IF NOT EXISTS quantity_available INT NULL DEFAULT NULL AFTER price;`
+  - [x] `ALTER TABLE stock ADD COLUMN IF NOT EXISTS item_sort INT NULL AFTER image_path;`
+  - [x] `UPDATE stock SET item_sort = id WHERE item_sort IS NULL;`
+  - [x] `ALTER TABLE stock ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp();`
+  - [x] backfill: `UPDATE stock SET updated_at = COALESCE(created_at, NOW());`
+  - [x] indice per il polling: `ALTER TABLE stock ADD INDEX idx_stock_updated_at (updated_at);`
+- [x] Rimosse le righe 6–8 di `api/get_products.php` (le tre query DDL/UPDATE).
+- [x] Aggiornato `config/pos.sql` con la nuova colonna `updated_at` e l'indice (schema per installazioni nuove).
+- [x] Verificato che l'`UPDATE` su una riga di `stock` aggiorna da solo `updated_at` grazie a `ON UPDATE` (testato direttamente sul DB).
 
-**Accettazione:** `api/get_products.php` risponde identico a prima; nel general query log di MariaDB non compaiono più `ALTER TABLE` a ogni chiamata; `SELECT MAX(updated_at) FROM stock` cambia solo dopo una modifica prodotto.
+**Verifiche eseguite:**
+- `get_products.php` via Apache/XAMPP → HTTP 200, JSON identico a prima.
+- Migrazione rilanciata due volte: la seconda salta tutti i passi già applicati (nessun errore, nessuna riscrittura di `updated_at`).
+- `SELECT MAX(updated_at)` + `SHOW INDEX` confermano colonna e indice presenti; un `UPDATE` di prova su un prodotto sposta `updated_at` da `2025-07-14` a "adesso".
+
+**Nota:** `config/pos.sql` ha altre modifiche non correlate già in corso (non committate qui, lasciate a chi sta lavorando su quel file da VSCode Source Control).
+
+**Accettazione:** `api/get_products.php` risponde identico a prima; nel general query log di MariaDB non compaiono più `ALTER TABLE` a ogni chiamata; `SELECT MAX(updated_at) FROM stock` cambia solo dopo una modifica prodotto. **→ Verificato.**
 
 ---
 
@@ -492,7 +499,7 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 
 ## Riepilogo checklist di alto livello
 
-- [ ] **Fase 0** — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato.
+- [x] **Fase 0** ✅ — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato. Commit `ca260d0`.
 - [ ] **Fase 1** — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum.
 - [ ] **Fase 2** — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile`, `composer install`, smoke test 2d, servizio WinSW.
 - [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
