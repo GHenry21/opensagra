@@ -113,7 +113,8 @@ Obiettivo: far girare l'app identica a XAMPP, su `https://localhost`, con Franke
 ### 2a. Prerequisiti
 
 - [ ] `frankenphp version` risponde (già installato via `irm https://frankenphp.dev/install.ps1 | iex`).
-- [ ] MariaDB locale disponibile (per ora va bene quella di XAMPP; in alternativa installazione nativa). DB `opensagra_pos` presente e popolato.
+- [x] **MariaDB nativa già installata** (2026-09-05) accanto a quella di XAMPP. Allo switch: si configura il DB (import `pos.sql` + migrazioni) sulla MariaDB nativa e **si ferma** il servizio MySQL di XAMPP dal pannello di controllo — **non si disinstalla né si cancella nulla**, XAMPP resta sul disco spento, riattivabile in qualsiasi momento se serve tornare indietro.
+- [ ] DB `opensagra_pos` presente e popolato **sulla MariaDB nativa** (oggi vive ancora solo su quella di XAMPP).
 
 ### 2b. Estensioni PHP
 
