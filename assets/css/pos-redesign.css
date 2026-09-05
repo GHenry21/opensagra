@@ -143,21 +143,6 @@ button {
 }
 
 
-#theme-toggle-btn {
-  border-radius: 999px;
-  border: 1px solid var(--mc-border);
-  background: var(--mc-panel);
-  color: var(--mc-text);
-  font-size: 14px;
-  font-weight: 600;
-  box-shadow: var(--ui-shadow-soft);
-}
-
-#theme-toggle-btn:hover {
-  background: var(--mc-bg-soft);
-}
-
-#theme-toggle-btn:focus-visible,
 button:focus-visible,
 input:focus,
 select:focus,
@@ -476,16 +461,36 @@ body.dark-mode .pos-icon-btn:hover {
   font-weight: 700;
 }
 
+/* Icona a destra, sfondo soft fisso (non colore da "action button") e testo in
+   grassetto come il badge Cassa ID, per farlo risaltare rispetto alle voci di
+   navigazione normali. */
+#chiudiCassaBtn {
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--mc-primary) 16%, transparent);
+}
+
+#chiudiCassaBtn:hover {
+  background: var(--mc-hover-strong);
+  filter: brightness(0.96);
+}
+
 .pos-sidebar__divider {
   margin: 8px 16px auto
 }
 
 .pos-sidebar__footer {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--mc-border);
+  display: flex;
+  gap: 8px;
+}
+
+.pos-sidebar__footer-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px 16px;
-  border-top: 1px solid var(--mc-border);
 }
 
 .pos-sidebar__footer .pos-badge {
@@ -648,7 +653,7 @@ body.sidebar-page {
   color: var(--mc-text-soft);
 }
 
-.management-page button:not(.pos-icon-btn):not(#theme-toggle-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link) {
+.management-page button:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link) {
   height: 40px;
   padding: 0 14px;
   border-radius: var(--ui-radius-sm);
@@ -660,7 +665,7 @@ body.sidebar-page {
   transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
 
-.management-page button#btnRemoveLogo:not(.pos-icon-btn):not(#theme-toggle-btn) {
+.management-page button#btnRemoveLogo:not(.pos-icon-btn) {
   height: 40px;
   padding: 0 14px;
   border-radius: var(--ui-radius-sm);
@@ -671,36 +676,36 @@ body.sidebar-page {
   cursor: pointer;
 }
 
-.management-page button#btnRemoveLogo:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+.management-page button#btnRemoveLogo:not(.pos-icon-btn):hover {
   background: color-mix(in srgb, var(--mc-danger) 76%, #000 24%);
   border-color: color-mix(in srgb, var(--mc-danger) 78%, #000 22%);
   filter: none;
 }
 
-.management-page button#btnReload:not(.pos-icon-btn):not(#theme-toggle-btn) {
+.management-page button#btnReload:not(.pos-icon-btn) {
   background: #34495e;
   border-color: #34495e;
   color: #ffffff;
 }
 
-.management-page button#btnReload:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+.management-page button#btnReload:not(.pos-icon-btn):hover {
   background: #2c3e50;
   border-color: #34495e;
   color: #ffffff;
   filter: none;
 }
 
-.management-page button:not(.pos-icon-btn):not(#theme-toggle-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):hover {
+.management-page button:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):hover {
   background: color-mix(in srgb, var(--mc-primary) 74%, #000 26%);
   filter: none;
 }
 
-.management-page button.btn-delete:not(.pos-icon-btn):not(#theme-toggle-btn) {
+.management-page button.btn-delete:not(.pos-icon-btn) {
   background: color-mix(in srgb, var(--mc-danger) 90%, #000 10%);
   color: #fff;
 }
 
-.management-page button.btn-delete:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+.management-page button.btn-delete:not(.pos-icon-btn):hover {
   background: color-mix(in srgb, var(--mc-danger) 76%, #000 24%);
 }
 
@@ -752,7 +757,9 @@ body.sidebar-page {
   top: 25px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 1305;
+  /* Sopra ogni pannello/drawer dell'app (sidebar 1200, product picker 1300, pannello ordini 1350,
+     confirm-dialog 1450) cosi' le notifiche restano sempre visibili. */
+  z-index: 1600;
   display: grid;
   gap: 10px;
   width: min(420px, calc(100vw - 24px));

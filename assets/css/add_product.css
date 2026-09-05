@@ -156,7 +156,7 @@
     color: var(--mc-primary)
 }
 
-.management-page button.reload-products-btn:not(.pos-icon-btn):not(#theme-toggle-btn) {
+.management-page button.reload-products-btn:not(.pos-icon-btn) {
     width: 38px;
     min-width: 38px;
     height: var(--add-product-control-height);
@@ -173,7 +173,7 @@
     height: 18px
 }
 
-.management-page button.reload-products-btn:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+.management-page button.reload-products-btn:not(.pos-icon-btn):hover {
     background: var(--mc-hover-soft)
 }
 
@@ -292,7 +292,7 @@
 }
 
 .image-upload-btn,
-.management-page button.quantity-edit-btn:not(.pos-icon-btn):not(#theme-toggle-btn) {
+.management-page button.quantity-edit-btn:not(.pos-icon-btn) {
     width: 34px;
     height: var(--add-product-control-height);
     padding: 0;
@@ -311,7 +311,7 @@
 }
 
 .image-upload-btn:hover,
-.management-page button.quantity-edit-btn:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+.management-page button.quantity-edit-btn:not(.pos-icon-btn):hover {
     background: color-mix(in srgb, var(--mc-panel-muted) 72%, transparent);
     color: var(--mc-text)
 }
@@ -424,7 +424,7 @@
     -webkit-appearance: none
 }
 
-.management-page button.quantity-step-btn:not(.pos-icon-btn):not(#theme-toggle-btn):not(.pos-mobile-actions-toggle) {
+.management-page button.quantity-step-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle) {
     flex: 0 0 var(--add-product-step-width);
     width: var(--add-product-step-width);
     min-width: var(--add-product-step-width);
@@ -440,7 +440,7 @@
     cursor: pointer
 }
 
-.management-page button.quantity-step-btn:not(.pos-icon-btn):not(#theme-toggle-btn):not(.pos-mobile-actions-toggle):hover {  
+.management-page button.quantity-step-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):hover {  
     background-color: color-mix(in srgb, var(--mc-primary) 8%, transparent) !important;
 }
 
@@ -566,14 +566,14 @@
     margin-left: 6px
 }
 
-.management-page button.toggle-active-row.is-restore:not(.pos-icon-btn):not(#theme-toggle-btn),
-.management-page button.bulk-restore-btn:not(.pos-icon-btn):not(#theme-toggle-btn) {
+.management-page button.toggle-active-row.is-restore:not(.pos-icon-btn),
+.management-page button.bulk-restore-btn:not(.pos-icon-btn) {
     background: #2c3e50;
     color: #ffff
 }
 
-.management-page button.toggle-active-row.is-restore:not(.pos-icon-btn):not(#theme-toggle-btn):hover,
-.management-page button.bulk-restore-btn:not(.pos-icon-btn):not(#theme-toggle-btn):hover {
+.management-page button.toggle-active-row.is-restore:not(.pos-icon-btn):hover,
+.management-page button.bulk-restore-btn:not(.pos-icon-btn):hover {
     background: var(--mc-hover-soft);
     color: #ffff
 }

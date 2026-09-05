@@ -27,10 +27,6 @@
 
   function updateThemeButton(theme) {
     const visibleButton = document.getElementById('theme-switch-btn');
-    const hiddenButton = document.getElementById('theme-toggle-btn');
-    if (hiddenButton) {
-      hiddenButton.textContent = theme === 'dark' ? 'light' : 'dark';
-    }
     if (!visibleButton) {
       return;
     }
@@ -75,24 +71,13 @@
   }
 
   function setupThemeToggle() {
-    const hiddenToggleButton = document.getElementById('theme-toggle-btn');
     const visibleButton = document.getElementById('theme-switch-btn');
-
-    if (visibleButton && visibleButton.dataset.themeClickBound !== '1') {
-      visibleButton.dataset.themeClickBound = '1';
-      visibleButton.addEventListener('click', () => {
-        if (hiddenToggleButton) {
-          hiddenToggleButton.click();
-        }
-      });
-    }
-
-    if (!hiddenToggleButton || hiddenToggleButton.dataset.themeBound === '1') {
+    if (!visibleButton || visibleButton.dataset.themeBound === '1') {
       return;
     }
 
-    hiddenToggleButton.dataset.themeBound = '1';
-    hiddenToggleButton.addEventListener('click', toggleTheme);
+    visibleButton.dataset.themeBound = '1';
+    visibleButton.addEventListener('click', toggleTheme);
   }
 
   function setupFullscreenIconSync() {

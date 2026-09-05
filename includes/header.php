@@ -12,8 +12,6 @@
                 <?= pos_icon('maximize') ?>
             </button>
         </div>
-        <button id="theme-toggle-btn" class="visually-hidden" type="button" aria-hidden="true"
-            tabindex="-1">Tema</button>
     </div>
 </div>
 <script>
@@ -31,7 +29,7 @@
                 cassaId = '';
             }
 
-            badge.textContent = 'Cassa ID: ' + (cassaId || 'N/D');
+            badge.textContent = 'Cassa: ' + (cassaId || 'N/D');
         }
 
         if (document.readyState === 'loading') {

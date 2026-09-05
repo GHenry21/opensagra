@@ -36,10 +36,9 @@ I fogli pagina-specifici attivi sono caricati dopo `pos-redesign.css`:
 - `conf_scontrino.css` per la configurazione dello scontrino;
 - `stat_vendite.css` per le statistiche di vendita;
 - `storni.css` per la gestione degli storni;
-- `conf_stampanti.css` per la configurazione delle stampanti.
+- `conf_casse.css` per la configurazione delle casse.
 
-`theme.css` contiene il vecchio set di token e non viene caricato dalle pagine
-attive; i token correnti sono definiti in `pos-redesign.css`.
+I token correnti sono definiti in `pos-redesign.css`.
 
 Questi fogli contengono solo layout e componenti propri della pagina. Le regole condivise restano in `pos-redesign.css`.
 
