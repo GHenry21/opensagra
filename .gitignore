@@ -1,6 +1,11 @@
 # Cartella delle dipendenze di Composer (verrà rigenerata via script)
 /vendor/
 
+# Dipendenze npm (Playwright) e output dei test e2e, rigenerati via `npm install`
+/node_modules/
+/test-results/
+/playwright-report/
+
 # File di test temporanei o log
 *.log
 *.tmp
