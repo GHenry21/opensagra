@@ -589,6 +589,8 @@ L'architettura reale prevista (confermata dall'utente) è **un bridge QZ condivi
 - **QZ sempre in loopback per-cassa** — scartata, incompatibile con l'architettura a bridge condiviso.
 - **`wss://` con certificato dalla CA locale di Caddy** — tecnicamente valida (vedi sotto per lo scope), ma un giorno di lavoro concentrato (conversione keystore Java, gestione IP/hostname stabile del bridge, rinnovo certificati, modifiche JS duplicate in più pagine) per un beneficio (il lucchetto, HTTP/2+3) non essenziale su un'app solo-LAN senza login.
 
+**✅ Confermato con test reale**: stesso identico scenario (bridge QZ su `192.168.88.224`, stampante fisica) ripetuto su `http://localhost:8080` sui tre motori Chromium/Firefox/WebKit — **connessione pulita su tutti e tre, zero warning di mixed-content** (`Established connection with QZ Tray` su ognuno). La decisione è validata coi dati, non solo con la teoria. 7 vendite di test totali accumulate in questa sessione di verifica (id 113–119, cassa `henry`, €6 ciascuna) — lasciate nel DB su autorizzazione esplicita dell'utente.
+
 **Scelta**: restare su HTTP puro per l'uso reale (`Caddyfile` ha un blocco `http://localhost:8080` accanto a quello HTTPS, che resta per riferimento/test). Elimina il problema alla radice — `ws://` da pagina HTTP non è mai mixed-content, su nessun motore — con zero modifiche al codice QZ, identico a come funziona oggi con XAMPP. Si rinuncia anche a HTTP/2/HTTP/3 (richiedono TLS), non solo al lucchetto.
 
 **Scope di un'eventuale integrazione `wss://` futura** (documentato per riferimento, non implementato):
