@@ -1,0 +1,10 @@
+{
+frankenphp
+}
+
+localhost:8443 {
+root * C:\xampp\htdocs\opensagra
+encode zstd gzip
+php_server
+tls internal
+}

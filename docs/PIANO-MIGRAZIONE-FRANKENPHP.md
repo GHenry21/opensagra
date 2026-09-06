@@ -208,19 +208,27 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
 
 **Insidia #5 — Firefox non si fida della CA locale, Chromium (Brave/Chrome/Edge) sì.** Verificato (2026-09-06): Brave ha accettato `https://localhost:8443` senza alcun avviso (usa lo store certificati di Windows, dove `frankenphp run`/`trust` installa la CA in automatico). Firefox invece ha mostrato "Avanzate → accetta il rischio" perché usa un **proprio store NSS indipendente da Windows** — coerente col log di avvio (`note: NSS support is not available on your platform`). **Fix**: importare manualmente `%APPDATA%\Caddy\pki\authorities\local\root.crt` in Firefox → `about:preferences#privacy` → Certificati → Visualizza certificati → Autorità → Importa → spunta "considera attendibile per identificare siti web". Da tenere a mente per la **Fase 3h**: se qualche postazione userà Firefox (o altri browser NSS-based), il certificato va installato **anche lì**, non basta il trust store di sistema.
 
+**Correzioni al checklist originale, emerse testando (2026-09-06):** "Ricerca prodotti" non esiste come funzione in `billing.php` (nessun campo di ricerca testo — solo filtro categoria + click diretto sulla card). `session_start()` non compare **in nessun file** del progetto: l'app non usa sessioni PHP, lo stato (`cassa_id`) vive in `localStorage` lato client. Voce rimossa dal checklist.
+
+**Nota sul DB condiviso**: questa macchina di sviluppo usa lo stesso database che a volte viene testato manualmente in parallelo (vedi memoria `concurrent-live-testing`). I test automatici sotto sono stati progettati per non scrivere vendite reali: niente checkout automatico, e l'unica scrittura di test (`chiudi_cassa.php`) ha usato un `cassa_id` palesemente fittizio (`TEST-CLAUDE-FASE2-DELETE-ME`), rimosso subito dopo la verifica.
+
+Script usati (mantenuti in `e2e/*.manual.js`, non wired a `npx playwright test` — sono verifiche una tantum, non una suite CI):
+
 - [x] `pages/billing.php`: caricamento prodotti con foto, categorie — visivamente identico a XAMPP (Brave e Firefox, dopo il fix CA).
-- [x] Upload immagini prodotto (cartella `uploads/`) — creazione nuovo prodotto testata manualmente, riuscita (conferma `gd`/`fileinfo` funzionanti oltre a `mysqli`).
-- [ ] Ricerca, filtri categoria, aggiunta al carrello, sconti riga/totale.
-- [ ] Checkout completo per ogni metodo pagamento abilitato (contanti/carta/Satispay).
-- [ ] Stampa scontrino **ESC/POS USB** (`print/print_receipt.php`, `print/print_last_receipt.php`).
-- [ ] Stampa via **bridge / rete** (`print/print_receipt_bridge.php`, `print/print_stat_receipt.php`) — usa `curl`.
-- [ ] Firma popup **QZ Tray** (`api/sign-message.php`) — usa `openssl` + chiave in `../../../private/key.pem`.
-- [ ] **QZ Tray sotto HTTPS**: servendo l'app da `https://localhost`, verificare che i popup di consenso QZ **non riappaiano** e che la stampa USB funzioni ancora. Eseguire i test elencati in **Appendice C** (mixed-content su `ws://`, load di `qz-tray.js` da `http://`). Non modificare nulla lato QZ: solo osservare e annotare.
-- [ ] **PDF dompdf** (`print/print_stat_pdf.php`) — usa `gd`, `dom`, `mbstring`, `zip`.
-- [ ] Statistiche vendite / storni (`pages/stat_vendite.php`, `api/statistiche_*.php`).
-- [ ] Config casse e scontrini (`pages/conf_casse.php`, `api/save_receipt_config.php`, `api/get_receipt_config.php`) — rinominata da `conf_stampanti.php` nel frattempo (vedi commit `a5620da`).
-- [ ] Apertura cassetto (`api/open_drawer.php`), chiusura cassa (`api/chiudi_cassa.php`).
-- [ ] Sessioni PHP (`session_start`) — login/stato cassa persistono tra richieste.
+- [x] Upload immagini prodotto (cartella `uploads/`) — creazione nuovo prodotto testata manualmente, riuscita (conferma `gd`/`fileinfo` oltre a `mysqli`).
+- [x] Filtri categoria, aggiunta al carrello, sconti riga/totale — automatizzato (`e2e/fase2d_smoke.manual.js`): click su prodotto aggiorna il totale, click su sconto preimpostato lo ricalcola, cambio filtro categoria nasconde le sezioni non pertinenti. Nessun errore console.
+- [ ] **Checkout completo** — deliberatamente **non automatizzato**: scriverebbe una vendita vera nel DB condiviso. Da fare a mano quando comodo (contanti/carta/Satispay).
+- [ ] Stampa scontrino **ESC/POS USB** — **non testabile su questa macchina**: nessuna stampante USB collegata. Da verificare sul posto con hardware reale.
+- [ ] Stampa via **bridge / rete** — **non testabile**: richiede QZ Tray attivo o una stampante di rete raggiungibile: nessuno dei due presente qui.
+- [x] **`api/sign-message.php`** (firma `openssl`, non richiede QZ Tray in esecuzione) — automatizzato: risposta HTTP 200, firma base64 di 344 caratteri restituita correttamente.
+- [ ] **QZ Tray sotto HTTPS** — **non testabile**: QZ Tray non è installato/in esecuzione su questa macchina (verificato: nessuna porta 8181/8182 in ascolto). Da fare quando disponibile un PC con QZ Tray configurato — vedi checklist **Appendice C**.
+- [x] **PDF dompdf** (`print/print_stat_pdf.php`) — automatizzato (`e2e/fase2d_pdf_download.manual.js`): **non tramite chiamata HTTP diretta** (curl e l'API di richieste di Playwright falliscono entrambi in modo innocuo su risposte `Content-Disposition: attachment`, 0 byte scaricati — limite dello strumento, non dell'app), ma pilotando il vero flusso utente (click su "Scarica PDF" in `stat_vendite.php`, che sottomette un form HTML classico) con `page.waitForEvent('download')`: PDF valido ricevuto, 2767 byte, header `%PDF-1.7`.
+- [x] Statistiche vendite (`api/statistiche_vendite.php`) — automatizzato, HTTP 200, risposta coerente (nessuna vendita odierna).
+- [x] Statistiche storni (`api/statistiche_storni.php`) — verificato via curl POST, HTTP 200, `{"storni":[]}`.
+- [x] Config casse e scontrini — `pages/conf_casse.php` (rinominata da `conf_stampanti.php`, commit `a5620da`) e `api/get_receipt_config.php` verificati **in sola lettura** (GET, nessun salvataggio testato per non toccare la config reale delle casse).
+- [x] Apertura cassetto (`api/open_drawer.php`) — automatizzato: **atteso e ottenuto** un errore pulito HTTP 500 (nessuna stampante reale collegata: l'IP di rete hardcoded nel file non risponde) — conferma che `escpos-php` carica ed esegue correttamente sotto FrankenPHP, il fallimento è solo per assenza di hardware, non un errore di piattaforma.
+- [x] Chiusura cassa (`api/chiudi_cassa.php`) — automatizzato con `cassa_id` di test fittizio, riga creata e **rimossa subito dopo** (`DELETE FROM casse_stampanti WHERE cassa_id = 'TEST-CLAUDE-FASE2-DELETE-ME'`, 1 riga cancellata, verificato).
+- [x] ~~Sessioni PHP~~ — non applicabile, vedi nota sopra.
 
 ### 2e. Servizio Windows
 
