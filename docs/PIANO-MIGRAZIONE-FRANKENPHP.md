@@ -116,8 +116,54 @@ Obiettivo: far girare l'app identica a XAMPP, su FrankenPHP + MariaDB, come serv
 ### 2a. Prerequisiti
 
 - [x] `frankenphp version` risponde — v1.12.7, PHP 8.5.10, Caddy v2.11.4 (installato via `irm https://frankenphp.dev/install.ps1 | iex` in `C:\Users\enrig\.frankenphp`, aggiunto al PATH utente).
-- **Correzione (2026-09-06)**: la riga precedente parlava di una "MariaDB nativa" installata separatamente — non è così. Verificato passo passo (servizi, processi, porta 3306): `mysql`/`php` sono **XAMPP registrato come servizio Windows** (comodità di avvio automatico, non serve più aprire il pannello XAMPP), non un'installazione MariaDB indipendente. È tuttora `C:\xampp\mysql\bin\mysqld.exe` a rispondere su `127.0.0.1:3306` con tutti i dati reali. Una MariaDB davvero separata dall'albero XAMPP resta da fare **in Fase 3** (installazione da zero), non è ancora stata fatta.
-- [x] DB `opensagra_pos` presente e popolato — su XAMPP (via servizio Windows), raggiungibile da `127.0.0.1:3306` come sempre. `config/variabili.env` non richiede modifiche per la Fase 2.
+- **Correzione (2026-09-06)**: la riga precedente parlava di una "MariaDB nativa" installata separatamente — non era così *a quella data*. Poi è stata davvero messa in piedi ed è ora quella in uso — vedi il nuovo cutover qui sotto.
+- [x] DB `opensagra_pos` presente e popolato — **ora sulla MariaDB nativa** (cutover completato 2026-09-07, vedi sotto). `config/variabili.env` non ha richiesto nessuna modifica.
+
+## Cutover manuale (2026-09-07): XAMPP fermato, MariaDB nativa in produzione ✅
+
+Prima di questo passo: verificato che il backup manuale (`opensagra_pos.sql` da phpMyAdmin, sul Desktop) fosse identico al DB live **byte per byte** (checksum MD5 sull'intera tabella `stock`, confronto riga per riga sull'ultima vendita) — e che `config/pos.sql` producesse lo schema corretto (vedi i tre fix in "Bug trovati in `pos.sql`" più sotto) prima di fidarcene per un'installazione da zero. Solo dopo queste due verifiche si è proceduto.
+
+**Sequenza eseguita** (utente in PowerShell da amministratore per l'installazione del servizio, il resto da Claude):
+
+1. Fermati Apache e MySQL di XAMPP dal pannello di controllo.
+2. Registrata la MariaDB nativa (già installata via winget, mai avviata prima d'ora — vedi nota Fase 2a originale) come servizio Windows:
+   ```powershell
+   cd "C:\Program Files\MariaDB 12.3\bin"
+   .\mariadbd.exe --install MariaDB --defaults-file="C:\Program Files\MariaDB 12.3\data\my.ini"
+   Start-Service MariaDB
+   ```
+   (il `my.ini` esistente aveva già `port=3306`, libera perché XAMPP l'ha appena rilasciata — nessuna modifica di porta necessaria)
+3. Creato il database e **importato il backup verificato** (non `pos.sql`, che è deliberatamente vergine per installazioni nuove — qui serviva mantenere i dati reali):
+   ```php
+   $conn = new mysqli("127.0.0.1", "root", "", "", 3306);
+   $conn->query("CREATE DATABASE IF NOT EXISTS opensagra_pos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+   $conn->select_db("opensagra_pos");
+   $conn->multi_query(file_get_contents("C:/Users/enrig/Desktop/opensagra_pos.sql"));
+   ```
+4. Creato l'utente applicativo `pos_own` (stesse credenziali già in `config/variabili.env`, nessuna modifica al file):
+   ```php
+   foreach (["localhost", "127.0.0.1", "%"] as $host) {
+       $conn->query("CREATE USER IF NOT EXISTS 'pos_own'@'$host' IDENTIFIED BY 'pos_own1'");
+       $conn->query("GRANT ALL PRIVILEGES ON opensagra_pos.* TO 'pos_own'@'$host'");
+   }
+   $conn->query("FLUSH PRIVILEGES");
+   ```
+
+**Verificato dopo il cutover:**
+- Connessione come `pos_own` (non solo root) riuscita.
+- Conteggi righe identici a XAMPP su tutte e 5 le tabelle (30/133/168/5/1).
+- Schema completo: `stock.updated_at` + indice, `casse_stampanti.fondo_cassa` — tutte le funzioni recenti presenti.
+- **L'app vera, attraverso il servizio FrankenPHP, funziona su HTTP e HTTPS con zero modifiche a `config/variabili.env`** — la stessa identica stringa di connessione (`127.0.0.1:3306`) ora arriva alla MariaDB nativa invece che a XAMPP, in modo completamente trasparente per il codice.
+- Entrambi i servizi (`frankenphp`, `MariaDB`) confermati `StartMode: Auto` — l'intero stack riparte da solo al boot, senza XAMPP.
+
+**Effetto collaterale scoperto**: con XAMPP fermo, la porta 80 si è liberata e **Caddy ha automaticamente iniziato a rispondere lì** con un redirect HTTP→HTTPS (`308` verso `:8443`) — è il server `remaining_auto_https_redirects` che FrankenPHP genera sempre quando un sito nel Caddyfile usa HTTPS automatico; era configurato fin dall'inizio ma non riusciva a legarsi alla porta 80 finché Apache la occupava. Non un problema, anzi una conferma utile in vista del prossimo passo (porte 8080/8443 → 80/443).
+
+**Bug trovati in `config/pos.sql` durante questa verifica** (commit `911bb93`, `c2f43ae`):
+1. Una `INSERT INTO casse_stampanti` senza `VALUES` né `;` corrompeva il parsing di tutto il resto del file — un'importazione pulita creava **1 tabella su 5**. Rimossa (la tabella nasce vuota comunque).
+2. `casse_stampanti.tipo_stampante` e `.nome_indirizzo` erano rimasti a `varchar(20)`/`varchar(100)` nel file contro `varchar(50)`/`varchar(255)` nel DB reale (drift da modifiche fatte a mano via phpMyAdmin, mai riportate nel file).
+3. Il default di `receipt_config` portava il nome e il logo di un evento passato specifico ("Festa Cavalleri e Fumeri 25/26 Luglio 2026") — rimosso, l'app ha già un fallback generico (`api/get_receipt_config.php`).
+
+Tutti e tre corretti e riverificati con un'importazione pulita di prova prima di procedere con questo cutover.
 
 ### 2b. Estensioni PHP ✅ FATTO (2026-09-06)
 
