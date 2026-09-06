@@ -115,9 +115,9 @@ Obiettivo: far girare l'app identica a XAMPP, su `https://localhost`, con Franke
 
 ### 2a. Prerequisiti
 
-- [ ] `frankenphp version` risponde (già installato via `irm https://frankenphp.dev/install.ps1 | iex`).
-- [x] **MariaDB nativa già installata** (2026-09-05) accanto a quella di XAMPP. Allo switch: si configura il DB (import `pos.sql` + migrazioni) sulla MariaDB nativa e **si ferma** il servizio MySQL di XAMPP dal pannello di controllo — **non si disinstalla né si cancella nulla**, XAMPP resta sul disco spento, riattivabile in qualsiasi momento se serve tornare indietro.
-- [ ] DB `opensagra_pos` presente e popolato **sulla MariaDB nativa** (oggi vive ancora solo su quella di XAMPP).
+- [x] `frankenphp version` risponde — v1.12.7, PHP 8.5.10, Caddy v2.11.4 (installato via `irm https://frankenphp.dev/install.ps1 | iex` in `C:\Users\enrig\.frankenphp`, aggiunto al PATH utente).
+- **Correzione (2026-09-06)**: la riga precedente parlava di una "MariaDB nativa" installata separatamente — non è così. Verificato passo passo (servizi, processi, porta 3306): `mysql`/`php` sono **XAMPP registrato come servizio Windows** (comodità di avvio automatico, non serve più aprire il pannello XAMPP), non un'installazione MariaDB indipendente. È tuttora `C:\xampp\mysql\bin\mysqld.exe` a rispondere su `127.0.0.1:3306` con tutti i dati reali. Una MariaDB davvero separata dall'albero XAMPP resta da fare **in Fase 3** (installazione da zero), non è ancora stata fatta.
+- [x] DB `opensagra_pos` presente e popolato — su XAMPP (via servizio Windows), raggiungibile da `127.0.0.1:3306` come sempre. `config/variabili.env` non richiede modifiche per la Fase 2.
 
 ### 2b. Estensioni PHP
 
