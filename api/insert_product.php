@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/store_uploaded_file.php';
 require_once __DIR__ . '/../includes/placeholder-product.php';
 
 $category = isset($_POST['category']) ? trim((string) $_POST['category']) : '';
@@ -47,7 +48,9 @@ if ($hasUpload) {
 
     $storedFilename = time() . '_' . $safeFilename;
     $targetFile = $targetDir . $storedFilename;
-    if (!move_uploaded_file($_FILES['image']['tmp_name'], $targetFile)) {
+    try {
+        storeUploadedFile($_FILES['image']['tmp_name'], $targetFile);
+    } catch (RuntimeException $e) {
         echo 'Errore durante il caricamento immagine.';
         $connectionDB->close();
         exit;

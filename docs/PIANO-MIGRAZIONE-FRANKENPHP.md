@@ -387,13 +387,15 @@ Effetto sullo script:
 - [ ] Copiare i file di opensagra nel path target dell'OS (`C:\opensagra`, `/opt/opensagra`, `/usr/local/opensagra`...), `vendor/` incluso.
 - [ ] Generare `Caddyfile` (root = path target; `localhost` o hostname di rete secondo la Domanda 1; `tls internal` o dominio secondo la Domanda 3).
 - [ ] Generare `config/variabili.env` dalle risposte del wizard (`DB_POS_HOST`, `DB_POS_USER`, `DB_POS_PASS`), partendo da `config/variabili.env.example`. **Lasciarlo come file di testo leggibile/modificabile.**
-- [ ] Permessi cartella `uploads/` scrivibile dal processo FrankenPHP.
+- [ ] Permessi cartella `uploads/` scrivibile dal processo FrankenPHP (ACE ereditabile `Authenticated Users:Modify`, così i file caricati restano leggibili anche fuori dal processo).
+- [ ] `upload_tmp_dir` impostato + cartella temp creata con ACL ereditabili (Soluzione A, vedi Appendice A → "`upload_tmp_dir` e ACL degli upload").
 
 ### 3g. Servizi
 
 - [ ] Windows: WinSW (`frankenphp-service.exe install/start`).
 - [ ] macOS: plist launchd o `brew services`.
 - [ ] Linux: unit `systemd` (`frankenphp.service`) con `Restart=on-failure`.
+- [ ] **Soluzione B (da valutare)**: far girare il servizio come account a bassi privilegi invece di LocalSystem — `LOCAL SERVICE` / account dedicato su Windows, `User=`/`DynamicUser=` su systemd, `UserName` nel LaunchDaemon. Comporta: rifare/adattare il workaround CA di Caddy (Fase 2e), riassegnare con `icacls`/`chown` le ACL di `uploads/`, log e storage Caddy. Non urgente: il bug ACL è già chiuso dalla Soluzione A (`copy()` in `config/store_uploaded_file.php`). Dettagli in Appendice A.
 
 ### 3h. HTTPS / certificati
 
@@ -488,8 +490,15 @@ upload_max_filesize = 40M
 post_max_size = 40M
 max_execution_time = 120
 date.timezone = Europe/Berlin
+upload_tmp_dir = "C:\ProgramData\opensagra\php_upload_tmp"
 "@
 # iconv, dom e OPcache sono gia' compilati dentro questa distribuzione: nessuna riga necessaria.
+
+# 1b. Cartella temp upload con ACL ereditabili (vedi "upload_tmp_dir e ACL degli upload").
+#     Senza, con il servizio come LocalSystem gli upload finiscono illeggibili in uploads/.
+$phpTmp = "C:\ProgramData\opensagra\php_upload_tmp"
+New-Item -ItemType Directory -Force -Path $phpTmp | Out-Null
+icacls $phpTmp /grant "*S-1-5-11:(OI)(CI)M" /grant "*S-1-5-18:(OI)(CI)F"   # Authenticated Users:Modify, SYSTEM:Full
 
 # 2. Gate di verifica — via script, non via -m
 $checkScript = "$env:TEMP\check-php.php"
@@ -505,6 +514,22 @@ if ($missing) { throw "Estensioni PHP mancanti: $($missing -join ', ')" }
 ```
 
 Nota: `-Encoding utf8` di PowerShell 5.1 scrive un BOM che finisce nell'output PHP (cosmetico, non rompe la logica, ma usare `ascii` per gli script diagnostici lo evita del tutto).
+
+### `upload_tmp_dir` e ACL degli upload (problema scoperto 2026-09-06)
+
+**Sintomo.** Un logo caricato dalla pagina di configurazione scontrino veniva stampato come rumore e, guardando il file, `uploads/receipt_logo_global_*.jpg` risultava **illeggibile** anche all'utente interattivo — cosa che con XAMPP non accadeva. (Il logo troppo largo per la testina era un secondo bug, indipendente, risolto in `print/print_receipt.php` con un ridimensionamento a 560 punti / 70 mm.)
+
+**Causa.** Il servizio FrankenPHP gira come **LocalSystem** (Fase 2e). Il suo `sys_temp_dir` è `C:\Windows\Temp`, leggibile solo da SYSTEM/Administrators. Su Windows `move_uploaded_file()` usa `MoveFile()`, che **conserva la ACL del file temporaneo** invece di rifarla ereditare dalla cartella di destinazione: il file spostato in `uploads/` si portava dietro quella ACL restrittiva. I placeholder SVG (`file_put_contents`) non ne soffrivano perché il file nuovo eredita normalmente le ACE della cartella. Con XAMPP il problema non c'era perché Apache girava come l'utente interattivo (temp con ACL permissive).
+
+**Soluzione A — applicata ora (basso sforzo).**
+1. `config/store_uploaded_file.php`: helper `is_uploaded_file()` + `copy()` + `unlink()` al posto di `move_uploaded_file()` in `api/save_receipt_config.php`, `api/insert_product.php`, `api/update_product.php`. `copy()` crea il file a destinazione → eredita le ACE di `uploads/` (`Authenticated Users:Modify`). **Chiude il bug a prescindere dall'account del servizio.**
+2. `upload_tmp_dir` esplicito nel `php.ini` → `C:\ProgramData\opensagra\php_upload_tmp`, cartella con ACE ereditabili (vedi snippet sopra, passo 1b). Tiene i temp di PHP fuori da `C:\Windows\Temp` — utile anche per gli upload grandi. Dopo la modifica del `php.ini` serve **riavviare il servizio** (`Restart-Service frankenphp`, da amministratore).
+
+**Soluzione B — rimandata a Fase 3 (da valutare).** Non far girare il web server come **LocalSystem** ma come account locale a bassi privilegi (o `LOCAL SERVICE`). È l'igiene corretta per un servizio di rete, ma:
+- va garantita in modo uniforme su Win 10/11 (creazione account/gruppo, `Log on as a service`), e va testato l'equivalente su Linux (unit `systemd` con `User=`/`DynamicUser=`) e macOS (LaunchDaemon con `UserName`);
+- il workaround CA di Caddy della Fase 2e (import manuale della root di LocalSystem nello store Macchina locale) andrebbe rifatto/adattato: con un account dedicato lo storage Caddy si sposta e il trust va rigestito;
+- vanno riassegnate con `icacls` le ACL di `uploads/`, dei log e dello storage Caddy all'account scelto.
+Con la Soluzione A in piedi, B resta un miglioramento di sicurezza, non un requisito per il funzionamento.
 
 ### macOS / Linux
 

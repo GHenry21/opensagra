@@ -6,10 +6,16 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Mike42\Escpos\Printer;
 use Mike42\Escpos\PrintConnectors\FilePrintConnector;
-use Mike42\Escpos\EscposImage;
+use Mike42\Escpos\GdEscposImage;
 
 const RECEIPT_CONFIG_GLOBAL_KEY = 'GLOBAL';
 const DEFAULT_RECEIPT_HEADER = 'OPENSAGRA - Scontrino di vendita';
+
+// Larghezza massima del logo sullo scontrino, in punti testina (a 203 dpi: 8 punti = 1 mm).
+// OpenSagra e' formattato per carta da 80mm, la cui area stampabile e' 72mm = 576 punti.
+// 560 = 70mm: riempie quasi tutta la larghezza lasciando un piccolo margine.
+// Per un eventuale supporto a 58mm, scendere a 384 (= 48mm).
+const RECEIPT_LOGO_MAX_WIDTH = 560;
 
 function ensureReceiptConfigTable($connectionDB) {
     $sql = "CREATE TABLE IF NOT EXISTS receipt_config (
@@ -64,58 +70,97 @@ function getReceiptConfig($connectionDB) {
     ];
 }
 
-function printReceiptLogo($printer, $configuredLogoPath = '') {
-    $logoCandidates = [];
-
-    $trimmedConfigPath = trim((string)$configuredLogoPath);
-    if ($trimmedConfigPath !== '') {
-        if (str_starts_with($trimmedConfigPath, '/') || preg_match('/^[A-Za-z]:\\\\/', $trimmedConfigPath)) {
-            $logoCandidates[] = $trimmedConfigPath;
-        } else {
-            $logoCandidates[] = __DIR__ . '/../' . ltrim($trimmedConfigPath, '/\\');
-        }
+/**
+ * Carica un logo e lo prepara per la stampa termica:
+ *  - rileva il formato reale dai byte (non dall'estensione): gestisce anche .jpeg/.webp/.bmp
+ *  - appiattisce la trasparenza su sfondo bianco
+ *  - RIDIMENSIONA alla larghezza della testina se l'immagine e' piu' larga
+ *
+ * Senza il ridimensionamento un logo piu' largo della testina viene stampato come
+ * rumore: ogni riga raster sfora la testina e "va a capo", spostata di qualche punto
+ * rispetto alla precedente -> le classiche striature diagonali.
+ */
+function loadReceiptLogoImage($absolutePath, $maxWidth = RECEIPT_LOGO_MAX_WIDTH) {
+    if (!is_file($absolutePath) || !is_readable($absolutePath)) {
+        throw new Exception("Logo non leggibile: $absolutePath");
     }
 
-    foreach ($logoCandidates as $logoPath) {
-        if (!is_file($logoPath)) {
-            continue;
-        }
-
-        try {
-            $logo = EscposImage::load($logoPath, false);
-            $printer->setJustification(Printer::JUSTIFY_CENTER);
-            try {
-                $printer->graphics($logo);
-            } catch (Exception $e) {
-                $printer->bitImage($logo);
-            }
-            $printer->feed(1);
-            return;
-        } catch (Exception $e) {
-            error_log('Impossibile stampare logo scontrino: ' . $e->getMessage());
-        }
+    $info = @getimagesize($absolutePath);
+    if ($info === false) {
+        throw new Exception("Formato logo non riconosciuto: $absolutePath");
     }
+
+    switch ($info[2]) {
+        case IMAGETYPE_PNG:  $src = @imagecreatefrompng($absolutePath); break;
+        case IMAGETYPE_JPEG: $src = @imagecreatefromjpeg($absolutePath); break;
+        case IMAGETYPE_GIF:  $src = @imagecreatefromgif($absolutePath); break;
+        case IMAGETYPE_WEBP: $src = function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($absolutePath) : false; break;
+        case IMAGETYPE_BMP:  $src = function_exists('imagecreatefrombmp') ? @imagecreatefrombmp($absolutePath) : false; break;
+        default:             $src = false;
+    }
+    if (!$src) {
+        throw new Exception("Impossibile decodificare il logo: $absolutePath");
+    }
+
+    $srcW = imagesx($src);
+    $srcH = imagesy($src);
+    $dstW = ($maxWidth > 0 && $srcW > $maxWidth) ? $maxWidth : $srcW;
+    $dstH = max(1, (int)round($srcH * ($dstW / max(1, $srcW))));
+
+    $dst = imagecreatetruecolor($dstW, $dstH);
+    // Sfondo bianco: sulla carta termica il "non stampato" e' bianco
+    $white = imagecolorallocate($dst, 255, 255, 255);
+    imagefilledrectangle($dst, 0, 0, $dstW, $dstH, $white);
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
+
+    // La libreria applica una soglia dura a 128: aiutiamola con grigi + contrasto
+    if (function_exists('imagefilter')) {
+        imagefilter($dst, IMG_FILTER_GRAYSCALE);
+        imagefilter($dst, IMG_FILTER_CONTRAST, -15); // negativo = piu' contrasto in GD
+    }
+
+    $escposImage = new GdEscposImage(null, false);
+    $escposImage->readImageFromGdResource($dst);
+    // $src / $dst liberati dal GC a fine funzione (imagedestroy e' deprecato in PHP 8.5)
+
+    return $escposImage;
 }
 
-function printOpenSagraFooterLogo($printer) {
-    $logoPath = __DIR__ . '/../assets/footer.png';
-    if (!is_file($logoPath)) {
-        return;
-    }
-
+function renderReceiptLogo($printer, $absolutePath, $maxWidth = RECEIPT_LOGO_MAX_WIDTH) {
     try {
-        $logo = EscposImage::load($logoPath, false);
+        $logo = loadReceiptLogoImage($absolutePath, $maxWidth);
         $printer->setJustification(Printer::JUSTIFY_CENTER);
         try {
             $printer->graphics($logo);
         } catch (Exception $e) {
             $printer->bitImage($logo);
         }
-        
-       
+        return true;
     } catch (Exception $e) {
-        error_log('Impossibile stampare firma OpenSagra: ' . $e->getMessage());
+        error_log('Logo scontrino non stampato: ' . $e->getMessage());
+        return false;
     }
+}
+
+function printReceiptLogo($printer, $configuredLogoPath = '') {
+    $trimmedConfigPath = trim((string)$configuredLogoPath);
+    if ($trimmedConfigPath === '') {
+        return;
+    }
+
+    if (str_starts_with($trimmedConfigPath, '/') || preg_match('/^[A-Za-z]:\\\\/', $trimmedConfigPath)) {
+        $logoPath = $trimmedConfigPath;
+    } else {
+        $logoPath = __DIR__ . '/../' . ltrim($trimmedConfigPath, '/\\');
+    }
+
+    if (renderReceiptLogo($printer, $logoPath)) {
+        $printer->feed(1);
+    }
+}
+
+function printOpenSagraFooterLogo($printer) {
+    renderReceiptLogo($printer, __DIR__ . '/../assets/footer.png');
 }
 
 function ensureDettagliVenditaDiscountColumns($connectionDB) {

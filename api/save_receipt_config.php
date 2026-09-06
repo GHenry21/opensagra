@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/store_uploaded_file.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -104,9 +105,7 @@ try {
         $fileName = 'receipt_logo_global_' . time() . '.' . $extension;
         $targetFile = $targetDir . '/' . $fileName;
 
-        if (!move_uploaded_file($_FILES['logo']['tmp_name'], $targetFile)) {
-            throw new RuntimeException('Impossibile salvare il file logo caricato.');
-        }
+        storeUploadedFile($_FILES['logo']['tmp_name'], $targetFile);
 
         if ($logoPath !== '') {
             $oldAbsPath = __DIR__ . '/../' . ltrim($logoPath, '/\\');

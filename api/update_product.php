@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/store_uploaded_file.php';
 require_once __DIR__ . '/../includes/placeholder-product.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -38,7 +39,9 @@ if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
 
     $storedFilename = time() . '_' . $safeFilename;
     $targetFile = $targetDir . $storedFilename;
-    if (!move_uploaded_file($_FILES['image']['tmp_name'], $targetFile)) {
+    try {
+        storeUploadedFile($_FILES['image']['tmp_name'], $targetFile);
+    } catch (RuntimeException $e) {
         http_response_code(500);
         echo json_encode([
             'ok' => false,
