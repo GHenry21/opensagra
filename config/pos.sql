@@ -29,8 +29,8 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `casse_stampanti` (
   `cassa_id` varchar(50) NOT NULL,
-  `tipo_stampante` varchar(20) NOT NULL,
-  `nome_indirizzo` varchar(100) DEFAULT NULL,
+  `tipo_stampante` varchar(50) NOT NULL,
+  `nome_indirizzo` varchar(255) DEFAULT NULL,
   `porta` int(11) DEFAULT NULL,
   `qz_host` varchar(255) DEFAULT NULL,
   `abilita_contanti` tinyint(1) NOT NULL DEFAULT 1,
@@ -40,11 +40,8 @@ CREATE TABLE `casse_stampanti` (
   `ultima_chiusura` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dump dei dati per la tabella `casse_stampanti`
---
-
-INSERT INTO `casse_stampanti` (`cassa_id`, `tipo_stampante`, `nome_indirizzo`, `porta`, `qz_host`) VALUES
+-- Tabella vuota in una installazione nuova: le casse si configurano da
+-- pages/conf_casse.php, nessun dato di default da inserire qui.
 
 -- --------------------------------------------------------
 
