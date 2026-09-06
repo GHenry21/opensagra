@@ -76,12 +76,9 @@ CREATE TABLE `receipt_config` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dump dei dati per la tabella `receipt_config`
---
-
-INSERT INTO `receipt_config` (`cassa_id`, `custom_header_text`, `cut_each_item`, `enable_logo_print`, `logo_path`, `updated_at`) VALUES
-('GLOBAL', 'Festa Cavalleri e Fumeri 25/26 Luglio 2026', 0, 1, 'uploads/receipt_logo_global_1786385955.png', '2026-08-10 18:19:15');
+-- Tabella vuota in una installazione nuova: api/get_receipt_config.php ha
+-- gia' un fallback generico (defaultReceiptConfig()) quando manca la riga
+-- 'GLOBAL' - nessun evento/logo specifico da inserire qui di default.
 
 -- --------------------------------------------------------
 
