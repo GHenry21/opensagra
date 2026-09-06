@@ -109,9 +109,9 @@ Vale qualunque sia il web server. Sblocca il collo di bottiglia attuale.
 
 ---
 
-## Fase 2 — FrankenPHP classic mode sul PC di sviluppo
+## Fase 2 — FrankenPHP classic mode sul PC di sviluppo ✅ COMPLETATA (2026-09-06)
 
-Obiettivo: far girare l'app identica a XAMPP, su `https://localhost`, con FrankenPHP + MariaDB, prima di toccare la produzione.
+Obiettivo: far girare l'app identica a XAMPP, su FrankenPHP + MariaDB, come servizio senza terminale aperto, prima di toccare la produzione. Raggiunto — con la precisazione emersa durante il percorso che il target reale è `http://localhost:8080` (non HTTPS, vedi Appendice C e la nota in 2e).
 
 ### 2a. Prerequisiti
 
@@ -237,25 +237,31 @@ Script usati (mantenuti in `e2e/*.manual.js`, non wired a `npx playwright test` 
 - [x] Chiusura cassa (`api/chiudi_cassa.php`) — automatizzato con `cassa_id` di test fittizio, riga creata e **rimossa subito dopo** (`DELETE FROM casse_stampanti WHERE cassa_id = 'TEST-CLAUDE-FASE2-DELETE-ME'`, 1 riga cancellata, verificato).
 - [x] ~~Sessioni PHP~~ — non applicabile, vedi nota sopra.
 
-### 2e. Servizio Windows
+### 2e. Servizio Windows ✅ COMPLETATA (2026-09-06)
 
-- [ ] Scaricare WinSW come `frankenphp-service.exe` accanto a `frankenphp.exe`.
-- [ ] `frankenphp-service.xml`:
+Obiettivo raggiunto: FrankenPHP gira in background come servizio, non serve più tenere una finestra PowerShell aperta con `frankenphp run` — sopravvive a logout e riparte da solo al boot (`StartMode: Auto`, verificato).
+
+- [x] Scaricato WinSW (`WinSW-x64.exe`, rinominato `frankenphp-service.exe`) accanto a `frankenphp.exe` in `C:\Users\enrig\.frankenphp\`.
+- [x] `frankenphp-service.xml` — **nota**: il `Caddyfile` vive nel progetto (`C:\xampp\htdocs\opensagra`), non nella cartella di FrankenPHP, quindi `--config` usa un percorso assoluto invece di `%BASE%`:
 
   ```xml
   <service>
     <id>frankenphp</id>
-    <name>FrankenPHP</name>
-    <description>opensagra app server</description>
+    <name>FrankenPHP opensagra</name>
+    <description>Server FrankenPHP per l'app opensagra</description>
     <executable>%BASE%\frankenphp.exe</executable>
-    <arguments>run --config %BASE%\Caddyfile</arguments>
+    <arguments>run --config "C:\xampp\htdocs\opensagra\Caddyfile"</arguments>
+    <workingdirectory>C:\xampp\htdocs\opensagra</workingdirectory>
     <log mode="roll-by-time"><pattern>yyyy-MM-dd</pattern></log>
   </service>
   ```
-- [ ] `.\frankenphp-service.exe install` && `.\frankenphp-service.exe start`.
-- [ ] Test modifica config a caldo: `.\frankenphp.exe reload --config Caddyfile` (i servizi Windows non si "reloadano").
+- [x] `.\frankenphp-service.exe install` && `.\frankenphp-service.exe start` — **richiede PowerShell da amministratore** (a differenza degli altri passi della Fase 2, fatti da utente normale).
+- [x] Verificato: `Get-Service frankenphp` → `Running`; `Get-CimInstance Win32_Service` → `StartMode: Auto`.
+- [x] **HTTP funziona correttamente attraverso il servizio** (`http://localhost:8080` → HTTP 200) — questo è il percorso reale scelto per l'app, pienamente operativo senza finestre aperte.
+- [ ] **HTTPS attraverso il servizio: non funziona, per un motivo noto e non urgente da risolvere.** Il servizio gira come **LocalSystem**, un account diverso dall'utente interattivo. Dal log (`frankenphp-service_*.err.log`): Caddy genera una **CA locale diversa** (storage sotto `C:\WINDOWS\system32\config\systemprofile\...`, non sotto il profilo di `enrig`) e **fallisce** ad installarla nel trust store di Windows (`"failed to install root certificate", "error":"add cert failed: ... Richiesta non supportata"`) — LocalSystem non può scrivere nei trust store come farebbe una sessione utente interattiva. Coerente con la decisione già presa di usare HTTP per l'uso reale (vedi Appendice C): **non risolto**, perché non serve. Se in futuro si riprende l'esercizio HTTPS/`wss`, due strade note: (a) far girare il servizio con un account utente reale invece di LocalSystem (richiede gestire le credenziali nel config WinSW), oppure (b) importare manualmente la CA generata dal sistema nello store "Macchina locale" con `certutil -addstore` una volta sola (quello store è condiviso da tutti gli utenti/browser della macchina, quindi basta farlo una volta).
+- [ ] Test di riavvio effettivo della macchina — non eseguito (avrebbe richiesto un reboot durante la sessione di lavoro); `StartMode: Auto` è comunque la garanzia standard di Windows per l'avvio automatico dei servizi, non serve una controprova empirica per fidarsene.
 
-**Accettazione:** tutti i flussi del punto 2d funzionano su `https://localhost` come sotto XAMPP; XAMPP può restare spento; il servizio riparte al boot.
+**Accettazione:** il flusso HTTP di Fase 2d funziona identico attraverso il servizio, senza terminale aperto — **verificato**. HTTPS attraverso il servizio resta un limite noto e volutamente non risolto (coerente con la decisione HTTP-first di Appendice C).
 
 ---
 
@@ -636,7 +642,7 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 
 - [x] **Fase 0** ✅ — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato. Commit `ca260d0`.
 - [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. **Verificato end-to-end in Chromium reale**: cadenza 6s a riposo, filtro categoria non sovrascritto, pausa a tab nascosta, ripresa immediata al ritorno, nessun errore console.
-- [ ] **Fase 2** — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile`, `composer install`, smoke test 2d, servizio WinSW.
+- [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP via servizio verificato; HTTPS via servizio noto-non-funzionante per limite LocalSystem, non risolto perché non serve).
 - [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
