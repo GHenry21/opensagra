@@ -175,6 +175,7 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
 **Nota**: `max_execution_time` letto via `php-cli` (CLI SAPI) torna sempre `0` indipendentemente dal php.ini — è comportamento normale di PHP in CLI, **non** un segno che l'impostazione non ha effetto: sotto il server web (`php_server`) viene rispettato normalmente.
 
 - [x] **Gate di verifica**: rieseguito lo script diagnostico — tutte le 11 estensioni richieste presenti (`mysqli, mbstring, gd, zip, intl, curl, openssl, fileinfo, dom, iconv` + `Zend OPcache`), `php.ini caricato: C:\Users\enrig\.frankenphp\php.ini`. Valori numerici confermati: `memory_limit=512M`, `upload_max_filesize=40M`, `post_max_size=40M`, `date.timezone=Europe/Berlin` (`max_execution_time` non verificabile da CLI, vedi nota sopra).
+- [x] **Aggiornamento (Fase 2d, 2026-09-06)**: `display_errors` portato da `On` a `Off` (con `log_errors=On` già attivo). Causa: un `Deprecated` di PHP 8.5 dentro `escpos-php` finiva scritto nella risposta JSON di `print_receipt.php`, rompendola. Vedi **Appendice C** per i dettagli — è anche la controprova pratica di perché la Fase 3 deve partire da `php.ini-production`, non da `-development`.
 
 ### 2c. Configurazione app ✅ FATTO (2026-09-06)
 
@@ -217,11 +218,11 @@ Script usati (mantenuti in `e2e/*.manual.js`, non wired a `npx playwright test` 
 - [x] `pages/billing.php`: caricamento prodotti con foto, categorie — visivamente identico a XAMPP (Brave e Firefox, dopo il fix CA).
 - [x] Upload immagini prodotto (cartella `uploads/`) — creazione nuovo prodotto testata manualmente, riuscita (conferma `gd`/`fileinfo` oltre a `mysqli`).
 - [x] Filtri categoria, aggiunta al carrello, sconti riga/totale — automatizzato (`e2e/fase2d_smoke.manual.js`): click su prodotto aggiorna il totale, click su sconto preimpostato lo ricalcola, cambio filtro categoria nasconde le sezioni non pertinenti. Nessun errore console.
-- [ ] **Checkout completo** — deliberatamente **non automatizzato**: scriverebbe una vendita vera nel DB condiviso. Da fare a mano quando comodo (contanti/carta/Satispay).
-- [ ] Stampa scontrino **ESC/POS USB** — **non testabile su questa macchina**: nessuna stampante USB collegata. Da verificare sul posto con hardware reale.
-- [ ] Stampa via **bridge / rete** — **non testabile**: richiede QZ Tray attivo o una stampante di rete raggiungibile: nessuno dei due presente qui.
-- [x] **`api/sign-message.php`** (firma `openssl`, non richiede QZ Tray in esecuzione) — automatizzato: risposta HTTP 200, firma base64 di 344 caratteri restituita correttamente.
-- [ ] **QZ Tray sotto HTTPS** — **non testabile**: QZ Tray non è installato/in esecuzione su questa macchina (verificato: nessuna porta 8181/8182 in ascolto). Da fare quando disponibile un PC con QZ Tray configurato — vedi checklist **Appendice C**.
+- [x] **Checkout completo (contanti) → stampa scontrino via bridge QZ** — inizialmente rimandato, poi eseguito per davvero su richiesta esplicita dell'utente (stampante reale USB+LAN collegata, QZ Tray aperto): vedi dettagli e bug trovati in **Appendice C**. Vendita registrata regolarmente (id 113/114, cassa `henry`).
+- [ ] Stampa scontrino **ESC/POS USB diretta** (senza QZ, tipo `WIN_USB`/`LINUX_USB` lato server) — non testata: lo scenario testato è passato dal bridge QZ (tipo `BRIDGE`), non dalla stampa diretta server→USB.
+- [x] Stampa via **bridge QZ** (`printBridgeViaQz`, cassa tipo `BRIDGE`) — testata con stampante reale, `qz.print` completato senza errori, sia per lo scontrino di vendita sia per il report statistiche.
+- [x] **`api/sign-message.php`** (firma `openssl`) — automatizzato: HTTP 200, firma base64 di 344 caratteri; confermato anche indirettamente dall'assenza di popup di consenso QZ durante i test con stampante reale.
+- [x] **QZ Tray sotto HTTPS** — testato con QZ Tray reale in esecuzione: popup di consenso mai comparsi, stampa riuscita nonostante l'host non-loopback (`192.168.88.224`) generi un warning di mixed-content non bloccante. Dettagli completi in **Appendice C**.
 - [x] **PDF dompdf** (`print/print_stat_pdf.php`) — automatizzato (`e2e/fase2d_pdf_download.manual.js`): **non tramite chiamata HTTP diretta** (curl e l'API di richieste di Playwright falliscono entrambi in modo innocuo su risposte `Content-Disposition: attachment`, 0 byte scaricati — limite dello strumento, non dell'app), ma pilotando il vero flusso utente (click su "Scarica PDF" in `stat_vendite.php`, che sottomette un form HTML classico) con `page.waitForEvent('download')`: PDF valido ricevuto, 2767 byte, header `%PDF-1.7`.
 - [x] Statistiche vendite (`api/statistiche_vendite.php`) — automatizzato, HTTP 200, risposta coerente (nessuna vendita odierna).
 - [x] Statistiche storni (`api/statistiche_storni.php`) — verificato via curl POST, HTTP 200, `{"storni":[]}`.
@@ -529,9 +530,9 @@ Superglobali (`$_GET/$_POST/...`): FrankenPHP le resetta da solo → nessun lavo
 
 ---
 
-## Appendice C — QZ Tray, certificati e HTTPS (da verificare, nessuna modifica ora)
+## Appendice C — QZ Tray, certificati e HTTPS ✅ TESTATA CON STAMPANTE REALE (2026-09-06)
 
-> Decisione: in questa migrazione **non si tocca nulla del codice QZ**. Questa appendice raccoglie solo lo stato attuale e cosa osservare/testare. Le eventuali modifiche saranno una fase separata dopo i test della Fase 2.
+> Decisione originale: non toccare il codice QZ in questa migrazione. **Aggiornamento**: durante il test reale è emerso e corretto un bug indipendente in `billing.php` (vedi in fondo) — non nel codice QZ stesso, che infatti funziona invariato.
 
 ### Stato attuale del codice (riferimento)
 
@@ -551,25 +552,25 @@ Superglobali (`$_GET/$_POST/...`): FrankenPHP le resetta da solo → nessun lavo
 
 → **Passare a Caddy/HTTPS non semplifica né sostituisce la procedura di soppressione dei popup.** Quella (openssl + override + firma) va mantenuta com'è.
 
-### Cosa HTTPS può rompere — da testare
+### Cosa HTTPS rompe/non rompe — risultato reale, non più un'ipotesi
 
-1. **Mixed content sul websocket.** Una pagina servita in `https://` non può aprire un `ws://` (in chiaro) verso un host **non-loopback**.
-   - `ws://localhost:8182` da pagina HTTPS → **permesso** (eccezione loopback). Scenario "QZ sulla stessa macchina della cassa": continua a funzionare.
-   - `ws://192.168.x.x:8182` da pagina HTTPS → **bloccato**. Scenario "bridge QZ centralizzato su un'altra macchina LAN": si rompe. Servirebbe `wss://` su 8181 con un certificato che il browser del tablet consideri valido per quell'host.
-2. **Script `qz-tray.js` da `http://localhost:8182`** in `conf_stampanti.php` → **bloccato** come active mixed content sotto HTTPS. Rimedio (fase futura): usare la copia locale già presente in `assets/js/qz-tray.js`.
-3. **`usingSecure: false` hardcoded** in `billing.php` e `conf_stampanti.php` → da rivedere per scenario quando si affronterà.
+1. **Mixed content sul websocket verso un host non-loopback → AVVISO, non blocco (in questo Chromium, oggi).** Testato per davvero: pagina su `https://localhost:8443`, QZ Tray sulla stessa macchina ma configurato con `qz_host=192.168.88.224` (un IP di rete, non `localhost`) — esattamente lo scenario "bridge su un'altra macchina LAN" temuto. **Risultato**: Chromium stampa in console `Mixed Content: ... Insecure access is deprecated` **ma stabilisce comunque la connessione** (`Established connection with QZ Tray on ws://192.168.88.224:8182`) e la stampa va a buon fine. La previsione originale ("si rompe") era troppo pessimista **per lo stato attuale dei browser**: è un warning di deprecazione, non un blocco hard — ma la dicitura "deprecated" segnala che un futuro aggiornamento del browser potrebbe trasformarlo in un blocco reale. **Non affidarsi a questo comportamento per il lungo periodo**: resta un rischio da monitorare ad ogni major update di Chrome/Edge/Firefox, non un "funziona e basta".
+2. **Script `qz-tray.js` da `http://localhost:8182`** in `pages/conf_casse.php` (rinominata da `conf_stampanti.php`) → non testato in questo giro (il test reale ha usato `billing.php`/`stat_vendite.php`, che caricano QZ diversamente). Resta da verificare quando si testerà la pagina di configurazione stampanti sotto HTTPS.
+3. **`usingSecure: false` hardcoded** → confermato ancora presente e funzionante nello scenario testato (connessione `ws://`, non `wss://`).
 
-### Cosa HTTPS potrebbe semplificare — da verificare
+### Test eseguiti in Fase 2 con stampante reale (USB + LAN) e QZ Tray attivo
 
-- I tablet, per l'app, avranno **già installata la CA radice di Caddy**. Si potrebbe emettere **dallo stesso CA** un certificato `wss` per la macchina bridge (hostname LAN) e darlo a QZ Tray → `wss://bridge.local:8181` diventa fidato senza altri trucchi. Una sola CA per app + trasporto QZ. (Resta comunque separato dal certificato di *firma* che sopprime i popup.)
-- Da capire se QZ Tray accetta un certificato di trasporto emesso da una CA arbitraria via `qz-tray.properties` (`wss.*`).
+- [x] **Popup di consenso QZ**: **non sono mai comparsi** durante i test (checkout reale + stampa report) — la procedura di firma/override esistente (`cert.pem` + `sign-message.php`, già verificata funzionante sotto FrankenPHP in Fase 2d) continua a sopprimerli identica sotto HTTPS.
+- [x] **Checkout reale → stampa scontrino via bridge QZ** (`pages/billing.php`, cassa `henry`, tipo `BRIDGE`, printer `POS-80C`, `qz_host=192.168.88.224`): flusso completo end-to-end, `qz.print` completato senza errori lato client. Vendita registrata regolarmente (id 113/114, €6 ciascuna, cassa `henry` — dati di test, l'utente ha autorizzato esplicitamente di lasciarli nel DB condiviso).
+- [x] **Stampa report statistiche via bridge QZ** (`pages/stat_vendite.php`, bottone "Stampa Scontrino Vendite"): stesso esito positivo, log dettagliato conferma `qz.print completato senza errori`.
+- [ ] Conferma **fisica** (carta uscita dalla stampante) — verificata dall'utente dopo il test, non osservabile da Claude.
+- [ ] Scenario "tablet separato dal bridge" (browser su un dispositivo diverso dalla macchina che ospita QZ Tray) — non testato in questo giro, solo lo scenario "stesso PC, IP di rete non-loopback".
 
-### Test da eseguire in Fase 2 (senza modificare nulla)
+### Scoperta collaterale durante il test (non QZ, ma trovata testando QZ)
 
-- [ ] App da FrankenPHP in `https://localhost`, QZ Tray locale, connessione `ws://localhost:8182`: **i popup di consenso NON riappaiono** e la stampa USB funziona.
-- [ ] Pagina aperta da un **tablet** via `https://<ip-server>` con QZ Tray sul server: verificare cosa fallisce (il tablet non ha QZ in loopback) e cosa servirebbe (bridge? QZ sul tablet? `wss://`?).
-- [ ] `conf_stampanti.php` sotto HTTPS: confermare il fallimento del load di `qz-tray.js` da `http://localhost:8182` e annotare il fix.
-- [ ] `wss://` su 8181 con certificato emesso dalla CA di Caddy: QZ lo accetta? Il browser lo considera valido?
+**PHP 8.5 (FrankenPHP) vs `escpos-php`**: `Mike42\Escpos\EscposImage::loadImageData()` genera un `Deprecated` (parametro nullable implicito, deprecato da PHP 8.4) che con `display_errors=On` finiva scritto nella risposta HTTP di `print_receipt.php`, rompendo il JSON atteso dal browser. Non succedeva su XAMPP (PHP 8.2, deprecazione non ancora esistente). **Fix applicato**: `display_errors = Off` nel php.ini di FrankenPHP (con `log_errors = On` già attivo) — conferma sul campo perché la Fase 3 userà `php.ini-production`, non `-development`, per l'installazione reale. Il bug resta latente in `escpos-php`: da considerare un aggiornamento della libreria in futuro (fuori scope ora).
+
+Questo ha anche smascherato un **bug indipendente e preesistente** in `pages/billing.php`: il ramo `.fail()` del checkout referenziava una variabile mai dichiarata (`msg` invece di `errorMessage`, più un refuso `errorMsg`/`errorMessage`) — invisibile finché quel ramo non veniva mai raggiunto. Corretto (vedi commit di questa sessione): senza il fix, un checkout fallito per *qualsiasi* motivo avrebbe mostrato un crash JS invece di un messaggio d'errore leggibile alla cassa.
 
 ---
 

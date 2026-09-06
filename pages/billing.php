@@ -1589,13 +1589,13 @@
                     }).fail((xhr) => {
                         let errorMessage = 'Errore durante la registrazione della vendita.';
                         try {
-                            const err = JSON.parse(xhr.responseText); 
+                            const err = JSON.parse(xhr.responseText);
                             if (err && (err.message || err.error)) {
-                                errorMsg = err.message || err.error;
+                                errorMessage = err.message || err.error;
                             }
                         } catch (e) {}
-                        
-                        this.showToast(msg, 'error');
+
+                        this.showToast(errorMessage, 'error');
                         console.error("Errore Checkout AJAX:", xhr.responseText);
                     });
                 },
