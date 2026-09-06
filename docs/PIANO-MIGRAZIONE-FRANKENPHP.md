@@ -156,6 +156,8 @@ Prima di questo passo: verificato che il backup manuale (`opensagra_pos.sql` da 
 - **L'app vera, attraverso il servizio FrankenPHP, funziona su HTTP e HTTPS con zero modifiche a `config/variabili.env`** — la stessa identica stringa di connessione (`127.0.0.1:3306`) ora arriva alla MariaDB nativa invece che a XAMPP, in modo completamente trasparente per il codice.
 - Entrambi i servizi (`frankenphp`, `MariaDB`) confermati `StartMode: Auto` — l'intero stack riparte da solo al boot, senza XAMPP.
 
+**Ripetuto a mano dall'utente (2026-09-07), stesso risultato**: per pratica, il DB è stato droppato e ricreato da zero interamente via **phpMyAdmin** (creazione database, import del backup, creazione utente `pos_own` sui 3 host) — nessun aiuto da riga di comando. Conteggi e connettività identici, app funzionante. Conferma che il percorso "phpMyAdmin su FrankenPHP" (vedi sotto) è pienamente utilizzabile per la gestione reale del database, non solo raggiungibile.
+
 **Effetto collaterale scoperto**: con XAMPP fermo, la porta 80 si è liberata e **Caddy ha automaticamente iniziato a rispondere lì** con un redirect HTTP→HTTPS (`308` verso `:8443`) — è il server `remaining_auto_https_redirects` che FrankenPHP genera sempre quando un sito nel Caddyfile usa HTTPS automatico; era configurato fin dall'inizio ma non riusciva a legarsi alla porta 80 finché Apache la occupava. Non un problema, anzi una conferma utile in vista del prossimo passo (porte 8080/8443 → 80/443).
 
 **Bug trovati in `config/pos.sql` durante questa verifica** (commit `911bb93`, `c2f43ae`):
@@ -164,6 +166,14 @@ Prima di questo passo: verificato che il backup manuale (`opensagra_pos.sql` da 
 3. Il default di `receipt_config` portava il nome e il logo di un evento passato specifico ("Festa Cavalleri e Fumeri 25/26 Luglio 2026") — rimosso, l'app ha già un fallback generico (`api/get_receipt_config.php`).
 
 Tutti e tre corretti e riverificati con un'importazione pulita di prova prima di procedere con questo cutover.
+
+### phpMyAdmin sotto FrankenPHP (link "Gestione Database" della sidebar)
+
+Fermando Apache si è rotto il link `http://<host>/phpmyadmin` di `includes/sidebar.php` (puntava alla cartella di XAMPP, servita solo da Apache). **Fix**: phpMyAdmin è puro PHP, non serve Apache — instradato con `handle_path /phpmyadmin` e `handle_path /phpmyadmin/*` (due blocchi separati: `handle_path` accetta un solo pattern, non una lista) verso `C:\xampp\phpMyAdmin` nello stesso Caddyfile, sia sul blocco HTTP che HTTPS. Nessuna modifica al codice opensagra né a `phpMyAdmin/config.inc.php` (puntava già a `127.0.0.1`, risolve da solo alla MariaDB nativa).
+
+**Difetto cosmetico noto, non bloccante**: la home di phpMyAdmin mostra un errore AJAX ("Codice errore: 200, OK (rejected)") perché phpMyAdmin non sa di essere montato sotto `/phpmyadmin` — alcuni suoi widget costruiscono URL assoluti senza quel prefisso, che finiscono per sbaglio sull'app opensagra. Non impedisce l'uso reale (verificato: import completo funzionante). Fix pulito se si vuole toglierlo: `$cfg['PmaAbsoluteUri']` in `phpMyAdmin/config.inc.php`, non ancora applicato (rimandato, non urgente).
+
+**Per la Fase 3**: se l'installer generico prevede di offrire phpMyAdmin, questa stessa ricetta (`handle_path` verso la cartella phpMyAdmin, nessuna modifica al suo config) si applica identica su qualunque installazione — vale la pena includerla come opzione dello script.
 
 ### 2b. Estensioni PHP ✅ FATTO (2026-09-06)
 
