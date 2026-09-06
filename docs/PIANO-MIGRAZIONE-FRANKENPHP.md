@@ -665,6 +665,19 @@ Conclusione pratica, adottata: **tenere HTTP e HTTPS in parallelo stabilmente** 
 
 Il bridge condiviso è comunque il caso meno comune (una stampante per più casse) — un avviso mirato nella documentazione/wizard risolve il problema per la minoranza di installazioni che lo usano, senza sacrificare HTTP/2/3 e il lucchetto per tutti gli altri.
 
+### HTTPS + CA locale su Android reale: confermato end-to-end (2026-09-06)
+
+Copiato il certificato CA generato dal servizio (`C:\WINDOWS\...\Caddy\pki\authorities\local\root.crt`) in `cert/caddy-root-ca.crt` — già scaricabile via browser con MIME type corretto (`application/x-x509-ca-cert`, riconosciuto automaticamente da Caddy per estensione).
+
+**L'installazione automatica al tocco non funziona più sulle versioni recenti di Android** (limite voluto di Google, non un problema nostro) — serve il percorso manuale: Impostazioni → Sicurezza e privacy → Crittografia e credenziali → Installa certificato → Certificato CA → sfoglia fino al file scaricato. Dopo l'installazione Android mostra un avviso permanente ("rete monitorata" o simile) — normale, non un errore.
+
+**Testato sul dispositivo reale (Pixel 7 Pro) dopo l'installazione manuale:**
+- ✅ **Chrome**: funziona perfettamente, nessun avviso.
+- ✅ **FullyKiosk** (l'app target per le casse): funziona perfettamente — risolve il dubbio aperto in Fase 2d sulle app WebView che potrebbero ignorare le CA installate dall'utente (Android 7+). Non lo fa: FullyKiosk rispetta la CA installata manualmente.
+- ⚠️ **Firefox mobile**: mostra un avviso ("continua/mi fido") prima di procedere, poi funziona comunque — coerente con Firefox che (come su desktop) usa un proprio store certificati NSS invece di quello di sistema/Android.
+
+**Conclusione**: HTTPS con CA locale è una strada pienamente percorribile per le casse a stampa diretta, verificata sull'app reale che userete (FullyKiosk), non solo in teoria. L'unico costo è l'installazione manuale del certificato una tantum per dispositivo (nessuna automazione possibile per il tap-to-install su Android moderno).
+
 **Scope di un'eventuale integrazione `wss://` futura** (documentato per riferimento, non implementato):
 - *Lato QZ Tray*: certificato in formato keystore Java (conversione da PEM via `keytool`/`openssl pkcs12`), valido per l'hostname/IP esatto del bridge (serve un IP statico o hostname LAN fisso, altrimenti si invalida ad ogni rinnovo DHCP), riavvio di QZ Tray per ricaricarlo, rinnovo manuale prima della scadenza.
 - *Lato codice*: `usingSecure: false` → `true` con `port.secure:[8181]` invece di `port.insecure:[8182]`, duplicato in ogni pagina che chiama `printBridgeViaQz` (nessun modulo QZ condiviso oggi — occasione per accorparlo). Va sistemato anche il caricamento di `qz-tray.js` da `http://localhost:8182` in `conf_casse.php` (già rotto sotto HTTPS, indipendente da `wss`).
