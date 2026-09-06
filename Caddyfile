@@ -3,12 +3,28 @@
 }
 
 http://:8080 {
+	handle_path /phpmyadmin {
+		root * C:\xampp\phpMyAdmin
+		php_server
+	}
+	handle_path /phpmyadmin/* {
+		root * C:\xampp\phpMyAdmin
+		php_server
+	}
 	root * C:\xampp\htdocs\opensagra
 	encode zstd gzip
 	php_server
 }
 
 https://localhost:8443, https://192.168.88.224:8443, https://opensagra.local:8443 {
+	handle_path /phpmyadmin {
+		root * C:\xampp\phpMyAdmin
+		php_server
+	}
+	handle_path /phpmyadmin/* {
+		root * C:\xampp\phpMyAdmin
+		php_server
+	}
 	root * C:\xampp\htdocs\opensagra
 	encode zstd gzip
 	php_server
