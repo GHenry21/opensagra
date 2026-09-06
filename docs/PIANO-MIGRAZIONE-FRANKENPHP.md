@@ -14,7 +14,7 @@
 | **Infrastruttura** | Da XAMPP → **FrankenPHP in _classic mode_ + MariaDB nativa**, distribuiti con uno script d'installazione per-OS. **Niente Docker** (accesso stampante USB). **Niente worker mode** per ora (nessun refactoring, non serve alla scala attuale). |
 | **Packaging / distribuzione** | **Nessun binario embed.** Lo script d'installazione **copia i file** di opensagra nelle cartelle di destinazione. Il codice sorgente resta aperto e ispezionabile (progetto open source). `vendor/` incluso nel pacchetto di release (niente `composer install` sul target). |
 | **Cosa varia in base alle risposte** | Il codice di opensagra è **sempre spedito completo e identico**. Il wizard automatizza solo due passi oggi manuali: (1) generare `config/variabili.env` dalle risposte, (2) creare DB/tabelle/utente. Vedi **Fase 3a**. |
-| **HTTPS** | Automatico via FrankenPHP/Caddy. Sui tablet: installare la CA locale una volta. |
+| **HTTPS** | **Decisione capovolta dopo i test reali (2026-09-06): si resta su HTTP.** L'app è solo LAN, senza login (`session_start()` assente ovunque), e l'architettura di stampa prevista è un **bridge QZ condiviso tra più casse** — proprio il caso che su HTTPS si rompe su Firefox e WebKit (vedi Appendice C). Su HTTP il problema non esiste: `ws://` da pagina HTTP non è mai mixed-content, su nessun motore — identico a come funziona oggi con XAMPP. **Costo della scelta**: si rinuncia anche a HTTP/2 e HTTP/3 (richiedono TLS), non solo al lucchetto — resta HTTP/1.1, comunque non un downgrade rispetto a oggi. HTTPS (+ eventuale `wss://` per QZ) resta possibile in futuro come blocco Caddyfile parallelo (HTTP e HTTPS coesistono senza problemi), rimandato a un secondo momento come "esercizio" non urgente. |
 | **Realtime (Mercure/SSE)** | Rimandato. L'hub è già dentro il binario FrankenPHP: si attiva quando/se serve (Fase 4). |
 | **Worker mode** | Ottimizzazione futura opzionale. Scope e stima in Appendice B. |
 | **QZ Tray** | Stampa da stampanti USB via browser. La procedura certificati/firma attuale (openssl + override + `sign-message.php`) **resta invariata** in questa migrazione. Con Caddy/HTTPS vanno però verificati alcuni punti di mixed-content: vedi **Appendice C**. Nessuna modifica al codice QZ ora. |
@@ -23,7 +23,7 @@
 
 ### Perché FrankenPHP classic + MariaDB nativa (oltre a HTTPS automatico)
 
-- HTTP/2 + HTTP/3 (QUIC): meno stalli su wifi da sagra, recupero migliore quando un tablet cambia access point.
+- ~~HTTP/2 + HTTP/3 (QUIC): meno stalli su wifi da sagra, recupero migliore quando un tablet cambia access point.~~ **Non applicabile con la decisione HTTP presa sotto** — richiedono TLS, nessun browser li fa girare in chiaro. Beneficio perso rinunciando a HTTPS; resta HTTP/1.1, invariato rispetto a XAMPP/Apache.
 - Un binario + un `Caddyfile` (~10 righe) invece di Apache (httpd.conf, moduli, vhost, `.htaccess`) + PHP separato.
 - Parità cross-OS reale: stesso binario e stesso Caddyfile su Windows/Mac/Linux.
 - Static file serviti dal layer Go (non passano dall'interprete PHP).
@@ -179,14 +179,20 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
 
 ### 2c. Configurazione app ✅ FATTO (2026-09-06)
 
-- [x] `Caddyfile` nella root del progetto (`C:\xampp\htdocs\opensagra\Caddyfile`). **Porta 8443, non 443**: XAMPP resta acceso e serve già su 80/443, questa porta alternativa evita il conflitto durante i test in parallelo — si torna a 443 solo al cutover reale (Fase 3), quando XAMPP verrà fermato:
+- [x] `Caddyfile` nella root del progetto (`C:\xampp\htdocs\opensagra\Caddyfile`). **Porte 8080/8443, non 80/443**: XAMPP resta acceso e serve già su 80/443, queste porte alternative evitano il conflitto durante i test in parallelo — si torna alle porte standard solo al cutover reale (Fase 3), quando XAMPP verrà fermato. **Aggiornato (2026-09-06)**: aggiunto un blocco HTTP — è quello che si userà per davvero (vedi decisione in **Appendice C**), il blocco HTTPS resta per riferimento/test futuri:
 
   ```
   {
   	frankenphp
   }
 
-  localhost:8443 {
+  http://localhost:8080 {
+  	root * C:\xampp\htdocs\opensagra
+  	encode zstd gzip
+  	php_server
+  }
+
+  https://localhost:8443 {
   	root * C:\xampp\htdocs\opensagra
   	encode zstd gzip
   	php_server
@@ -575,6 +581,20 @@ Superglobali (`$_GET/$_POST/...`): FrankenPHP le resetta da solo → nessun lavo
 - [x] **Confermata fisicamente dall'utente**: uno scontrino "Antipasto Piem 1×6€" è uscito davvero dalla stampante (corrisponde al test Chromium riuscito).
 - [x] **Stampa report statistiche via bridge QZ** (`pages/stat_vendite.php`, bottone "Stampa Scontrino Vendite") — testato solo su Chromium: stesso esito positivo, log conferma `qz.print completato senza errori`. Non ripetuto su Firefox/WebKit (stesso identico meccanismo di connessione QZ del checkout, già dimostrato fallire lì per motivi indipendenti dal tipo di stampa).
 - [ ] Scenario "tablet separato dal bridge" (browser su un dispositivo diverso dalla macchina che ospita QZ Tray) — non testato: qui QZ e il browser condividevano la stessa macchina fisica, solo indirizzata con un IP di rete invece di `localhost`.
+- **Edge**: non testato direttamente (non installato su questa macchina, l'installazione via Playwright richiede privilegi di amministratore non disponibili qui). Per inferenza tecnica — stesso motore Blink/Chromium di Chrome/Brave, stessa implementazione della policy mixed-content — **molto probabile** si comporti identico a Chromium (warning ma connessione riuscita). Non verificato con un test reale: se serve la controprova, va fatto su una macchina con Edge installato o con privilegi elevati.
+
+### Decisione finale (2026-09-06): si resta su HTTP
+
+L'architettura reale prevista (confermata dall'utente) è **un bridge QZ condiviso tra più casse** — esattamente lo scenario che su HTTPS si rompe su Firefox e WebKit. Le due strade per tenere comunque HTTPS erano:
+- **QZ sempre in loopback per-cassa** — scartata, incompatibile con l'architettura a bridge condiviso.
+- **`wss://` con certificato dalla CA locale di Caddy** — tecnicamente valida (vedi sotto per lo scope), ma un giorno di lavoro concentrato (conversione keystore Java, gestione IP/hostname stabile del bridge, rinnovo certificati, modifiche JS duplicate in più pagine) per un beneficio (il lucchetto, HTTP/2+3) non essenziale su un'app solo-LAN senza login.
+
+**Scelta**: restare su HTTP puro per l'uso reale (`Caddyfile` ha un blocco `http://localhost:8080` accanto a quello HTTPS, che resta per riferimento/test). Elimina il problema alla radice — `ws://` da pagina HTTP non è mai mixed-content, su nessun motore — con zero modifiche al codice QZ, identico a come funziona oggi con XAMPP. Si rinuncia anche a HTTP/2/HTTP/3 (richiedono TLS), non solo al lucchetto.
+
+**Scope di un'eventuale integrazione `wss://` futura** (documentato per riferimento, non implementato):
+- *Lato QZ Tray*: certificato in formato keystore Java (conversione da PEM via `keytool`/`openssl pkcs12`), valido per l'hostname/IP esatto del bridge (serve un IP statico o hostname LAN fisso, altrimenti si invalida ad ogni rinnovo DHCP), riavvio di QZ Tray per ricaricarlo, rinnovo manuale prima della scadenza.
+- *Lato codice*: `usingSecure: false` → `true` con `port.secure:[8181]` invece di `port.insecure:[8182]`, duplicato in ogni pagina che chiama `printBridgeViaQz` (nessun modulo QZ condiviso oggi — occasione per accorparlo). Va sistemato anche il caricamento di `qz-tray.js` da `http://localhost:8182` in `conf_casse.php` (già rotto sotto HTTPS, indipendente da `wss`).
+- *Lato processo*: da scriptare per N macchine-bridge se ce ne fosse più di una — diventerebbe un pezzo dello script d'installazione di Fase 3.
 
 ### Scoperta collaterale durante il test (non QZ, ma trovata testando QZ)
 

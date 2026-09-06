@@ -1,10 +1,16 @@
 {
-frankenphp
+	frankenphp
 }
 
-localhost:8443 {
-root * C:\xampp\htdocs\opensagra
-encode zstd gzip
-php_server
-tls internal
+http://localhost:8080 {
+	root * C:\xampp\htdocs\opensagra
+	encode zstd gzip
+	php_server
+}
+
+https://localhost:8443 {
+	root * C:\xampp\htdocs\opensagra
+	encode zstd gzip
+	php_server
+	tls internal
 }
