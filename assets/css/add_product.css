@@ -156,7 +156,7 @@
     color: var(--mc-primary)
 }
 
-.management-page button.reload-products-btn:not(.pos-icon-btn) {
+.management-page button.reload-products-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link) {
     width: 38px;
     min-width: 38px;
     height: var(--add-product-control-height);
@@ -173,7 +173,7 @@
     height: 18px
 }
 
-.management-page button.reload-products-btn:not(.pos-icon-btn):hover {
+.management-page button.reload-products-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):hover {
     background: var(--mc-hover-soft)
 }
 
