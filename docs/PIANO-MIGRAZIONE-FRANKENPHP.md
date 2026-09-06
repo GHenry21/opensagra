@@ -258,10 +258,19 @@ Obiettivo raggiunto: FrankenPHP gira in background come servizio, non serve più
 - [x] `.\frankenphp-service.exe install` && `.\frankenphp-service.exe start` — **richiede PowerShell da amministratore** (a differenza degli altri passi della Fase 2, fatti da utente normale).
 - [x] Verificato: `Get-Service frankenphp` → `Running`; `Get-CimInstance Win32_Service` → `StartMode: Auto`.
 - [x] **HTTP funziona correttamente attraverso il servizio** (`http://localhost:8080` → HTTP 200) — questo è il percorso reale scelto per l'app, pienamente operativo senza finestre aperte.
-- [ ] **HTTPS attraverso il servizio: non funziona, per un motivo noto e non urgente da risolvere.** Il servizio gira come **LocalSystem**, un account diverso dall'utente interattivo. Dal log (`frankenphp-service_*.err.log`): Caddy genera una **CA locale diversa** (storage sotto `C:\WINDOWS\system32\config\systemprofile\...`, non sotto il profilo di `enrig`) e **fallisce** ad installarla nel trust store di Windows (`"failed to install root certificate", "error":"add cert failed: ... Richiesta non supportata"`) — LocalSystem non può scrivere nei trust store come farebbe una sessione utente interattiva. Coerente con la decisione già presa di usare HTTP per l'uso reale (vedi Appendice C): **non risolto**, perché non serve. Se in futuro si riprende l'esercizio HTTPS/`wss`, due strade note: (a) far girare il servizio con un account utente reale invece di LocalSystem (richiede gestire le credenziali nel config WinSW), oppure (b) importare manualmente la CA generata dal sistema nello store "Macchina locale" con `certutil -addstore` una volta sola (quello store è condiviso da tutti gli utenti/browser della macchina, quindi basta farlo una volta).
+- [x] **HTTPS attraverso il servizio — inizialmente rotto, poi risolto (2026-09-06).** Il servizio gira come **LocalSystem**, un account diverso dall'utente interattivo. Dal log (`frankenphp-service_*.err.log`): Caddy genera una **CA locale diversa** (storage sotto `C:\WINDOWS\system32\config\systemprofile\...`, non sotto il profilo di `enrig`) e **fallisce** ad installarla nel trust store di Windows (`"failed to install root certificate", "error":"add cert failed: ... Richiesta non supportata"`) — LocalSystem non può scrivere nei trust store come farebbe una sessione utente interattiva.
+
+  **Fix applicato** (richiede PowerShell da amministratore — l'unico passo di tutta la Fase 2 che lo richiede): copiare la CA generata dal servizio fuori dalla cartella protetta e importarla nello store "Macchina locale" (condiviso da tutti gli utenti/browser Chromium della macchina):
+
+  ```powershell
+  Copy-Item "C:\WINDOWS\system32\config\systemprofile\AppData\Roaming\Caddy\pki\authorities\local\root.crt" "$env:TEMP\frankenphp-service-root.crt"
+  Import-Certificate -FilePath "$env:TEMP\frankenphp-service-root.crt" -CertStoreLocation Cert:\LocalMachine\Root
+  ```
+
+  **Verificato**: `https://localhost:8443` via servizio → HTTP 200. **Nota**: Firefox ha un proprio store NSS separato per-utente (non tocca "Macchina locale") — se una postazione userà Firefox con una cassa a stampa diretta su HTTPS, va ripetuto anche lì l'import manuale del certificato (stessa procedura già vista in Fase 2d, Insidia #5), non serve amministratore per quello essendo per-utente.
 - [ ] Test di riavvio effettivo della macchina — non eseguito (avrebbe richiesto un reboot durante la sessione di lavoro); `StartMode: Auto` è comunque la garanzia standard di Windows per l'avvio automatico dei servizi, non serve una controprova empirica per fidarsene.
 
-**Accettazione:** il flusso HTTP di Fase 2d funziona identico attraverso il servizio, senza terminale aperto — **verificato**. HTTPS attraverso il servizio resta un limite noto e volutamente non risolto (coerente con la decisione HTTP-first di Appendice C).
+**Accettazione:** i flussi HTTP e HTTPS di Fase 2d funzionano identici attraverso il servizio, senza terminale aperto — **entrambi verificati**.
 
 ---
 
@@ -638,11 +647,40 @@ Repo locale, branch `main`, nessun remoto. Ogni fase chiude con un commit dedica
 
 ---
 
+## Appendice E — Elevazione dei permessi nello script d'installazione (Windows/macOS/Linux)
+
+Nata da una domanda legittima durante la Fase 2e: se l'installazione richiede passaggi da amministratore (installare un servizio, scrivere nel trust store di sistema), lo script di Fase 3 potrà farlo da solo, o serve rifare tutto a mano come abbiamo fatto qui passo-passo?
+
+**Risposta: sì, uno script può farlo, su tutti e tre gli OS.** Il motivo per cui qui abbiamo proceduto un comando alla volta è che stavamo scoprendo cosa serve (es. la CA di LocalSystem, mai vista prima), non un limite di Windows/Linux/macOS. Un installer vero chiede l'elevazione **una volta sola**, poi l'intero script gira con i permessi necessari — esattamente come installare Chrome, Office, o la stessa XAMPP.
+
+### Windows (verificato oggi)
+
+- **Meccanismo**: un manifest che richiede `requireAdministrator`, oppure un wrapper che fa `Start-Process powershell -Verb RunAs` — un solo popup UAC, poi l'intero script gira elevato.
+- **Richiede elevazione**: installare servizi Windows (FrankenPHP, MariaDB), scrivere nel trust store "Macchina locale" (`Cert:\LocalMachine\Root` — fatto oggi per il fix HTTPS del servizio), aprire porte firewall.
+- **Non la richiede**: copiare i file app in una cartella scrivibile dall'utente; l'import del certificato in **Firefox** (store NSS, per-utente, non per-macchina); spesso `winget install` gestisce l'elevazione da sé.
+
+### Linux
+
+- **Meccanismo**: `sudo ./install.sh` (l'utente lancia lo script preceduto da `sudo`), oppure lo script si ri-esegue da solo elevato se non lo è già (`if [ "$EUID" -ne 0 ]; then exec sudo "$0" "$@"; fi` in testa allo script) — un solo prompt password, poi tutto lo script gira elevato. Per un flusso grafico, `pkexec` (PolicyKit) dà un popup simile a UAC.
+- **Richiede elevazione**: pacchetti via `apt`/`dnf`/`pacman`, creare unit `systemd` in `/etc/systemd/system/`, il certificato di sistema (`update-ca-certificates` su Debian/Ubuntu, `update-ca-trust` su Fedora/RHEL scrivono in percorsi protetti), bind su porte privilegiate (<1024) salvo `setcap`, regole firewall (`ufw`/`firewalld`).
+- **Non la richiede**: copiare i file nella home dell'utente; girare FrankenPHP su una porta >1024 come utente normale; un **systemd user service** (`systemctl --user`) è possibile senza root, con il limite che potrebbe non partire prima del login a meno di abilitare il "lingering" (`loginctl enable-linger`, che a sua volta può servire root a seconda della distro/policy). Firefox: stesso discorso di Windows, store NSS per-utente.
+
+### macOS
+
+- **Meccanismo**: `sudo ./install.sh` da terminale, oppure `osascript -e 'do shell script "..." with administrator privileges'` per un popup grafico nativo (password amministratore) — stesso pattern "un prompt, poi tutto elevato". Un vero pacchetto `.pkg` (costruito con `pkgbuild`/`productbuild`) può dichiarare i passi che richiedono privilegi e far comparire il prompt di `Installer.app` una volta sola — è l'equivalente macOS più nativo del wrapper UAC.
+- **Particolarità gradita**: **Homebrew non richiede `sudo`** per la sua installazione né per la maggior parte delle formule (`brew install mariadb`, `brew install frankenphp`) — gestisce una propria cartella (`/usr/local` o `/opt/homebrew`) di proprietà dell'utente. Se l'installer usa Homebrew per FrankenPHP e MariaDB, **gran parte dello script può girare senza elevazione affatto**.
+- **Richiede elevazione**: un **LaunchDaemon** di sistema (`/Library/LaunchDaemons/`, avviato per tutti gli utenti anche senza login, via `launchctl load`) e l'inserimento del certificato nel keychain **di Sistema** (`sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ...`). Un **LaunchAgent** per-utente (quello che usa di default `brew services start`, parte al login di quell'utente) non richiede root, così come il keychain di **login** (per-utente).
+- Firefox: stesso store NSS per-utente delle altre due piattaforme, nessuna elevazione.
+
+### Nota comune a tutti e tre
+
+Su ogni OS, **Firefox tiene un proprio store di certificati separato e per-utente** — mai toccato dall'elevazione a livello di sistema, va sempre gestito a parte (stessa procedura di import manuale vista in Fase 2d, Insidia #5). È l'unico passo dell'intera installazione che, per sua natura, **non può essere automatizzato una volta per tutte**: va ripetuto per ogni profilo Firefox su ogni postazione che lo userà.
+
 ## Riepilogo checklist di alto livello
 
 - [x] **Fase 0** ✅ — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato. Commit `ca260d0`.
 - [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. **Verificato end-to-end in Chromium reale**: cadenza 6s a riposo, filtro categoria non sovrascritto, pausa a tab nascosta, ripresa immediata al ritorno, nessun errore console.
-- [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP via servizio verificato; HTTPS via servizio noto-non-funzionante per limite LocalSystem, non risolto perché non serve).
+- [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP e HTTPS via servizio entrambi verificati — HTTPS richiedeva l'import della CA di LocalSystem nello store Macchina locale, vedi 2e).
 - [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
