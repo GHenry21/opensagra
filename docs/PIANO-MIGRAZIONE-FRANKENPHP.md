@@ -206,7 +206,11 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
 
 ### 2d. Smoke test completo (parità con XAMPP)
 
-- [ ] `pages/billing.php`: caricamento prodotti, ricerca, filtri categoria, aggiunta al carrello, sconti riga/totale.
+**Insidia #5 — Firefox non si fida della CA locale, Chromium (Brave/Chrome/Edge) sì.** Verificato (2026-09-06): Brave ha accettato `https://localhost:8443` senza alcun avviso (usa lo store certificati di Windows, dove `frankenphp run`/`trust` installa la CA in automatico). Firefox invece ha mostrato "Avanzate → accetta il rischio" perché usa un **proprio store NSS indipendente da Windows** — coerente col log di avvio (`note: NSS support is not available on your platform`). **Fix**: importare manualmente `%APPDATA%\Caddy\pki\authorities\local\root.crt` in Firefox → `about:preferences#privacy` → Certificati → Visualizza certificati → Autorità → Importa → spunta "considera attendibile per identificare siti web". Da tenere a mente per la **Fase 3h**: se qualche postazione userà Firefox (o altri browser NSS-based), il certificato va installato **anche lì**, non basta il trust store di sistema.
+
+- [x] `pages/billing.php`: caricamento prodotti con foto, categorie — visivamente identico a XAMPP (Brave e Firefox, dopo il fix CA).
+- [x] Upload immagini prodotto (cartella `uploads/`) — creazione nuovo prodotto testata manualmente, riuscita (conferma `gd`/`fileinfo` funzionanti oltre a `mysqli`).
+- [ ] Ricerca, filtri categoria, aggiunta al carrello, sconti riga/totale.
 - [ ] Checkout completo per ogni metodo pagamento abilitato (contanti/carta/Satispay).
 - [ ] Stampa scontrino **ESC/POS USB** (`print/print_receipt.php`, `print/print_last_receipt.php`).
 - [ ] Stampa via **bridge / rete** (`print/print_receipt_bridge.php`, `print/print_stat_receipt.php`) — usa `curl`.
@@ -214,9 +218,8 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
 - [ ] **QZ Tray sotto HTTPS**: servendo l'app da `https://localhost`, verificare che i popup di consenso QZ **non riappaiano** e che la stampa USB funzioni ancora. Eseguire i test elencati in **Appendice C** (mixed-content su `ws://`, load di `qz-tray.js` da `http://`). Non modificare nulla lato QZ: solo osservare e annotare.
 - [ ] **PDF dompdf** (`print/print_stat_pdf.php`) — usa `gd`, `dom`, `mbstring`, `zip`.
 - [ ] Statistiche vendite / storni (`pages/stat_vendite.php`, `api/statistiche_*.php`).
-- [ ] Config stampanti e scontrini (`pages/conf_stampanti.php`, `api/save_receipt_config.php`, `api/get_receipt_config.php`).
+- [ ] Config casse e scontrini (`pages/conf_casse.php`, `api/save_receipt_config.php`, `api/get_receipt_config.php`) — rinominata da `conf_stampanti.php` nel frattempo (vedi commit `a5620da`).
 - [ ] Apertura cassetto (`api/open_drawer.php`), chiusura cassa (`api/chiudi_cassa.php`).
-- [ ] Upload immagini prodotto (cartella `uploads/`).
 - [ ] Sessioni PHP (`session_start`) — login/stato cassa persistono tra richieste.
 
 ### 2e. Servizio Windows
