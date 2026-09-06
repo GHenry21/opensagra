@@ -21,3 +21,7 @@ Thumbs.db
 # cartelle/che di lavoro
 /.liveui.json
 
+# CA locale generata da FrankenPHP/Caddy (specifica alla macchina, rigenerata
+# ad ogni installazione dallo script di Fase 3)
+/cert/caddy-root-ca.crt
+
