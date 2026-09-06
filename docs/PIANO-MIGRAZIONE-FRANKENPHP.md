@@ -116,7 +116,13 @@ Obiettivo: far girare l'app identica a XAMPP, su `https://localhost`, con Franke
 ### 2a. Prerequisiti
 
 - [x] `frankenphp version` risponde — v1.12.7, PHP 8.5.10, Caddy v2.11.4 (installato via `irm https://frankenphp.dev/install.ps1 | iex` in `C:\Users\enrig\.frankenphp`, aggiunto al PATH utente).
-- **Correzione (2026-09-06)**: la riga precedente parlava di una "MariaDB nativa" installata separatamente — non è così. Verificato passo passo (servizi, processi, porta 3306): `mysql`/`php` sono **XAMPP registrato come servizio Windows** (comodità di avvio automatico, non serve più aprire il pannello XAMPP), non un'installazione MariaDB indipendente. È tuttora `C:\xampp\mysql\bin\mysqld.exe` a rispondere su `127.0.0.1:3306` con tutti i dati reali. Una MariaDB davvero separata dall'albero XAMPP resta da fare **in Fase 3** (installazione da zero), non è ancora stata fatta.
+- **Correzione (2026-09-06)**: `mysql`/`php` visti come servizi Windows sono **XAMPP stesso registrato come servizio** (comodità di avvio automatico), non una MariaDB indipendente. È tuttora `C:\xampp\mysql\bin\mysqld.exe` a rispondere su `127.0.0.1:3306` con tutti i dati reali.
+- **MariaDB nativa (winget, `MariaDB.Server` 12.3.3.0)**: **esiste davvero** in `C:\Program Files\MariaDB 12.3\`, ma non è collegata a nulla. Ricognizione completa (2026-09-06, solo lettura):
+  - cartella `data\` **già inizializzata** (system db `mysql`/`performance_schema`/`sys`/`test`, file InnoDB) — il primo setup è già avvenuto;
+  - **nessun servizio Windows registrato**, **nessun processo attivo**, non ascolta su nessuna porta;
+  - `data\my.ini`: `port=3306` (⚠️ **stessa porta di XAMPP** — le due non possono girare insieme senza cambiarne una), `innodb_buffer_pool_size=8182M` auto-dimensionato dall'installer;
+  - vuota: zero dati opensagra, che vivono ancora solo su XAMPP.
+  - Attivarla (risolvere il conflitto di porta, servizio, import schema, `variabili.env`) resta lavoro della **Fase 3** — non ancora fatto, non necessario per completare la Fase 2 con XAMPP.
 - [x] DB `opensagra_pos` presente e popolato — su XAMPP (via servizio Windows), raggiungibile da `127.0.0.1:3306` come sempre. `config/variabili.env` non richiede modifiche per la Fase 2.
 
 ### 2b. Estensioni PHP
