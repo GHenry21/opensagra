@@ -116,46 +116,93 @@ Obiettivo: far girare l'app identica a XAMPP, su `https://localhost`, con Franke
 ### 2a. Prerequisiti
 
 - [x] `frankenphp version` risponde — v1.12.7, PHP 8.5.10, Caddy v2.11.4 (installato via `irm https://frankenphp.dev/install.ps1 | iex` in `C:\Users\enrig\.frankenphp`, aggiunto al PATH utente).
-- **Correzione (2026-09-06)**: `mysql`/`php` visti come servizi Windows sono **XAMPP stesso registrato come servizio** (comodità di avvio automatico), non una MariaDB indipendente. È tuttora `C:\xampp\mysql\bin\mysqld.exe` a rispondere su `127.0.0.1:3306` con tutti i dati reali.
-- **MariaDB nativa (winget, `MariaDB.Server` 12.3.3.0)**: **esiste davvero** in `C:\Program Files\MariaDB 12.3\`, ma non è collegata a nulla. Ricognizione completa (2026-09-06, solo lettura):
-  - cartella `data\` **già inizializzata** (system db `mysql`/`performance_schema`/`sys`/`test`, file InnoDB) — il primo setup è già avvenuto;
-  - **nessun servizio Windows registrato**, **nessun processo attivo**, non ascolta su nessuna porta;
-  - `data\my.ini`: `port=3306` (⚠️ **stessa porta di XAMPP** — le due non possono girare insieme senza cambiarne una), `innodb_buffer_pool_size=8182M` auto-dimensionato dall'installer;
-  - vuota: zero dati opensagra, che vivono ancora solo su XAMPP.
-  - Attivarla (risolvere il conflitto di porta, servizio, import schema, `variabili.env`) resta lavoro della **Fase 3** — non ancora fatto, non necessario per completare la Fase 2 con XAMPP.
+- **Correzione (2026-09-06)**: la riga precedente parlava di una "MariaDB nativa" installata separatamente — non è così. Verificato passo passo (servizi, processi, porta 3306): `mysql`/`php` sono **XAMPP registrato come servizio Windows** (comodità di avvio automatico, non serve più aprire il pannello XAMPP), non un'installazione MariaDB indipendente. È tuttora `C:\xampp\mysql\bin\mysqld.exe` a rispondere su `127.0.0.1:3306` con tutti i dati reali. Una MariaDB davvero separata dall'albero XAMPP resta da fare **in Fase 3** (installazione da zero), non è ancora stata fatta.
 - [x] DB `opensagra_pos` presente e popolato — su XAMPP (via servizio Windows), raggiungibile da `127.0.0.1:3306` come sempre. `config/variabili.env` non richiede modifiche per la Fase 2.
 
-### 2b. Estensioni PHP
+### 2b. Estensioni PHP ✅ FATTO (2026-09-06)
 
 Lista chiusa, ricavata dal codice app + `require` dei vendor (dettaglio e snippet in **Appendice A**):
 
 `mysqli`, `mbstring`, `gd`, `zip`, `intl`, `curl`, `openssl`, `iconv`, `dom`, `fileinfo` + `opcache` (perf).
 
-- [ ] `frankenphp php-cli -m` → elenco estensioni attive.
-- [ ] `frankenphp php-cli --ini` → individua il `php.ini` in uso (crearlo da `php.ini-production` se assente).
-- [ ] Abilitare le mancanti in `php.ini` (script idempotente in Appendice A).
-- [ ] **Gate di verifica**: rieseguire `frankenphp php-cli -m` e fallire se manca una required.
+**Insidia #1 — `frankenphp php-cli -m` NON funziona come previsto.** In questa versione (1.12.7) `php-cli` non fa da proxy trasparente ai flag di `php.exe`: tratta `-m`/`--help` come nome di uno script da eseguire (`Failed opening required '-m'`), non come opzione. Non esiste modo diretto di chiedere "elenco moduli" o "--help" a `php-cli`. **Soluzione**: scrivere un piccolo script PHP diagnostico e farlo eseguire a `php-cli` come file:
 
-### 2c. Configurazione app
+```powershell
+@'
+<?php
+echo "PHP: " . PHP_VERSION . PHP_EOL;
+echo "php.ini caricato: " . (php_ini_loaded_file() ?: "(nessuno)") . PHP_EOL;
+$mods = get_loaded_extensions(); sort($mods);
+foreach ($mods as $m) { echo "  - $m" . PHP_EOL; }
+'@ | Out-File -FilePath "$env:USERPROFILE\check-php.php" -Encoding utf8
 
-- [ ] `Caddyfile` minimale in root progetto:
+frankenphp php-cli "$env:USERPROFILE\check-php.php"
+```
+
+(la sequenza di caratteri strani all'inizio dell'output, tipo `´╗┐`, è solo il BOM che `Out-File -Encoding utf8` scrive di default su Windows PowerShell 5.1 — cosmetico, non un errore).
+
+**Insidia #2 — nessun `php.ini` caricato di default.** Risultato del check qui sopra su una installazione fresca: `php.ini caricato: (nessuno)`, e delle 11 estensioni richieste **8 mancavano** (tutte tranne `dom`, `iconv`, OPcache — già built-in). **Buona notizia**: l'installer `irm install.ps1` scarica la distribuzione PHP Windows **completa**, non un binario statico — la cartella `ext\` accanto a `frankenphp.exe` contiene già tutte le DLL necessarie (`php_mysqli.dll`, `php_mbstring.dll`, `php_gd.dll`, `php_zip.dll`, `php_intl.dll`, `php_curl.dll`, `php_openssl.dll`, `php_fileinfo.dll`), insieme ai template `php.ini-development`/`php.ini-production`. Basta creare il `php.ini` e abilitarle:
+
+```powershell
+Copy-Item "$env:USERPROFILE\.frankenphp\php.ini-development" "$env:USERPROFILE\.frankenphp\php.ini" -Force
+
+Add-Content "$env:USERPROFILE\.frankenphp\php.ini" @"
+
+; --- Aggiunte per opensagra (Fase 2 del piano) ---
+extension_dir = "ext"
+extension=mysqli
+extension=mbstring
+extension=gd
+extension=zip
+extension=intl
+extension=curl
+extension=openssl
+extension=fileinfo
+
+; Valori replicati da XAMPP (config/php.ini), non i default di PHP:
+; upload da telefono spesso 3-8MB (default PHP 2M li rifiuterebbe silenziosamente),
+; date.timezone e' correttezza (non impostato = UTC, orari sbagliati su scontrini/report)
+memory_limit = 512M
+upload_max_filesize = 40M
+post_max_size = 40M
+max_execution_time = 120
+date.timezone = Europe/Berlin
+"@
+```
+
+PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fase). **In Fase 3, per l'installazione reale, usare `php.ini-production`** (nasconde gli errori all'utente finale) con le stesse aggiunte sopra.
+
+**Nota**: `max_execution_time` letto via `php-cli` (CLI SAPI) torna sempre `0` indipendentemente dal php.ini — è comportamento normale di PHP in CLI, **non** un segno che l'impostazione non ha effetto: sotto il server web (`php_server`) viene rispettato normalmente.
+
+- [x] **Gate di verifica**: rieseguito lo script diagnostico — tutte le 11 estensioni richieste presenti (`mysqli, mbstring, gd, zip, intl, curl, openssl, fileinfo, dom, iconv` + `Zend OPcache`), `php.ini caricato: C:\Users\enrig\.frankenphp\php.ini`. Valori numerici confermati: `memory_limit=512M`, `upload_max_filesize=40M`, `post_max_size=40M`, `date.timezone=Europe/Berlin` (`max_execution_time` non verificabile da CLI, vedi nota sopra).
+
+### 2c. Configurazione app ✅ FATTO (2026-09-06)
+
+- [x] `Caddyfile` nella root del progetto (`C:\xampp\htdocs\opensagra\Caddyfile`). **Porta 8443, non 443**: XAMPP resta acceso e serve già su 80/443, questa porta alternativa evita il conflitto durante i test in parallelo — si torna a 443 solo al cutover reale (Fase 3), quando XAMPP verrà fermato:
 
   ```
   {
-      frankenphp
-      # log JSON su file, opzionale
+  	frankenphp
   }
 
-  localhost {
-      root * C:\xampp\htdocs\opensagra
-      encode zstd br gzip
-      php_server
-      tls internal
+  localhost:8443 {
+  	root * C:\xampp\htdocs\opensagra
+  	encode zstd gzip
+  	php_server
+  	tls internal
   }
   ```
-- [ ] `composer install` (dipendenze: `mike42/escpos-php`, `dompdf/dompdf`).
-- [ ] `config/variabili.env`: `DB_POS_HOST=127.0.0.1` (già default nel codice se il file manca — vedi `config/get_db_connection.php`).
-- [ ] `frankenphp run --config Caddyfile` e primo smoke test manuale.
+  (creato con `Out-File -Encoding ascii`, non `utf8`, per evitare il BOM visto sopra)
+
+- [x] `composer install` — non necessario in questa fase: `vendor/` è già presente e tracciato nella working copy usata da FrankenPHP (stessa identica cartella di XAMPP, nessuna copia separata).
+- [x] `config/variabili.env`: nessuna modifica — punta già a `127.0.0.1` (XAMPP), FrankenPHP la legge tale e quale perché è **lo stesso identico codice PHP**, nella stessa cartella. FrankenPHP non "sa" nulla del database: esegue il file `.php` richiesto esattamente come faceva `mod_php`, ed è quel file (`config/get_db_connection.php`) a leggere `variabili.env` e aprire la connessione — la scelta del server web è indipendente dalla logica applicativa.
+- [x] `frankenphp run --config Caddyfile` avviato con successo: PHP 8.5.10, 24 thread, HTTP/1+2+3 su `:8443`, certificato TLS locale ottenuto e **installato in automatico nel trust store di Windows** all'avvio (non serve girare `frankenphp trust` a parte, anche se rilanciarlo dopo conferma "already trusted" senza fare danni).
+
+**Insidia #3 — `frankenphp trust` va lanciato mentre il server è già acceso.** Il comando chiede l'informazione sulla CA all'**admin API del processo in esecuzione** (`localhost:2019`); lanciato prima di `frankenphp run` fallisce con `dial tcp [::1]:2019: ... Rifiuto persistente`. Ordine corretto: prima `frankenphp run` (finestra 1, resta bloccante), poi eventualmente `frankenphp trust` da una seconda finestra.
+
+**Insidia #4 — `curl.exe` su Windows rifiuta il certificato della CA locale.** Errore: `schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK`. Causa: una CA locale di sviluppo (quella di Caddy) non pubblica una CRL (lista di revoca) — non avrebbe senso che lo facesse — ma `curl.exe` su Windows (backend schannel) tratta l'assenza di CRL come errore bloccante, a differenza dei browser che sono più tolleranti su questo. **Soluzione per i test da terminale**: `curl.exe --ssl-no-revoke <url>`. Non serve nei browser né rilevante per l'uso reale dell'app.
+
+- [x] Primo smoke test manuale: `curl.exe --ssl-no-revoke https://localhost:8443/api/get_products.php` e `.../api/products_version.php` → entrambi rispondono con i dati reali (lista prodotti, `{"version":...,"count":...}"`), confermando l'intera catena FrankenPHP → PHP 8.5 → mysqli → MariaDB (XAMPP) funzionante end-to-end.
 
 ### 2d. Smoke test completo (parità con XAMPP)
 
@@ -379,36 +426,58 @@ Nel core PHP 8.x, nessuna riga: `json`, `session`, `hash`, `random`, `pcre`, `fi
 
 Riferimento: XAMPP abilita esattamente questo set di default → l'app ha sempre funzionato con queste.
 
-### Snippet idempotente (Windows / PowerShell)
+### ⚠️ `frankenphp php-cli -m` / `--ini` non funzionano
+
+Verificato sul campo (Fase 2b, 2026-09-06, v1.12.7): `php-cli` non fa da proxy trasparente ai flag di `php.exe` — tratta qualunque cosa cominci per `-` come nome di file da eseguire, non come opzione (`Failed opening required '-m'`). Niente panico, non è un bug nostro: **si aggira scrivendo un piccolo script PHP e facendolo eseguire come file**, che è l'uso per cui `php-cli` è pensato ("Runs a PHP command").
+
+### Snippet verificato (Windows / PowerShell)
 
 ```powershell
+$frankenDir = "$env:USERPROFILE\.frankenphp"   # dove atterra con `irm install.ps1`; con l'archivio ZIP e' dove lo estrai
 $required = @('mysqli','mbstring','gd','zip','intl','curl','openssl','iconv','dom','fileinfo')
-$ini = (frankenphp php-cli --ini | Select-String 'Loaded Configuration File:').ToString().Split(':',2)[1].Trim()
-if (-not (Test-Path $ini)) { Copy-Item "$phpDir\php.ini-production" $ini }
 
-$content = Get-Content $ini
-foreach ($ext in $required) {
-    if ($content -match "^\s*extension\s*=\s*$ext(\.dll)?\s*$") { continue }
-    if ($content -match "^\s*;\s*extension\s*=\s*$ext(\.dll)?\s*$") {
-        $content = $content -replace "^\s*;\s*(extension\s*=\s*$ext)(\.dll)?\s*$", '$1'
-    } else {
-        $content += "extension=$ext"
-    }
-}
-if (-not ($content -match '^\s*zend_extension\s*=\s*opcache')) { $content += 'zend_extension=opcache' }
-Set-Content $ini $content -Encoding UTF8
+# 1. php.ini: development in Fase 2 (mostra errori mentre testiamo),
+#    production nell'installer reale di Fase 3 (li nasconde all'utente finale)
+Copy-Item "$frankenDir\php.ini-development" "$frankenDir\php.ini" -Force
+Add-Content "$frankenDir\php.ini" @"
 
-# Gate di verifica
-$loaded  = frankenphp php-cli -m
+extension_dir = "ext"
+extension=mysqli
+extension=mbstring
+extension=gd
+extension=zip
+extension=intl
+extension=curl
+extension=openssl
+extension=fileinfo
+memory_limit = 512M
+upload_max_filesize = 40M
+post_max_size = 40M
+max_execution_time = 120
+date.timezone = Europe/Berlin
+"@
+# iconv, dom e OPcache sono gia' compilati dentro questa distribuzione: nessuna riga necessaria.
+
+# 2. Gate di verifica — via script, non via -m
+$checkScript = "$env:TEMP\check-php.php"
+@'
+<?php
+$loaded = get_loaded_extensions();
+echo implode(",", $loaded);
+'@ | Out-File -FilePath $checkScript -Encoding ascii -Force
+
+$loaded = (frankenphp php-cli $checkScript) -split ','
 $missing = $required | Where-Object { $loaded -notcontains $_ }
-if ($missing) { throw "Estensioni PHP mancanti nel bundle: $($missing -join ', ')" }
+if ($missing) { throw "Estensioni PHP mancanti: $($missing -join ', ')" }
 ```
+
+Nota: `-Encoding utf8` di PowerShell 5.1 scrive un BOM che finisce nell'output PHP (cosmetico, non rompe la logica, ma usare `ascii` per gli script diagnostici lo evita del tutto).
 
 ### macOS / Linux
 
 - `php.ini` in `/opt/homebrew/etc/php/*/` (brew) o `/etc/php/*/`.
 - Estensioni brew: `extension="mysqli.so"`, ecc.; nei build statici FrankenPHP molte sono già compilate dentro.
-- Il gate finale è identico e resta l'unico controllo affidabile: `frankenphp php-cli -m | grep -x <ext>`. **Verificarle, non darle per scontate.**
+- **Stesso limite di `php-cli -m`** atteso anche qui (è il wrapper Go, non qualcosa di Windows-specifico): usare lo stesso script diagnostico via file, non il flag. Verificarle sempre, non darle per scontate.
 
 ---
 
