@@ -14,7 +14,7 @@
 | **Infrastruttura** | Da XAMPP → **FrankenPHP in _classic mode_ + MariaDB nativa**, distribuiti con uno script d'installazione per-OS. **Niente Docker** (accesso stampante USB). **Niente worker mode** per ora (nessun refactoring, non serve alla scala attuale). |
 | **Packaging / distribuzione** | **Nessun binario embed.** Lo script d'installazione **copia i file** di opensagra nelle cartelle di destinazione. Il codice sorgente resta aperto e ispezionabile (progetto open source). `vendor/` incluso nel pacchetto di release (niente `composer install` sul target). |
 | **Cosa varia in base alle risposte** | Il codice di opensagra è **sempre spedito completo e identico**. Il wizard automatizza solo due passi oggi manuali: (1) generare `config/variabili.env` dalle risposte, (2) creare DB/tabelle/utente. Vedi **Fase 3a**. |
-| **HTTPS** | **Decisione capovolta dopo i test reali (2026-09-06): si resta su HTTP.** L'app è solo LAN, senza login (`session_start()` assente ovunque), e l'architettura di stampa prevista è un **bridge QZ condiviso tra più casse** — proprio il caso che su HTTPS si rompe su Firefox e WebKit (vedi Appendice C). Su HTTP il problema non esiste: `ws://` da pagina HTTP non è mai mixed-content, su nessun motore — identico a come funziona oggi con XAMPP. **Costo della scelta**: si rinuncia anche a HTTP/2 e HTTP/3 (richiedono TLS), non solo al lucchetto — resta HTTP/1.1, comunque non un downgrade rispetto a oggi. HTTPS (+ eventuale `wss://` per QZ) resta possibile in futuro come blocco Caddyfile parallelo (HTTP e HTTPS coesistono senza problemi), rimandato a un secondo momento come "esercizio" non urgente. |
+| **HTTPS** | **Aggiornato dopo i test reali (2026-09-06): HTTP e HTTPS coesistono stabilmente, non è un aut-aut.** Il problema di mixed-content su Firefox/WebKit riguarda **solo** il metodo di stampa `bridge_qz` (un QZ Tray condiviso raggiunto via IP di LAN); la stampa diretta (`WIN_USB`/`LINUX_USB`/`RETE`, gestita interamente dal server PHP senza WebSocket lato browser) **funziona identica su HTTPS**, verificato con test reale. Regola pratica per la Fase 3: cassa con stampante diretta → HTTPS ok; cassa che usa un bridge QZ condiviso → HTTP. Il bridge condiviso è il caso meno comune, quindi un avviso mirato nella guida/wizard basta, senza sacrificare HTTP/2/3 e il lucchetto per tutti gli altri. Dettagli in **Appendice C**. |
 | **Realtime (Mercure/SSE)** | Rimandato. L'hub è già dentro il binario FrankenPHP: si attiva quando/se serve (Fase 4). |
 | **Worker mode** | Ottimizzazione futura opzionale. Scope e stima in Appendice B. |
 | **QZ Tray** | Stampa da stampanti USB via browser. La procedura certificati/firma attuale (openssl + override + `sign-message.php`) **resta invariata** in questa migrazione. Con Caddy/HTTPS vanno però verificati alcuni punti di mixed-content: vedi **Appendice C**. Nessuna modifica al codice QZ ora. |
@@ -23,7 +23,7 @@
 
 ### Perché FrankenPHP classic + MariaDB nativa (oltre a HTTPS automatico)
 
-- ~~HTTP/2 + HTTP/3 (QUIC): meno stalli su wifi da sagra, recupero migliore quando un tablet cambia access point.~~ **Non applicabile con la decisione HTTP presa sotto** — richiedono TLS, nessun browser li fa girare in chiaro. Beneficio perso rinunciando a HTTPS; resta HTTP/1.1, invariato rispetto a XAMPP/Apache.
+- HTTP/2 + HTTP/3 (QUIC): meno stalli su wifi da sagra — **solo sulle casse in HTTPS** (richiedono TLS, nessun browser li fa girare in chiaro). Le casse che stampano tramite bridge QZ condiviso restano su HTTP/1.1 (vedi riga HTTPS sotto e Appendice C) — non è una rinuncia per tutta l'app, solo per quel sottoinsieme di postazioni.
 - Un binario + un `Caddyfile` (~10 righe) invece di Apache (httpd.conf, moduli, vhost, `.htaccess`) + PHP separato.
 - Parità cross-OS reale: stesso binario e stesso Caddyfile su Windows/Mac/Linux.
 - Static file serviti dal layer Go (non passano dall'interprete PHP).
@@ -592,6 +592,18 @@ L'architettura reale prevista (confermata dall'utente) è **un bridge QZ condivi
 **✅ Confermato con test reale**: stesso identico scenario (bridge QZ su `192.168.88.224`, stampante fisica) ripetuto su `http://localhost:8080` sui tre motori Chromium/Firefox/WebKit — **connessione pulita su tutti e tre, zero warning di mixed-content** (`Established connection with QZ Tray` su ognuno). La decisione è validata coi dati, non solo con la teoria. 7 vendite di test totali accumulate in questa sessione di verifica (id 113–119, cassa `henry`, €6 ciascuna) — lasciate nel DB su autorizzazione esplicita dell'utente.
 
 **Scelta**: restare su HTTP puro per l'uso reale (`Caddyfile` ha un blocco `http://localhost:8080` accanto a quello HTTPS, che resta per riferimento/test). Elimina il problema alla radice — `ws://` da pagina HTTP non è mai mixed-content, su nessun motore — con zero modifiche al codice QZ, identico a come funziona oggi con XAMPP. Si rinuncia anche a HTTP/2/HTTP/3 (richiedono TLS), non solo al lucchetto.
+
+### Precisazione importante: il problema è solo del bridge QZ, non di tutta l'app
+
+**Verificato con test reale (2026-09-06)**: checkout su cassa `poop` (tipo `RETE`, stampante di rete raggiungibile direttamente, `192.168.88.22:9100`) eseguito su **HTTPS** (`https://localhost:8443`) → `{"success":true,"method":"direct"}`, nessuna menzione di QZ/websocket in console, nessun mixed-content. **Funziona perfettamente su HTTPS.**
+
+Il motivo è strutturale: per i tipi `WIN_USB`/`LINUX_USB`/`RETE` (metodo `"direct"` in `checkout()`), è **il server PHP** a parlare con la stampante (via `escpos-php`, socket diretto), non il browser — nessun WebSocket lato client, quindi il mixed-content (che è una restrizione solo sulle connessioni che *il browser* apre da sé) non si applica mai. **Solo il metodo `"bridge_qz"` (bridge condiviso via QZ Tray) è toccato dal problema.**
+
+Conclusione pratica, adottata: **tenere HTTP e HTTPS in parallelo stabilmente** (non solo come ripiego temporaneo), con questa indicazione per la guida/wizard di installazione (Fase 3):
+- **Cassa con stampante diretta USB o di rete propria** (nessun bridge condiviso) → HTTPS va benissimo, nessuna limitazione.
+- **Cassa che stampa tramite un bridge QZ condiviso con altre casse** → usare **HTTP**, altrimenti su Firefox/WebKit la stampa non parte.
+
+Il bridge condiviso è comunque il caso meno comune (una stampante per più casse) — un avviso mirato nella documentazione/wizard risolve il problema per la minoranza di installazioni che lo usano, senza sacrificare HTTP/2/3 e il lucchetto per tutti gli altri.
 
 **Scope di un'eventuale integrazione `wss://` futura** (documentato per riferimento, non implementato):
 - *Lato QZ Tray*: certificato in formato keystore Java (conversione da PEM via `keytool`/`openssl pkcs12`), valido per l'hostname/IP esatto del bridge (serve un IP statico o hostname LAN fisso, altrimenti si invalida ad ogni rinnovo DHCP), riavvio di QZ Tray per ricaricarlo, rinnovo manuale prima della scadenza.
