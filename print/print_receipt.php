@@ -17,6 +17,10 @@ const DEFAULT_RECEIPT_HEADER = 'OPENSAGRA - Scontrino di vendita';
 // Per un eventuale supporto a 58mm, scendere a 384 (= 48mm).
 const RECEIPT_LOGO_MAX_WIDTH = 560;
 
+// Altezza massima del logo, in punti (150 mm): limite di sicurezza contro immagini
+// verticali enormi (il dithering e' un ciclo pixel-per-pixel in PHP).
+const RECEIPT_LOGO_MAX_HEIGHT = 1200;
+
 function ensureReceiptConfigTable($connectionDB) {
     $sql = "CREATE TABLE IF NOT EXISTS receipt_config (
         cassa_id VARCHAR(50) NOT NULL,
@@ -71,16 +75,87 @@ function getReceiptConfig($connectionDB) {
 }
 
 /**
+ * Vero se l'immagine (in scala di grigio) e' gia' sostanzialmente bianco/nero:
+ * line art, testo, oppure un logo gia' ditherato a mano dall'utente. In quel caso
+ * conviene la soglia netta (bordi nitidi), non un secondo dithering.
+ */
+function receiptLogoIsNearBilevel($im, $tolerance = 14, $edgeFraction = 0.98) {
+    $w = imagesx($im);
+    $h = imagesy($im);
+    $stepX = max(1, (int)($w / 180));
+    $stepY = max(1, (int)($h / 180));
+    $edge = 0;
+    $sampled = 0;
+    for ($y = 0; $y < $h; $y += $stepY) {
+        for ($x = 0; $x < $w; $x += $stepX) {
+            $v = imagecolorat($im, $x, $y) & 0xFF; // R=G=B dopo IMG_FILTER_GRAYSCALE
+            if ($v <= $tolerance || $v >= 255 - $tolerance) {
+                $edge++;
+            }
+            $sampled++;
+        }
+    }
+    return $sampled > 0 && ($edge / $sampled) >= $edgeFraction;
+}
+
+/**
+ * Dithering Floyd-Steinberg in-place su immagine in scala di grigio -> pixel 0/255.
+ * Rende le "sfumature" di un logo con toni continui in un retino di punti che la
+ * stampante termica (1 bit) puo' effettivamente rendere, invece di schiacciare
+ * tutto a nero/bianco con una soglia dura.
+ */
+function receiptLogoDither($im) {
+    $w = imagesx($im);
+    $h = imagesy($im);
+
+    $buf = [];
+    for ($y = 0; $y < $h; $y++) {
+        $row = [];
+        for ($x = 0; $x < $w; $x++) {
+            $row[$x] = imagecolorat($im, $x, $y) & 0xFF;
+        }
+        $buf[$y] = $row;
+    }
+
+    $black = imagecolorallocate($im, 0, 0, 0);
+    $white = imagecolorallocate($im, 255, 255, 255);
+
+    for ($y = 0; $y < $h; $y++) {
+        for ($x = 0; $x < $w; $x++) {
+            $old = $buf[$y][$x];
+            $new = $old < 128 ? 0 : 255;
+            $err = $old - $new;
+            imagesetpixel($im, $x, $y, $new === 0 ? $black : $white);
+
+            // distribuzione errore Floyd-Steinberg (7/16, 3/16, 5/16, 1/16)
+            if ($x + 1 < $w) {
+                $buf[$y][$x + 1] += ($err * 7) >> 4;
+            }
+            if ($y + 1 < $h) {
+                if ($x > 0) {
+                    $buf[$y + 1][$x - 1] += ($err * 3) >> 4;
+                }
+                $buf[$y + 1][$x] += ($err * 5) >> 4;
+                if ($x + 1 < $w) {
+                    $buf[$y + 1][$x + 1] += ($err * 1) >> 4;
+                }
+            }
+        }
+    }
+}
+
+/**
  * Carica un logo e lo prepara per la stampa termica:
  *  - rileva il formato reale dai byte (non dall'estensione): gestisce anche .jpeg/.webp/.bmp
  *  - appiattisce la trasparenza su sfondo bianco
- *  - RIDIMENSIONA alla larghezza della testina se l'immagine e' piu' larga
+ *  - RIDIMENSIONA alla larghezza (e altezza) della testina se necessario
+ *  - line art / gia' bilevel -> soglia netta; toni continui -> dithering Floyd-Steinberg
  *
  * Senza il ridimensionamento un logo piu' largo della testina viene stampato come
  * rumore: ogni riga raster sfora la testina e "va a capo", spostata di qualche punto
  * rispetto alla precedente -> le classiche striature diagonali.
  */
-function loadReceiptLogoImage($absolutePath, $maxWidth = RECEIPT_LOGO_MAX_WIDTH) {
+function loadReceiptLogoImage($absolutePath, $maxWidth = RECEIPT_LOGO_MAX_WIDTH, $maxHeight = RECEIPT_LOGO_MAX_HEIGHT) {
     if (!is_file($absolutePath) || !is_readable($absolutePath)) {
         throw new Exception("Logo non leggibile: $absolutePath");
     }
@@ -104,8 +179,15 @@ function loadReceiptLogoImage($absolutePath, $maxWidth = RECEIPT_LOGO_MAX_WIDTH)
 
     $srcW = imagesx($src);
     $srcH = imagesy($src);
-    $dstW = ($maxWidth > 0 && $srcW > $maxWidth) ? $maxWidth : $srcW;
-    $dstH = max(1, (int)round($srcH * ($dstW / max(1, $srcW))));
+    $scale = 1.0;
+    if ($maxWidth > 0 && $srcW > $maxWidth) {
+        $scale = min($scale, $maxWidth / $srcW);
+    }
+    if ($maxHeight > 0 && $srcH > $maxHeight) {
+        $scale = min($scale, $maxHeight / $srcH);
+    }
+    $dstW = max(1, (int)round($srcW * $scale));
+    $dstH = max(1, (int)round($srcH * $scale));
 
     $dst = imagecreatetruecolor($dstW, $dstH);
     // Sfondo bianco: sulla carta termica il "non stampato" e' bianco
@@ -113,10 +195,15 @@ function loadReceiptLogoImage($absolutePath, $maxWidth = RECEIPT_LOGO_MAX_WIDTH)
     imagefilledrectangle($dst, 0, 0, $dstW, $dstH, $white);
     imagecopyresampled($dst, $src, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
 
-    // La libreria applica una soglia dura a 128: aiutiamola con grigi + contrasto
     if (function_exists('imagefilter')) {
         imagefilter($dst, IMG_FILTER_GRAYSCALE);
-        imagefilter($dst, IMG_FILTER_CONTRAST, -15); // negativo = piu' contrasto in GD
+        if (!receiptLogoIsNearBilevel($dst)) {
+            // logo con toni/grigi (o ridimensionato, quindi sfocato): un filo di
+            // contrasto e poi dithering per rendere le sfumature
+            imagefilter($dst, IMG_FILTER_CONTRAST, -12); // negativo = piu' contrasto in GD
+            receiptLogoDither($dst);
+        }
+        // altrimenti: gia' bilevel -> ci pensa la soglia a 128 della libreria, bordi nitidi
     }
 
     $escposImage = new GdEscposImage(null, false);
