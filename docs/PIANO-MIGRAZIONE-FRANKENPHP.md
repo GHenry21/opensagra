@@ -186,13 +186,13 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
   	frankenphp
   }
 
-  http://localhost:8080 {
+  http://:8080 {
   	root * C:\xampp\htdocs\opensagra
   	encode zstd gzip
   	php_server
   }
 
-  https://localhost:8443 {
+  https://localhost:8443, https://192.168.88.224:8443 {
   	root * C:\xampp\htdocs\opensagra
   	encode zstd gzip
   	php_server
@@ -200,6 +200,16 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
   }
   ```
   (creato con `Out-File -Encoding ascii`, non `utf8`, per evitare il BOM visto sopra)
+
+  **⚠️ Insidia #6 — CRITICA per la Fase 3, scoperta testando da telefono (2026-09-06): un sito legato a un solo hostname non risponde da altri dispositivi.** La prima versione era `http://localhost:8080` / `https://localhost:8443` — funzionava perfettamente per tutti i nostri test **perché tutti fatti dalla stessa macchina**, ma un telefono/tablet che si collega via IP di LAN (`http://192.168.88.224:8080`) riceveva **200 con corpo vuoto, nessun errore, nessun redirect** — riproducibile su ogni path (radice, API, pagine), non un caso isolato. Causa: Caddy lega un sito definito con un hostname esplicito (`localhost`) **solo** a richieste con quell'Host header esatto; qualunque altro Host non trova un sito e ottiene una risposta vuota invece di un errore parlante — il sintomo più ingannevole possibile, perché sembra "quasi funzionare".
+
+  **Fix**: `http://:8080` (nessun hostname legato → risponde a qualunque Host in arrivo sulla porta) per l'HTTP; per l'HTTPS, elencare esplicitamente tutti i nomi/IP con cui l'app verrà raggiunta (`https://localhost:8443, https://192.168.88.224:8443`), così Caddy emette un certificato valido per tutti. **Per la Fase 3**: lo script d'installazione deve generare il `Caddyfile` con questa forma fin dall'inizio — mai un singolo hostname statico tipo `localhost`, altrimenti ogni cassa/tablet diverso dalla macchina server sperimenterà pagine bianche silenziose. Se l'IP del server cambia (DHCP), il blocco HTTPS smette di coprire quel nome — motivo in più per un IP statico o un hostname LAN stabile sul server (già notato in Appendice C per lo stesso motivo, a proposito di `wss://`).
+
+  **Serviva anche una regola firewall** (mai creata prima d'ora — nessuna richiesta esterna arrivava proprio a livello di rete): da amministratore,
+  ```powershell
+  New-NetFirewallRule -DisplayName "FrankenPHP opensagra (HTTP/HTTPS)" -Direction Inbound -Protocol TCP -LocalPort 8080,8443 -Action Allow -Profile Private
+  ```
+  Va aggiunta anche questa nello script di Fase 3 (per le porte reali di produzione, 80/443, quando XAMPP sarà fermato).
 
 - [x] `composer install` — non necessario in questa fase: `vendor/` è già presente e tracciato nella working copy usata da FrankenPHP (stessa identica cartella di XAMPP, nessuna copia separata).
 - [x] `config/variabili.env`: nessuna modifica — punta già a `127.0.0.1` (XAMPP), FrankenPHP la legge tale e quale perché è **lo stesso identico codice PHP**, nella stessa cartella. FrankenPHP non "sa" nulla del database: esegue il file `.php` richiesto esattamente come faceva `mod_php`, ed è quel file (`config/get_db_connection.php`) a leggere `variabili.env` e aprire la connessione — la scelta del server web è indipendente dalla logica applicativa.
