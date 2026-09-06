@@ -2,13 +2,13 @@
 	frankenphp
 }
 
-http://localhost:8080 {
+http://:8080 {
 	root * C:\xampp\htdocs\opensagra
 	encode zstd gzip
 	php_server
 }
 
-https://localhost:8443 {
+https://localhost:8443, https://192.168.88.224:8443 {
 	root * C:\xampp\htdocs\opensagra
 	encode zstd gzip
 	php_server
