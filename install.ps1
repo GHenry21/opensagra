@@ -383,6 +383,24 @@ DB_POS_PASS=pos_own1
 }
 
 function New-CaddyConfig {
+    # Bug reale trovato in fase di doc-review (2026-09-07): il blocco HTTPS
+    # elencava solo "https://localhost" - mai verificato con l'IP di rete
+    # effettivo sull'installazione REALMENTE generata dall'installer (i test
+    # precedenti erano contro il Caddyfile di sviluppo, che elenca gia' un IP
+    # a mano). Stesso rilevamento IP di detectLocalLanIp() in config/local_ip.php
+    # (Insidia #8): l'adattatore con un gateway di default e' quello reale.
+    $lanIp = $null
+    try {
+        $lanIp = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null } |
+            Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -ExpandProperty IPAddress)
+    } catch {
+        $lanIp = $null
+    }
+    $httpsHosts = 'https://localhost'
+    if ($lanIp) {
+        $httpsHosts = "https://localhost, https://$lanIp"
+    }
+
     $caddyPath = Join-Path $Script:InstallPath 'Caddyfile'
     @"
 {
@@ -396,7 +414,7 @@ http://:80 {
 	php_server
 }
 
-https://localhost {
+$httpsHosts {
 	root * $Script:InstallPath
 	encode zstd gzip
 	php_server
