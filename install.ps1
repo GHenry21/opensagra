@@ -50,7 +50,12 @@ $Script:ExcludeFromCopy = @(
     '.git', '.vscode', 'e2e', 'docs', 'node_modules', 'install.ps1',
     '.gitignore', '.gitattributes', 'archive', 'playwright-report',
     'test-results', 'package.json', 'package-lock.json', 'playwright.config.js',
-    'bt.html', 'navbar example.html'
+    'bt.html', 'navbar example.html',
+    # Chiave privata di firma QZ Tray, bundlata accanto a install.ps1 (vedi
+    # Install-QZTray/installa_certificati_qz.php) - NON deve mai finire dentro
+    # la webroot copiata qui: e' fuori dalla webroot per costruzione, per non
+    # essere mai raggiungibile via browser.
+    'private'
 )
 
 # ============================================================================
@@ -503,35 +508,35 @@ function Install-QZTray {
         Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
     }
 
-    # Genera (una tantum, idempotente) la coppia chiave/certificato di firma
-    # per QZ Tray se non ne esiste gia' una valida - vedi
-    # config/genera_certificati_qz.php. Deve girare PRIMA della copia in
-    # override.crt qui sotto, cosi' quello copiato e' il certificato vero
-    # (generato per QUESTA installazione), non il file di esempio committato
-    # in git da Copy-AppFiles. Sostituisce il vecchio $keySource: prima
-    # calcolava un percorso "sorgente" per una chiave da copiare, ma non la
-    # copiava mai da nessuna parte (bug reale, mai eseguito nulla) ne' teneva
-    # conto del fatto che chiave e certificato ora si generano assieme.
-    & "$Script:FrankenDir\frankenphp.exe" php-cli (Join-Path $Script:InstallPath 'config\genera_certificati_qz.php')
+    # Posiziona (una tantum, idempotente) la chiave privata di firma per QZ
+    # Tray, copiandola dal pacchetto di installazione - vedi
+    # config/installa_certificati_qz.php per il perche' (stessa coppia
+    # chiave/certificato per ogni installazione, non una generata per
+    # macchina: due installazioni con certificati diversi che parlano con lo
+    # stesso QZ Tray fisico non si fiderebbero a vicenda senza un passo di
+    # sync manuale - bug pratico trovato testando con una VM + la macchina
+    # reale nello stesso scenario). La chiave va bundlata a parte nel
+    # pacchetto, in una cartella 'private\key.pem' accanto a questo stesso
+    # script (mai in git).
+    $bundledKeyPath = Join-Path $Script:SourcePath 'private\key.pem'
+    & "$Script:FrankenDir\frankenphp.exe" php-cli (Join-Path $Script:InstallPath 'config\installa_certificati_qz.php') --source-key="$bundledKeyPath"
     if ($LASTEXITCODE -ne 0) {
-        throw 'Generazione dei certificati QZ Tray fallita (vedi output sopra).'
+        throw 'Posizionamento della chiave privata QZ Tray fallito (vedi output sopra).'
     }
 
     # Procedura certificati: override del certificato di firma per sopprimere
-    # i popup di consenso.
-    $qzDataDir = "$env:USERPROFILE\AppData\Roaming\qz"
+    # i popup di consenso. Percorso corretto (verificato nel codice sorgente
+    # di QZ Tray, classe qz.auth.Certificate: SystemUtilities.getJarParentPath()
+    # + Constants.OVERRIDE_CERT): la cartella di installazione di QZ Tray
+    # stessa, NON %APPDATA%\qz - quest'ultima e' solo dove QZ Tray tiene il
+    # proprio stato (allowed.dat/blocked.dat/log), il file li' viene ignorato
+    # (bug reale di questa sessione: usato quel percorso sbagliato inizialmente,
+    # il popup di conferma continuava a comparire nonostante override.crt
+    # fosse presente e corretto - solo nel posto sbagliato).
+    $qzInstallDir = 'C:\Program Files\QZ Tray'
     $certSource = Join-Path $Script:InstallPath 'cert\cert.pem'
     if (Test-Path $certSource) {
-        # Bug reale trovato testando su VM pulita (2026-09-07): la cartella
-        # dati di QZ Tray la crea QZ Tray stesso al primo avvio - su
-        # un'installazione fresca non esiste ancora a questo punto, quindi il
-        # vecchio controllo "if Test-Path $qzDataDir" falliva sempre e
-        # saltava silenziosamente la copia del certificato di override.
-        # Risultato: popup di conferma connessione mai soppresso -> "Connection
-        # attempt cancelled by user" quando nessuno e' davanti allo schermo
-        # per cliccare Consenti.
-        New-Item -ItemType Directory -Force -Path $qzDataDir | Out-Null
-        Copy-Item $certSource (Join-Path $qzDataDir 'override.crt') -Force
+        Copy-Item $certSource (Join-Path $qzInstallDir 'override.crt') -Force
 
         # QZ Tray si avvia gia' da solo dopo l'installazione silenziosa: se e'
         # gia' in esecuzione, ha in memoria lo stato precedente (senza
@@ -542,7 +547,7 @@ function Install-QZTray {
             $qzProcess | Stop-Process -Force
             Start-Sleep -Seconds 1
         }
-        $qzExe = 'C:\Program Files\QZ Tray\qz-tray.exe'
+        $qzExe = Join-Path $qzInstallDir 'qz-tray.exe'
         if (Test-Path $qzExe) {
             Start-Process -FilePath $qzExe
         }
