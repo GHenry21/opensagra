@@ -144,6 +144,12 @@ foreach ($userHosts as $userHost) {
     $sqlCreateUser = "CREATE USER IF NOT EXISTS '$nuovo_utente'@'$userHost' IDENTIFIED BY '$nuova_password';";
     $sqlAlterUser = "ALTER USER '$nuovo_utente'@'$userHost' IDENTIFIED BY '$nuova_password';";
     $sqlGrant = "GRANT ALL PRIVILEGES ON `$db_nome`.* TO '$nuovo_utente'@'$userHost';";
+    // Privilegio globale (non per-database): serve solo a SHOW PROCESSLIST, per
+    // poter avvisare "N altre casse sono connesse in questo momento" nella
+    // pagina Configurazione Rete prima di staccarsi da un ruolo di server.
+    // Innocuo su un'istanza MariaDB dedicata solo a opensagra (nessun altro
+    // database/utente le cui connessioni sarebbe indiscreto vedere).
+    $sqlGrantProcess = "GRANT PROCESS ON *.* TO '$nuovo_utente'@'$userHost';";
 
     if (!$connRoot->query($sqlCreateUser)) {
         fail("Errore nella creazione utente per host '$userHost': " . $connRoot->error);
@@ -153,6 +159,9 @@ foreach ($userHosts as $userHost) {
     }
     if (!$connRoot->query($sqlGrant)) {
         fail("Errore nell'assegnazione dei privilegi per host '$userHost': " . $connRoot->error);
+    }
+    if (!$connRoot->query($sqlGrantProcess)) {
+        fail("Errore nell'assegnazione del privilegio PROCESS per host '$userHost': " . $connRoot->error);
     }
 }
 

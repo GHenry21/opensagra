@@ -151,13 +151,33 @@
                 // Conferma sempre, anche se la modalità sembra già quella attuale:
                 // è un'operazione che cambia il database usato da tutta l'app, va
                 // fatta con intenzione, non con un click distratto.
-                const confirmMessage = mode === 'indipendente'
-                    ? 'Questo PC tornerà a usare il proprio database in locale. Se altre casse sono collegate a questo PC come server, smetteranno di funzionare finché non le ripunti altrove. Continuare?'
-                    : `Questo PC userà d'ora in poi il database del server all'indirizzo ${host}. I dati locali di questo PC (se presenti) resteranno lì ma non verranno più usati finché non torni a "Indipendente". Continuare?`;
+                // Rafforzata con un dato reale (non un avviso generico sempre
+                // uguale): quante altre postazioni sono davvero connesse in
+                // questo momento al database locale di questo PC.
+                let externalWarning = '';
+                try {
+                    const connResp = await fetch('../api/db_connections.php');
+                    const connData = await connResp.json();
+                    if (connData.external_count > 0) {
+                        const elenco = connData.hosts.join(', ');
+                        externalWarning = `\n\n⚠️ Attenzione: in questo momento ${connData.external_count} altra/e postazione/i ` +
+                            `(${elenco}) risulta/no collegata/e al database locale di questo PC — probabilmente lo usano ` +
+                            `già come server condiviso.`;
+                    }
+                } catch (e) {
+                    // Controllo best-effort: se fallisce, il dialogo prosegue senza quel dettaglio.
+                }
+
+                const confirmMessage = (mode === 'indipendente'
+                    ? 'Questo PC tornerà a usare il proprio database in locale, invece di quello del server a cui punta ora.'
+                    : `Questo PC userà d'ora in poi il database del server all'indirizzo ${host}, invece del proprio database locale.`)
+                    + externalWarning
+                    + '\n\nContinuare?';
                 const confirmed = await showConfirm(confirmMessage, {
                     title: 'Conferma cambio rete',
                     confirmLabel: 'Applica',
-                    cancelLabel: 'Annulla'
+                    cancelLabel: 'Annulla',
+                    confirmVariant: 'primary'
                 });
                 if (!confirmed) {
                     return;

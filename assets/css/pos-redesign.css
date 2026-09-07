@@ -1074,6 +1074,15 @@ body.sidebar-page {
   filter: brightness(1.08);
 }
 
+.confirm-dialog-btn--primary {
+  background: var(--mc-primary);
+  color: var(--mc-primary-text);
+}
+
+.confirm-dialog-btn--primary:hover {
+  filter: brightness(1.08);
+}
+
 @media (max-width: 480px) {
   .confirm-dialog {
     padding: 20px;

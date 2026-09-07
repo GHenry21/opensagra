@@ -10,6 +10,7 @@
         var title = options.title || 'Conferma';
         var confirmLabel = options.confirmLabel || 'Conferma';
         var cancelLabel = options.cancelLabel || 'Annulla';
+        var confirmVariant = options.confirmVariant === 'primary' ? 'primary' : 'danger';
 
         return new Promise(function (resolve) {
             var backdrop = document.createElement('div');
@@ -40,7 +41,7 @@
 
             var confirmBtn = document.createElement('button');
             confirmBtn.type = 'button';
-            confirmBtn.className = 'confirm-dialog-btn confirm-dialog-btn--danger';
+            confirmBtn.className = 'confirm-dialog-btn confirm-dialog-btn--' + confirmVariant;
             confirmBtn.textContent = confirmLabel;
 
             actionsEl.appendChild(cancelBtn);

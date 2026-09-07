@@ -1,4 +1,7 @@
 const playwright = require('playwright');
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
 
 const HTTP = 'http://localhost';
 const results = [];
@@ -71,7 +74,29 @@ async function confirmDialog(page) {
   const statusRestoredJson = await statusRestored.json();
   log('Ripristinato a indipendente (127.0.0.1)', statusRestoredJson.host === '127.0.0.1' && statusRestoredJson.online, JSON.stringify(statusRestoredJson));
 
-  // 7. Voce di navigazione spostata sopra "Gestione Database", bottone "Crea DB e Tabelle" rimosso
+  // 7. Endpoint di base: forma corretta anche senza connessioni esterne attive
+  const baseConn = await context.request.get(`${HTTP}/api/db_connections.php`);
+  const baseConnJson = await baseConn.json();
+  log('db_connections.php risponde nella forma attesa', typeof baseConnJson.external_count === 'number' && Array.isArray(baseConnJson.hosts), JSON.stringify(baseConnJson));
+
+  // 8. Avviso rafforzato: con una connessione "esterna" reale attiva (aperta
+  // qui via IP di LAN invece che loopback, cosi' MariaDB non la conta come
+  // locale), il dialogo di conferma deve mostrarla per nome host risolto.
+  const holdScript = `<?php $c = new mysqli('192.168.88.224','pos_own','pos_own1','opensagra_pos'); $c->query('SELECT SLEEP(5)');`;
+  fs.writeFileSync(path.join(__dirname, '_hold_conn.php'), holdScript);
+  const holder = spawn('C:/Users/enrig/.frankenphp/frankenphp.exe', ['php-cli', path.join(__dirname, '_hold_conn.php')]);
+  await page.waitForTimeout(800); // lascia stabilire la connessione prima di controllare
+
+  await page.click('#btnSaveRete');
+  await page.waitForSelector('.confirm-dialog', { timeout: 3000 });
+  const dialogText = await page.locator('.confirm-dialog').innerText();
+  log('Dialogo mostra l\'avviso su connessione esterna reale', /1 altra.*postazion/i.test(dialogText) || /attenzione/i.test(dialogText), dialogText.replace(/\n/g, ' | '));
+  await page.click('.confirm-dialog-btn--secondary');
+
+  await new Promise((resolve) => holder.on('exit', resolve));
+  fs.unlinkSync(path.join(__dirname, '_hold_conn.php'));
+
+  // 9. Voce di navigazione spostata sopra "Gestione Database", bottone "Crea DB e Tabelle" rimosso
   const navOrder = await page.locator('.pos-sidebar__nav--gap .pos-sidebar__link span').allInnerTexts();
   const reteIdx = navOrder.indexOf('Configurazione Rete');
   const dbIdx = navOrder.indexOf('Gestione Database');
