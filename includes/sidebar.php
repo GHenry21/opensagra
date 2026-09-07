@@ -262,7 +262,8 @@ $_hNavGroups = [
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     dot.className = 'pos-net-pill__dot' + (data.online ? ' is-online' : ' is-offline');
-                    text.textContent = 'Rete: ' + (data.display_host || data.host) + (data.online ? '' : ' (offline)');
+                    var shownHost = (data.display_host || data.host) + (data.hostname ? ' (' + data.hostname + ')' : '');
+                    text.textContent = 'Rete: ' + shownHost + (data.online ? '' : ' (offline)');
                 })
                 .catch(function() {
                     dot.className = 'pos-net-pill__dot is-offline';

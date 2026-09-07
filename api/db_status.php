@@ -22,6 +22,8 @@ $result = [
     // loopback non dice nulla di utile a chi deve collegare un'altra
     // cassa a questa macchina come server.
     'display_host' => $isSelf ? (detectLocalLanIp() ?? $env['host']) : $env['host'],
+    // Nome host di questo PC, solo informativo (vedi local_ip.php).
+    'hostname' => $isSelf ? detectLocalHostname() : null,
     'is_self' => $isSelf,
     'db' => $env['db'],
     'online' => false,

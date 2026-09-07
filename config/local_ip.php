@@ -27,3 +27,16 @@ function detectLocalLanIp(): ?string
 
     return $ip;
 }
+
+/**
+ * Nome host di questo PC (es. "HENRY"), da mostrare accanto all'IP: più
+ * facile da riconoscere a colpo d'occhio su più postazioni che un numero.
+ * Non è un'alternativa affidabile all'IP per la connessione da un tablet
+ * Android (stessa limitazione già documentata per mDNS/.local in
+ * Appendice C) — solo un'informazione in più per chi legge la pagina.
+ */
+function detectLocalHostname(): ?string
+{
+    $host = gethostname();
+    return $host !== false && $host !== '' ? $host : null;
+}

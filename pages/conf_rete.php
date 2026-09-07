@@ -26,6 +26,11 @@
         $env = loadPosEnvVars();
         $isIndipendente = ($env['host'] === '127.0.0.1' || $env['host'] === 'localhost');
         $localIp = detectLocalLanIp();
+        $localHostname = detectLocalHostname();
+        // "192.168.88.224 (HENRY)" quando abbiamo entrambi, altrimenti solo quello disponibile.
+        $localLabel = $localIp
+            ? htmlspecialchars($localIp) . ($localHostname ? ' (' . htmlspecialchars($localHostname) . ')' : '')
+            : ($localHostname ? htmlspecialchars($localHostname) : null);
         ?>
         <div class="rete-shell">
             <section class="rete-card">
@@ -53,9 +58,9 @@
                             <strong>Indipendente</strong>
                             <p class="inline-muted">Questo PC usa il proprio database, in locale. È già così di
                                 default su ogni installazione.</p>
-                            <?php if ($localIp): ?>
+                            <?php if ($localLabel): ?>
                             <p class="inline-muted">IP di rete di questo PC (da dare alle altre casse che vorranno
-                                collegarsi qui come client): <code><?= htmlspecialchars($localIp) ?></code></p>
+                                collegarsi qui come client): <code><?= $localLabel ?></code></p>
                             <?php endif; ?>
                         </span>
                     </label>
@@ -93,7 +98,7 @@
                     Ogni installazione opensagra è già pronta a fare da server per le altre: non serve
                     nessuna configurazione aggiuntiva su questo PC. Sulle altre postazioni, apri questa
                     stessa pagina (Configurazione Rete) e scegli "Client: punta a un server in rete",
-                    indicando l'indirizzo IP di questo PC<?= $localIp ? " (<code>" . htmlspecialchars($localIp) . "</code>)" : '' ?>.
+                    indicando l'indirizzo IP di questo PC<?= $localLabel ? " (<code>{$localLabel}</code>)" : '' ?>.
                 </p>
                 <p class="inline-muted">
                     Attenzione: se questo PC si spegne o esce dalla rete, tutte le casse collegate a lui
@@ -125,7 +130,7 @@
                 fetch('../api/db_status.php')
                     .then((r) => r.json())
                     .then((data) => {
-                        const shownHost = data.display_host || data.host;
+                        const shownHost = (data.display_host || data.host) + (data.hostname ? ` (${data.hostname})` : '');
                         statusDot.className = 'rete-status-dot' + (data.online ? ' is-online' : ' is-offline');
                         statusText.textContent = data.online
                             ? `Connesso a ${shownHost} (${data.latency_ms} ms)`
