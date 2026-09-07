@@ -91,15 +91,26 @@ if (!$force && is_file($keyPath) && is_file($certPemPath)) {
 
 outLine('Generazione coppia chiave/certificato per QZ Tray...');
 
-$privateKeyResource = openssl_pkey_new([
+// Bug reale trovato testando su VM pulita (2026-09-07): openssl_pkey_new() e
+// affini cercano su Windows un openssl.cnf di sistema che su una macchina
+// pulita non esiste affatto ("system library::No such process"), e anche
+// quando esiste (lasciato li' da un altro programma) puo' avere sezioni
+// incompatibili con OpenSSL 3.x e fallire diversamente ("X509 V3
+// routines::unknown option"). Fix: non dipendere da nessun default di
+// sistema, passare sempre il config minimale bundlato con l'app (vedi
+// config/openssl.cnf per i dettagli del perche' di ogni sezione).
+$opensslConfigArgs = ['config' => __DIR__ . '/openssl.cnf'];
+
+$keyGenArgs = $opensslConfigArgs + [
     'private_key_bits' => 2048,
     'private_key_type' => OPENSSL_KEYTYPE_RSA,
-]);
+];
+$privateKeyResource = openssl_pkey_new($keyGenArgs);
 if ($privateKeyResource === false) {
     fail('Generazione della chiave privata fallita: ' . openssl_error_string());
 }
 
-if (!openssl_pkey_export($privateKeyResource, $privateKeyPem)) {
+if (!openssl_pkey_export($privateKeyResource, $privateKeyPem, null, $opensslConfigArgs)) {
     fail('Esportazione della chiave privata fallita: ' . openssl_error_string());
 }
 
@@ -113,7 +124,7 @@ $dn = [
     'organizationName' => 'opensagra',
     'commonName' => 'opensagra QZ Tray',
 ];
-$csr = openssl_csr_new($dn, $privateKeyResource);
+$csr = openssl_csr_new($dn, $privateKeyResource, $opensslConfigArgs);
 if ($csr === false) {
     fail('Generazione della richiesta di certificato fallita: ' . openssl_error_string());
 }
@@ -122,7 +133,7 @@ if ($csr === false) {
 // non per un vero canale cifrato - una validita' lunga evita di dover
 // rigenerare la coppia (e ridistribuire l'override su ogni QZ Tray) a
 // scadenza.
-$cert = openssl_csr_sign($csr, null, $privateKeyResource, 3650);
+$cert = openssl_csr_sign($csr, null, $privateKeyResource, 3650, $opensslConfigArgs);
 if ($cert === false) {
     fail('Generazione del certificato fallita: ' . openssl_error_string());
 }
