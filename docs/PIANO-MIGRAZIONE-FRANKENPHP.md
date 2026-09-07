@@ -518,64 +518,55 @@ Passo intermedio sviluppato e verificato prima di scrivere l'installer vero e pr
 
 ### 3b. Rilevamento
 
-- [ ] OS + package manager: `winget`/Chocolatey (Windows), `brew` (macOS), `apt`/`dnf`/`pacman` (Linux).
+- [x] **Deciso Windows-only** (2026-09-07, vedi 3a): nessun rilevamento OS/package manager multi-piattaforma, `install.ps1` richiede Windows esplicitamente (`Test-Prerequisites`). macOS/Linux restano fuori scope per ora.
 
 ### 3c. Installazione software
 
-- [ ] **FrankenPHP**:
-  - Windows: `irm https://frankenphp.dev/install.ps1 | iex` (o download archivio + PHP ufficiale Windows).
-  - macOS: `brew install dunglas/frankenphp/frankenphp` o `curl https://frankenphp.dev/install.sh | sh`.
-  - Linux: `curl https://frankenphp.dev/install.sh | sh`.
-- [ ] **MariaDB**:
-  - Windows: MSI silent (`msiexec /i ... /qn` con `SERVICENAME`, `PASSWORD`).
-  - macOS: `brew install mariadb` + `brew services start mariadb`.
-  - Linux: pacchetto distro + `systemctl enable --now mariadb`.
-- [ ] **Composer**: non serve sul target se `vendor/` è nel pacchetto di release (default). Serve solo per rigenerare le dipendenze in fase di build del pacchetto: `composer install --no-dev --optimize-autoloader`.
+- [x] **FrankenPHP** (Windows): `Install-FrankenPHP` in `install.ps1`, usa lo script ufficiale (`Invoke-Expression (Invoke-RestMethod 'https://frankenphp.dev/install.ps1')`), idempotente. macOS/Linux non applicabile (Windows-only).
+- [x] **MariaDB** (Windows): `Install-MariaDBEngine`, `winget install --id MariaDB.Server -e --silent`. macOS/Linux non applicabile.
+- [x] **Composer**: confermato non necessario sul target, `vendor/` incluso nel pacchetto (`Copy-AppFiles` copia tutto il repo incluso `vendor/`, escluso solo ciò che serve allo sviluppo — vedi `ExcludeFromCopy`).
 
 ### 3d. Estensioni PHP
 
-- [ ] Applicare lo script idempotente di **Appendice A** al `php.ini` in uso (`frankenphp php-cli --ini`).
-- [ ] **Gate**: `frankenphp php-cli -m` deve contenere tutte le required, altrimenti abort con messaggio chiaro.
-- [ ] **Caveat binario statico Linux/Mac**: se `gd`/`intl`/`curl` non sono nel bundle statico, usare l'immagine Docker FrankenPHP **solo sul server** o un build custom. Documentare nel README dello script.
+- [x] `Set-PhpExtensions` in `install.ps1` — applica lo script idempotente al `php.ini` in uso. **Bug reale trovato testando su VM pulita**: il controllo "già configurato" matchava anche le righe commentate del template di default di FrankenPHP, lasciando le estensioni vere disattivate — corretto con una regex ancorata a inizio riga.
+- [x] **Gate**: verificato (messaggio reale visto in test: "Estensioni PHP mancanti dopo la configurazione: ...") — abort con elenco leggibile delle estensioni mancanti.
+- [x] **Caveat binario statico Linux/Mac**: non applicabile, Windows-only.
 
 ### 3e. Database — riusa lo script esistente
 
-**Script già presente:** `config/crea_dbtable_and_user.php`. Oggi fa già:
-- legge `config/variabili.env` (via `get_db_connection.php`);
+**Script:** `config/crea_dbtable_and_user.php`. Fa:
+- legge `config/variabili.env` (via `config/env_reader.php` — **non** più via `get_db_connection.php`, che apre subito una connessione come utente applicativo: bug reale trovato testando su VM pulita, quell'utente non esiste ancora su un'istanza vergine, essendo proprio questo script a doverlo creare);
 - si connette come `root` e crea il database `opensagra_pos` se manca;
 - importa `config/pos.sql` **solo se non ci sono già tabelle** (idempotente);
 - crea l'utente app per gli host `localhost`, `127.0.0.1` e `%` con `GRANT ALL` sul db + `FLUSH PRIVILEGES`.
 
 **Adattamenti per il wizard/installer:**
-- [ ] Renderlo eseguibile anche da **CLI** (`php config/crea_dbtable_and_user.php`), non solo via browser (oggi stampa HTML `<br>`): output pulito + `exit code` ≠ 0 su errore.
-- [ ] Parametrizzare la connessione root: oggi è hardcoded `new mysqli($db_host, 'root', '')` (stile XAMPP). Accettare **password di root** e host da parametro/env per i server reali.
-- [ ] **Indipendente**: eseguirlo in locale su ogni macchina (root su `127.0.0.1`). L'utente `%` che già crea è innocuo in locale.
-- [ ] **Centralizzato**: eseguirlo **solo sul server**; le casse non lo lanciano. Verificare che l'utente `%` (già creato) sia adeguato o restringerlo alla subnet LAN.
-- [ ] Dopo l'import schema, eseguire le migrazioni di `config/migrations/` (Fase 0: `stock.updated_at`, indice, ecc.).
-- [ ] *Solo centralizzato*: `bind-address` MariaDB sulla LAN, porta 3306 aperta solo verso la LAN.
-- [ ] Allineare l'incoerenza minore: `variabili.env` ha `DB_POS_SID`/`DB_POS_HOST` mentre il nome DB è hardcoded `opensagra_pos` in `get_db_connection.php` — decidere se il nome DB diventa anch'esso una variabile.
+- [x] Eseguibile da **CLI** (`php config/crea_dbtable_and_user.php [opzioni]`), non solo via browser — `getopt`, `fail()` su stderr + `exit(1)`.
+- [x] Connessione root parametrizzata: `--root-host`/`--root-user`/`--root-pass` (default: host di `variabili.env`, `root`, vuota — comportamento storico invariato per l'uso da browser).
+- [x] **Architettura indipendente/centralizzato**: non più una domanda del wizard (rimossa, vedi 3a) — ogni installazione parte come cassa singola, l'eventuale passaggio a centralizzato si fa dopo, dalla pagina **Configurazione Rete**. Questo bullet e i due seguenti (utente `%`, `bind-address` solo LAN) sono superati da quella decisione: l'installer non distingue più i due casi a monte.
+- [x] Migrazioni eseguite dopo l'import schema — `Invoke-Migrations` in `install.ps1`, gira ogni file di `config/migrations/*.php` in ordine.
+- [x] Nome del database: **deciso fisso** (`opensagra_pos`, non parametrizzato) — vedi commento in `config/env_reader.php`. `DB_POS_SID` (variabile ridondante) rimossa da `variabili.env.example`.
 
 ### 3f. File e config
 
-- [ ] Copiare i file di opensagra in un percorso **fisso di default** (`C:\opensagra` — decisione 2026-09-07, niente domanda: chi vuole un percorso diverso lo passa come parametro in modalità non interattiva), `vendor/` incluso.
-- [ ] Generare `Caddyfile`: **sempre** HTTP+HTTPS in parallelo (nessuna domanda, vedi 3a), root = percorso d'installazione, hostname multipli (`localhost` + IP di rete rilevato, stesso schema dell'Insidia #6) + `tls internal`.
-- [ ] Generare `config/variabili.env` (`DB_POS_HOST=127.0.0.1`, `DB_POS_USER`, `DB_POS_PASS`), partendo da `config/variabili.env.example`. **Lasciarlo come file di testo leggibile/modificabile.**
-- [ ] Permessi cartella `uploads/` scrivibile dal processo FrankenPHP (ACE ereditabile `Authenticated Users:Modify`, così i file caricati restano leggibili anche fuori dal processo).
-- [ ] `upload_tmp_dir` impostato + cartella temp creata con ACL ereditabili (Soluzione A, vedi Appendice A → "`upload_tmp_dir` e ACL degli upload").
+- [x] Percorso fisso `C:\opensagra` — `$Script:InstallPath`, `Copy-AppFiles` in `install.ps1`, `vendor/` incluso (non escluso da `ExcludeFromCopy`).
+- [x] `Caddyfile` generato (`New-CaddyConfig`) — HTTP+HTTPS sempre in parallelo, `tls internal`. **Verificato** (2026-09-07): pur specificando solo `https://localhost` come site address (non un IP di rete esplicito), Caddy risponde comunque su `https://<IP-LAN>` (testato con successo, 302) — non serve un hostname aggiuntivo esplicito nel blocco, il caso dell'Insidia #6 (rilevamento IP) riguardava solo `detectLocalLanIp()` lato app, non il `Caddyfile`.
+- [x] `config/variabili.env` generato (`New-EnvFile`) — solo se non esiste già (idempotente, non sovrascrive mai una configurazione esistente su reinstall/riparazione).
+- [x] Permessi `uploads/`: **non serve un passo installer dedicato** — il bug ACL (LocalSystem scrive file illeggibili ad altri account) è già chiuso a livello di codice (`copy()` in `config/store_uploaded_file.php`, vedi [[frankenphp_localsystem_upload_acl]]), funziona indipendentemente dall'account con cui gira il servizio.
+- [x] `upload_tmp_dir` + ACL — `Set-PhpExtensions` crea `C:\ProgramData\opensagra\php_upload_tmp` con `icacls` ereditabili (`Authenticated Users:Modify`, `SYSTEM:Full`).
 
 ### 3g. Servizi
 
-- [ ] Windows: WinSW (`frankenphp-service.exe install/start`).
-- [ ] macOS: plist launchd o `brew services`.
-- [ ] Linux: unit `systemd` (`frankenphp.service`) con `Restart=on-failure`.
-- [ ] **Soluzione B (da valutare)**: far girare il servizio come account a bassi privilegi invece di LocalSystem — `LOCAL SERVICE` / account dedicato su Windows, `User=`/`DynamicUser=` su systemd, `UserName` nel LaunchDaemon. Comporta: rifare/adattare il workaround CA di Caddy (Fase 2e), riassegnare con `icacls`/`chown` le ACL di `uploads/`, log e storage Caddy. Non urgente: il bug ACL è già chiuso dalla Soluzione A (`copy()` in `config/store_uploaded_file.php`). Dettagli in Appendice A.
+- [x] Windows: WinSW — `Register-FrankenPHPService` in `install.ps1`. **Bug reale trovato testando su VM pulita**: `frankenphp-service.exe` (= WinSW rinominato) non veniva mai scaricato automaticamente, andava installato a mano in Fase 2 — aggiunta `Install-WinSW`, scarica l'ultima release da GitHub (`winsw/winsw`).
+- [ ] macOS/Linux: non applicabile (Windows-only).
+- [ ] **Soluzione B (da valutare, non urgente)**: account a bassi privilegi invece di LocalSystem — non necessario ora, il bug ACL è chiuso lato codice (Soluzione A). Dettagli in Appendice A.
 
 ### 3h. HTTPS / certificati
 
-- [ ] `frankenphp` con `tls internal` genera la CA locale.
-- [ ] `caddy trust` (o equivalente) per fidarsi della CA sulla macchina server.
-- [ ] Produrre `root-CA.crt` + procedura documentata per installarlo sui **tablet** (una volta per dispositivo) — oppure dominio reale + DNS di rete.
-- [ ] **Interazione con QZ Tray**: annotare che una pagina in HTTPS + `ws://` verso un QZ non-loopback viene bloccata (mixed-content). Vedi **Appendice C** per i test. Nessuna modifica ora.
+- [x] `tls internal` genera la CA locale — verificato funzionante (Fase 2, confermato di nuovo nei test VM di Fase 3).
+- [x] Fidarsi della CA sulla macchina server — non necessario un passo esplicito: FrankenPHP/Caddy gestisce il proprio store di fiducia lato server; il problema reale era l'import nello store "Macchina locale" per i **client** (vedi Fase 2e), non il server.
+- [ ] Produrre `root-CA.crt` + procedura documentata per installarlo sui **tablet** — **ancora da fare**, materiale per la guida finale (non uno step di `install.ps1`, è per-dispositivo lato client).
+- [x] **Interazione con QZ Tray**: analizzata a fondo (Appendice C), nessuna modifica al codice QZ — si resta su HTTP in parallelo per il bridge, HTTPS funziona per tutti gli altri metodi di stampa.
 
 ### 3i. QZ Tray — incluso in `install.ps1`, installato sempre (vedi 3a)
 
@@ -586,7 +577,7 @@ Non un ramo condizionato da una domanda (il nucleo è a zero domande, vedi 3a): 
 - [x] ~~Posizionare la chiave privata in `../../../private/key.pem`~~ **Ridisegnato due volte (2026-09-07)**: quel percorso era calcolato per la vecchia struttura `xampp/htdocs/opensagra` e non aveva senso con il percorso fisso `C:\opensagra` di Fase 3 — il codice che avrebbe dovuto posizionare la chiave, per giunta, non copiava mai nulla da nessuna parte (bug reale, "failed to sign request" da QZ Tray).
   - **Primo tentativo**: generare una coppia chiave/certificato unica per ogni installazione (`openssl_*` di PHP) invece di condividere lo stesso `cert.pem` committato in git — vedi discussione su licenza QZ Tray (LGPL 2.1) più sotto: nessun impedimento legale, il meccanismo di firma/override è una funzionalità ufficiale di QZ. Tecnicamente più corretto (nessun segreto condiviso tra installazioni indipendenti) ma **scartato dopo un problema pratico**: testando con una VM e la macchina reale nello stesso scenario (entrambe che parlano allo stesso QZ Tray fisico), le due installazioni avevano certificati diversi e non si fidavano a vicenda senza un passo di sincronizzazione manuale — non zero-touch come richiesto.
   - **Decisione finale**: si distribuisce la **stessa** coppia chiave/certificato (quella dell'autore) con ogni installazione, bundlata in una cartella `private/key.pem` accanto a `install.ps1` (mai in git) e copiata al punto giusto da `config/installa_certificati_qz.php` (rinominato da `genera_certificati_qz.php`, ora copia soltanto, non genera). Percorso di destinazione centralizzato in `config/qz_key_path.php` (`C:\ProgramData\opensagra\private\key.pem`), usato sia da questo script sia da `api/sign-message.php` — prima erano due calcoli indipendenti, causa profonda del disallineamento originale. `install.ps1` esclude esplicitamente la cartella `private/` dalla copia verso la webroot (`Copy-AppFiles`/`ExcludeFromCopy`): la chiave deve restare fuori dalla webroot per non essere mai raggiungibile via browser.
-- [ ] Se il PC deve ricevere connessioni da altri dispositivi LAN: `wss.host=0.0.0.0` in `qz-tray.properties`.
+- [x] Ricezione da altri dispositivi LAN: **verificato non serve alcuna modifica a `qz-tray.properties`** — QZ Tray 2.2.6 ascolta di default su tutte le interfacce (`::`, confermato con `Get-NetTCPConnection`), non solo loopback. Verificato con un vero test incrociato VM↔macchina reale sulla stessa LAN.
 - [x] Riavviare QZ Tray e verificare (test di **Appendice C**) — verificato in VM con stampante reale via bridge dopo i fix sopra.
 - [x] **Non toccare** le chiamate `qz.websocket.connect`/`qz.print` né il meccanismo di certificati in sé: solo il *percorso* della chiave è cambiato (`qz-helper.js` invariato), non il protocollo o la logica di firma.
 
@@ -618,9 +609,9 @@ PC col bridge   → un piccolo script PHP si iscrive al topic (SSE, come EventSo
 
 ### 3j. Pulizia
 
-- [ ] Rimuovere la cartella `docker/` dal repo (strada abbandonata) e ogni riferimento.
-- [ ] **Open source**: `config/variabili.env` è oggi **tracciato** con credenziali (`pos_own`/`pos_own1`). Aggiungere `config/variabili.env` al `.gitignore` (oggi ignora solo `.env`), `git rm --cached config/variabili.env`, tracciare solo `variabili.env.example`. Idem `docker/.env`.
-- [ ] Aggiornare il README con: prerequisiti, comando unico di install, come aggiornare (`git pull` + migrazioni + `frankenphp reload`; `composer install` solo se non si usa il pacchetto con `vendor/`).
+- [x] Cartella `docker/` rimossa dal repo (verificato: non esiste più).
+- [x] **Open source**: `config/variabili.env` non è più tracciato (verificato: `git ls-files` non lo elenca), `.gitignore` lo esclude esplicitamente, solo `variabili.env.example` è tracciato.
+- [x] README scritto (`README.md`, vedi sotto).
 
 **Accettazione:** su una VM/macchina pulita, un comando porta a: DB popolato, app raggiungibile in HTTPS, servizi attivi al boot, smoke test 2d verde.
 
