@@ -1,0 +1,30 @@
+{
+	frankenphp
+	auto_https disable_redirects
+}
+
+http://:80 {
+	root * C:\xampp\htdocs\opensagra
+	encode zstd gzip
+	php_server
+
+	# Fondamenta Mercure (Fase 4, opzionale) - stesso segreto di
+	# config/variabili.env (MERCURE_JWT_SECRET), genera il tuo con:
+	#   openssl rand -base64 48
+	# mercure {
+	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
+	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
+	# }
+}
+
+https://localhost {
+	root * C:\xampp\htdocs\opensagra
+	encode zstd gzip
+	php_server
+	tls internal
+
+	# mercure {
+	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
+	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
+	# }
+}

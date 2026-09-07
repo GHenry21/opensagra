@@ -42,5 +42,10 @@ function loadPosEnvVars(): array
         'pass' => $vars['DB_POS_PASS'] ?? 'PasswordSicura2026!',
         'db' => 'opensagra_pos', // Nome del database, non ancora parametrizzato (vedi piano Fase 3)
         'env_file' => $envFile,
+        // Segreto condiviso con l'hub Mercure (Caddyfile, direttive
+        // publisher_jwt/subscriber_jwt) per firmare i JWT lato PHP - vedi
+        // config/mercure.php. Vuoto se l'hub non e' configurato su questa
+        // installazione (Fase 4, opzionale).
+        'mercure_jwt_secret' => $vars['MERCURE_JWT_SECRET'] ?? '',
     ];
 }

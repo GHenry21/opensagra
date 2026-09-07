@@ -29,3 +29,8 @@ Thumbs.db
 # ad ogni installazione dallo script di Fase 3)
 /cert/caddy-root-ca.crt
 
+# Caddyfile reale di questa macchina/installazione (path assoluti locali, e
+# dal 2026-09-07 puo' contenere il segreto JWT di Mercure in chiaro). Resta
+# solo in locale, come variabili.env - tracciato solo Caddyfile.example.
+/Caddyfile
+
