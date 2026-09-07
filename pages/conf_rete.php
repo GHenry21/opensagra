@@ -134,7 +134,7 @@
                         const shownHost = (data.display_host || data.host) + (data.hostname ? ` (${data.hostname})` : '');
                         statusDot.className = 'rete-status-dot' + (data.online ? ' is-online' : ' is-offline');
                         statusText.textContent = data.online
-                            ? `Connesso a ${shownHost} (${data.latency_ms} ms)`
+                            ? `Connesso a ${shownHost}`
                             : `Non raggiungibile: ${shownHost}`;
                     })
                     .catch(() => {
