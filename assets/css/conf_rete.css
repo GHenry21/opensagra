@@ -1,0 +1,110 @@
+.rete-shell {
+    width: 100%;
+    max-width: 720px;
+    display: grid;
+    gap: 14px
+}
+
+.rete-card {
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong);
+    padding: 16px
+}
+
+.rete-card h2 {
+    margin: 0;
+    font-size: 24px
+}
+
+.rete-card h3 {
+    margin: 0 0 8px;
+    font-size: 16px
+}
+
+.rete-status-row {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px
+}
+
+.rete-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--mc-text-soft);
+    flex-shrink: 0
+}
+
+.rete-status-dot.is-online {
+    background: var(--mc-success)
+}
+
+.rete-status-dot.is-offline {
+    background: var(--mc-danger)
+}
+
+.rete-mode-row {
+    display: grid;
+    gap: 10px
+}
+
+.rete-mode-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--mc-border);
+    border-radius: 12px;
+    cursor: pointer
+}
+
+.rete-mode-option:has(input:checked) {
+    border-color: var(--mc-primary);
+    background: color-mix(in srgb, var(--mc-primary) 8%, transparent)
+}
+
+.rete-mode-option input[type="radio"] {
+    margin-top: 4px;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0
+}
+
+.rete-mode-option strong {
+    display: block;
+    margin-bottom: 2px
+}
+
+.field-wrap {
+    display: grid;
+    gap: 6px;
+    margin-top: 14px
+}
+
+.field-wrap input[type="text"] {
+    width: 100%;
+    box-sizing: border-box
+}
+
+.inline-muted {
+    margin: 0;
+    color: var(--mc-text-soft);
+    font-size: 13px;
+    line-height: 1.4
+}
+
+.actions-row {
+    margin-top: 14px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end
+}
+
+@media (max-width: 860px) {
+    .rete-shell {
+        max-width: 100%
+    }
+}

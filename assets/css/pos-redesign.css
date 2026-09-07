@@ -506,6 +506,39 @@ body.dark-mode .pos-icon-btn:hover {
   border-radius: var(--ui-radius-sm);
 }
 
+.pos-net-pill {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--ui-radius-sm);
+  background: var(--mc-panel-muted);
+  color: var(--mc-text-soft);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.pos-net-pill:hover {
+  background: var(--mc-hover-soft);
+}
+
+.pos-net-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mc-text-soft);
+  flex-shrink: 0;
+}
+
+.pos-net-pill__dot.is-online {
+  background: var(--mc-success);
+}
+
+.pos-net-pill__dot.is-offline {
+  background: var(--mc-danger);
+}
+
 .pos-sidebar-overlay {
   display: none;
   position: fixed;

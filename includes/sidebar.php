@@ -48,6 +48,11 @@ $_hNavGroups = [
             'label' => 'Configura Casse',
             'icon' => 'coins',
         ],
+        [
+            'file' => 'conf_rete.php',
+            'label' => 'Configurazione Rete',
+            'icon' => 'network',
+        ],
     ],
 ];
 ?>
@@ -101,6 +106,10 @@ $_hNavGroups = [
                 <?= pos_icon('moon') ?>
             </button>
         </div>
+        <a href="<?= $_hPages ?>conf_rete.php" class="pos-net-pill" id="pos-net-pill" title="Configurazione Rete">
+            <span class="pos-net-pill__dot" id="pos-net-pill-dot"></span>
+            <span id="pos-net-pill-text">Rete: verifica…</span>
+        </a>
     </div>
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
@@ -267,5 +276,34 @@ $_hNavGroups = [
         } else {
             init();
         }
+    })();
+
+    // Pillola di stato rete: ping leggero e periodico verso il DB configurato
+    // (indipendente o server centrale), visibile da qualunque pagina.
+    (function() {
+        var dot = document.getElementById('pos-net-pill-dot');
+        var text = document.getElementById('pos-net-pill-text');
+        if (!dot || !text) {
+            return;
+        }
+
+        var _inPages = window.location.pathname.indexOf('/pages/') !== -1;
+        var apiUrl = (_inPages ? '../' : '') + 'api/db_status.php';
+
+        function refresh() {
+            fetch(apiUrl)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    dot.className = 'pos-net-pill__dot' + (data.online ? ' is-online' : ' is-offline');
+                    text.textContent = 'Rete: ' + data.host + (data.online ? '' : ' (offline)');
+                })
+                .catch(function() {
+                    dot.className = 'pos-net-pill__dot is-offline';
+                    text.textContent = 'Rete: n/d';
+                });
+        }
+
+        refresh();
+        setInterval(refresh, 20000);
     })();
 </script>
