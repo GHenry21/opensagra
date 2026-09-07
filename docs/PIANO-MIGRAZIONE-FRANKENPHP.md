@@ -412,66 +412,74 @@ Un solo entry point (`install.ps1` su Windows, `install.sh` su macOS/Linux, o un
 
 > L'embed di FrankenPHP è stato valutato e **scartato**: dato che lo script d'installazione serve comunque (MariaDB, QZ, domande, servizio), il guadagno del binario unico è marginale, mentre la build cross-OS — soprattutto Windows — aggiunge una pipeline da mantenere. La copia dei file è più semplice e coerente con "codice aperto e ispezionabile".
 
-### 3a. Wizard: cosa automatizza (scope ridotto)
-
-> ⚠️ **BOZZA — da rivedere.** I testi e il numero di domande qui sotto **così non vanno bene**: primo abbozzo per fissare l'idea. Da riformulare (testo per non esperti, default, casi mancanti) quando si implementa la Fase 3.
+### 3a. Wizard: cosa automatizza (scope ridotto) ✅ finalizzato 2026-09-07
 
 **Principio:** il codice di opensagra è **sempre spedito completo e identico**, tutte le funzioni presenti. Il wizard **non** abilita/disabilita funzionalità. Sostituisce solo due passi oggi manuali:
 
 1. **Generazione di `config/variabili.env`** (oggi: creato/editato a mano copiando `variabili.env.example`).
-2. **Provisioning del DB**: creare database, tabelle e utente (oggi: si lancia `config/crea_dbtable_and_user.php`).
+2. **Provisioning del DB**: creare database, tabelle e utente (oggi: si lancia `config/crea_dbtable_and_user.php`, ora anche da CLI — vedi 3e).
 
-Il file `config/variabili.env` resta in ogni caso un **file di testo normale, accessibile e modificabile** dopo l'installazione (l'app lo rilegge a ogni richiesta via `config/get_db_connection.php`). Il wizard lo scrive, non lo "nasconde".
+Il file `config/variabili.env` resta in ogni caso un **file di testo normale, accessibile e modificabile** dopo l'installazione (l'app lo rilegge a ogni richiesta via `config/get_db_connection.php`). Il wizard lo scrive, non lo "nasconde". **In più**, da oggi, non serve nemmeno riaprirlo a mano per cambiare `DB_POS_HOST`: la pagina **Configurazione Rete** dentro l'app lo fa da interfaccia grafica (vedi sotto).
 
 Serve anche una modalità non interattiva (`--answers file.json` o parametri) per reinstallazioni ripetibili.
 
-#### Domanda 1 — Architettura: cassa indipendente o server centralizzato?
+#### Domanda 1 (l'unica del wizard) — Come sono organizzate le casse?
 
-> **Ogni cassa indipendente.** Ogni PC/tablet cassa fa girare per conto suo l'applicazione e il suo database. Le casse non si parlano tra loro.
-> - ✅ Non serve rete tra le postazioni; se una cassa si guasta o la rete cade, le altre continuano a lavorare.
-> - ❌ I dati NON sono condivisi: statistiche separate per cassa, catalogo prodotti da aggiornare a mano su ogni postazione, chiusura cassa una per una.
-> - 🟢 Adatto a: sagra piccola, 1–3 casse vicine con stampante propria, nessuna necessità di totali aggregati in tempo reale.
+> Ogni sagra è diversa: quante postazioni cassa avrai, e vuoi vedere i totali di tutte insieme o va bene tenerle separate?
 >
-> **Server centralizzato.** Un solo PC fa da server (applicazione + database). Le casse sono solo schermi (tablet/PC col browser) che puntano a `https://<server>.local`.
-> - ✅ Un unico catalogo prodotti, statistiche e totali aggregati in tempo reale, una sola installazione da aggiornare.
-> - ❌ Se cade il server o la rete, tutte le casse si fermano. Serve una LAN affidabile (cablata dove possibile).
-> - 🟢 Adatto a: sagra media/grande, più punti vendita, si vuole la vista unica delle vendite.
+> **[A] Casse indipendenti**
+> Ogni postazione PC ha la sua copia dell'app e il suo database, per conto suo. Non serve nessuna rete tra le postazioni. La stampante è collegata via USB direttamente al PC (ricorda di installare i driver per la tua stampante).
+> - 👍 Non serve rete. Se una cassa si blocca, le altre continuano a lavorare senza problemi.
+> - 👎 I dati non si parlano: ogni cassa ha il suo catalogo prodotti (da aggiornare a mano su ognuna) e le sue statistiche separate.
+>
+> **[B] Server centrale + casse collegate**
+> Un solo PC (il "server") fa girare l'app. Le altre postazioni sono solo schermi che si collegano ad esso in rete locale.
+> - 👍 Un solo catalogo prodotti da tenere aggiornato, statistiche e incassi aggregati in tempo reale, un solo posto da aggiornare quando c'è una nuova versione.
+> - 👎 Se il server si spegne o la rete locale cade, tutte le casse si fermano. Serve una rete locale affidabile (meglio via cavo che WiFi, dove possibile) — consigliato un UPS o un dispositivo con batteria funzionante per il server, per non perdere tutto in caso di blackout.
 
-Effetto sullo script:
+Default: **[A] Indipendenti** (scelta preselezionata nel wizard, invariabile senza motivarla — non è "la scelta giusta", è solo il caso più comune per una sagra piccola).
 
-| Scenario | `config/variabili.env` | Provisioning DB | App + FrankenPHP |
-|---|---|---|---|
-| **Indipendente** (ogni PC a sé) | `DB_POS_HOST=127.0.0.1` + utente/password (default o generati) | eseguito **in locale** su ogni macchina | copia file + FrankenPHP + MariaDB locale; `Caddyfile` su `localhost` |
-| **Centralizzato — server** | `DB_POS_HOST=127.0.0.1` (il server parla col suo DB in locale) | eseguito **una volta sul server**; utente app anche per host `%`/subnet LAN; `bind-address` MariaDB sulla LAN | copia file + FrankenPHP + MariaDB; `Caddyfile` con hostname di rete; porta 443 sul firewall |
-| **Centralizzato — cassa** | *(opzionale)* solo se quella postazione esegue anche codice PHP proprio; altrimenti **nessun `.env`**: la cassa è solo un browser verso `https://<server>` | nessuno | nessuna copia app; salva l'URL del server; QZ solo se serve; opzionale kiosk del browser |
+**Semplificazione importante emersa discutendo l'implementazione:** ogni installazione, anche indipendente, fa già girare una sua MariaDB — la differenza tra "indipendente" e "server" non è *se* installare un database server, ma solo *se altre postazioni lo raggiungono in rete*. Verificato che l'installer ufficiale di MariaDB **crea già da solo** una regola firewall che copre tutti i profili di rete (Dominio/Privato/Pubblico) e che il bind-address di default ascolta già su tutte le interfacce — quindi **non serve nessuna configurazione condizionata alla risposta della Domanda 1**: firewall e bind-address vanno sempre bene così, su ogni installazione, indipendente o meno. Diventare "il server" per altre casse non è più un passo separato da eseguire in anticipo: è solo il risultato del fatto che altre postazioni scelgono di puntare a questa.
 
-- [ ] Se *indipendente*: il wizard chiede solo conferma; scrive `DB_POS_HOST=127.0.0.1`.
-- [ ] Se *centralizzato*: sul **server** scrive `127.0.0.1`; sulle **casse** (se hanno una loro app) chiede **l'IP del server** e lo scrive in `DB_POS_HOST=<ip>`. L'utente può correggerlo a mano nel file in qualsiasi momento.
-- [ ] Password DB: per `127.0.0.1` va bene un default noto; per accesso via LAN il wizard **genera una password casuale** e la scrive sia nell'`.env` sia nel provisioning.
+Effetto sullo script (semplificato rispetto alla bozza iniziale):
 
-> ⚠️ Combinazione delicata: **centralizzato + stampanti USB sui tablet**. La pagina è servita in HTTPS da un altro host, quindi il browser blocca `ws://` verso un QZ non-loopback. Vedi **Appendice C** — da testare prima di prometterla.
+| Scenario | `config/variabili.env` | Provisioning DB |
+|---|---|---|
+| **Indipendente** (default) | `DB_POS_HOST=127.0.0.1` | eseguito in locale su questa macchina |
+| **Server centrale** | uguale a sopra: **è la stessa installazione**, non c'è un ramo a parte | uguale a sopra |
+| **Cassa client** (punta a un server esistente) | `DB_POS_HOST=<ip del server>`, impostato **dopo** l'installazione dalla pagina Configurazione Rete, non durante il wizard | nessuno: il client non crea nulla, usa il DB già provisionato sul server |
 
-#### Domanda 2 — Serve QZ Tray?
+- Password DB: default noto per `127.0.0.1`; se in futuro serve generarne una casuale per l'accesso via LAN, lo si fa comunque nello stesso provisioning, senza rami condizionali diversi.
+- ⚠️ Resta valida la nota su **centralizzato + stampanti USB sui tablet**: la pagina in HTTPS da un host diverso blocca `ws://` verso un QZ non-loopback su Firefox/WebKit. Vedi **Appendice C**.
 
-> QZ Tray è il programma che permette al browser di stampare sugli **scontrini** collegati **via USB** a quel PC/tablet Windows (o di pilotare alcune stampanti di rete tramite esso).
+#### QZ Tray e HTTPS: non sono più domande del wizard
 
-> Rispondi **Sì** se: le stampanti scontrini sono collegate **via USB** a un PC/tablet.
-> Rispondi **No** se: le stampanti sono di **rete con indirizzo IP** (gestite direttamente dal server via `print/*.php`), sono **Bluetooth** (`genera_scontrino_bluetooth.php`), oppure non si stampano scontrini (solo PDF/schermo).
+Le due domande della bozza iniziale ("serve QZ?", "che HTTPS vuoi?") sono state **tolte dal wizard**: non sono scelte da fare una volta per tutte in fase di installazione, sono impostazioni che si affrontano dopo, per singola cassa o singola postazione.
 
-Effetto sullo script:
-- [ ] *Sì*: scarica/installa QZ Tray; applica la procedura certificati **esistente e non modificata** (vedi **Appendice C**): copia `cert/cert.pem` come override, posiziona la chiave privata in `../../../private/key.pem`, imposta `wss.host=0.0.0.0` in `qz-tray.properties` se il PC deve accettare connessioni da altri dispositivi della LAN. Riavvia QZ Tray.
-- [ ] *No*: salta del tutto la parte QZ.
+- **QZ Tray**: si installa/configura solo sulla specifica postazione che ne ha davvero bisogno (vedi la tabella "quando serve QZ" in **Appendice C**), quando si collega quella stampante — non è una domanda "sì/no" per l'intera installazione.
+- **HTTPS**: HTTP e HTTPS girano già **sempre in parallelo** di default (deciso in Fase 2, vedi Appendice C) con la CA locale generata automaticamente da Caddy (`tls internal`) — non c'è nulla da chiedere all'installazione. Il certificato è già lì; se e come fidarsi di lui su altri dispositivi (tablet) è materiale da spiegare **dopo**, come guida separata, non come domanda bloccante del wizard.
 
-#### Domanda 3 — HTTPS: solo CA locale o dominio di rete?
+#### Pagina "Configurazione Rete" ✅ implementata e testata (2026-09-07)
 
-> Per far sparire l'avviso "sito non sicuro" sui tablet serve che il certificato sia considerato fidato.
+Passo intermedio sviluppato e verificato prima di scrivere l'installer vero e proprio, per risolvere in anticipo il problema "come si passa da indipendente a client, senza toccare file a mano".
 
-> **CA locale (default).** Caddy genera una propria autorità; va installato **una volta** il certificato radice su ogni tablet. Semplice, offline, nessun costo.
-> **Dominio + DNS di rete.** Se hai un dominio interno gestito (es. `cassa.sagra.lan` su un DNS locale), Caddy può usarlo direttamente. Più pulito ma richiede infrastruttura DNS.
+**File aggiunti:**
+- `config/env_reader.php` — lettura di `variabili.env` condivisa (estratta da `get_db_connection.php`, che ora la riusa) — non forza una connessione, a differenza di prima.
+- `config/env_writer.php` — `setEnvValue()`: riscrive **una sola chiave** in `variabili.env`, preservando tutte le altre righe.
+- `api/db_status.php` — ping leggero (timeout 2s) verso l'host configurato, per la pillola di stato.
+- `api/set_network_config.php` — cambia `DB_POS_HOST`: **verifica prima la connessione** con le credenziali correnti contro il nuovo host, e scrive il file solo se riesce. Non scrive mai un host che romperebbe l'app al giro successivo.
+- `pages/conf_rete.php` — pagina con due opzioni ("Indipendente" / "Client verso un server"), stato live, salvataggio via `fetch()`.
+- Pillola di stato rete in `includes/sidebar.php` (visibile su ogni pagina, polling ogni 20s) + voce di navigazione "Configurazione Rete".
 
-Effetto sullo script:
-- [ ] *CA locale*: `tls internal` nel `Caddyfile`; `caddy trust` sul server; genera un pacchetto `root-CA.crt` + istruzioni per i tablet.
-- [ ] *Dominio*: chiede il nome host; lo scrive nel `Caddyfile`.
+**Perché funziona senza riavvii:** `get_db_connection.php` rilegge `variabili.env` **a ogni richiesta**, senza cache — cambiare `DB_POS_HOST` ha effetto immediato sulla richiesta successiva, nessun riavvio di FrankenPHP o di MariaDB necessario.
+
+**Verificato con Playwright** (`e2e/conf_rete_test.manual.js`):
+- Stato iniziale: indipendente, `127.0.0.1`, online — radio "Indipendente" preselezionato.
+- Host non valido (`10.0.0.250`, non instradabile su questa rete): toast di errore, **`variabili.env` non modificato** (verificato leggendo `db_status.php` subito dopo: host ancora `127.0.0.1`).
+- Switch a un host valido raggiungibile in LAN (`192.168.88.224`, il proprio IP di rete — stesso DB, indirizzo diverso): toast di successo, `db_status.php` riflette subito il nuovo host, `api/get_products.php` continua a rispondere 200 (l'app non si rompe).
+- Ripristino a "Indipendente": tornato a `127.0.0.1` correttamente.
+
+**Nota su MariaDB nativa** (verificato su questa macchina, Windows, MariaDB 12.3): bind-address già su tutte le interfacce (`netstat` conferma `0.0.0.0:3306`), regole firewall già presenti e create dall'installer MSI ufficiale (`mariadbd`, profilo Privato; "MariaDB 12.3 (x64)", tutti i profili) — **nessuna azione manuale necessaria** per questo, coerente con la semplificazione della Domanda 1 sopra. `install.ps1` (prossimo passo) dovrà solo assicurarsi che l'installazione silenziosa di MariaDB non disattivi queste regole di default.
 
 ### 3b. Rilevamento
 
@@ -799,6 +807,21 @@ Copiato il certificato CA generato dal servizio (`C:\WINDOWS\...\Caddy\pki\autho
 
 Questo ha anche smascherato un **bug indipendente e preesistente** in `pages/billing.php`: il ramo `.fail()` del checkout referenziava una variabile mai dichiarata (`msg` invece di `errorMessage`, più un refuso `errorMsg`/`errorMessage`) — invisibile finché quel ramo non veniva mai raggiunto. Corretto (vedi commit di questa sessione): senza il fix, un checkout fallito per *qualsiasi* motivo avrebbe mostrato un crash JS invece di un messaggio d'errore leggibile alla cassa.
 
+### Quando serve davvero QZ Tray (riferimento per README/guida, non più una domanda del wizard — vedi 3a)
+
+Verificato leggendo il codice di instradamento (`config/get_printer.php`, `print/print_receipt.php::routingStampa()`), non solo per teoria:
+
+| Scenario | Come stampa | Serve QZ? |
+|---|---|---|
+| **Stampante di rete** (IP proprio, Ethernet o WiFi integrato) — `tipo_stampante = RETE` | Il server manda i comandi ESC/POS via socket direttamente all'IP della stampante | ❌ Mai, indipendentemente da dove gira l'app o da chi stampa |
+| **Stampante USB collegata allo stesso PC che fa girare il server** (caso tipico di "cassa indipendente") — `tipo_stampante = WIN_USB`/`LINUX_USB` | PHP scrive direttamente sulla condivisione stampante locale (es. `smb://127.0.0.1/POS-80C`, o un device path) | ❌ No, il server "vede" la USB da sé, non serve un ponte |
+| **Stampante USB collegata a un PC diverso da quello che deve stampare** (server centralizzato con tablet, o una cassa che condivide la sua stampante con le altre) — `tipo_stampante = BRIDGE` | Il browser del dispositivo che stampa manda il comando via websocket a QZ Tray installato sul PC collegato fisicamente alla USB | ✅ **Sì, unico caso reale** — metodo `bridge_qz`, già testato (cassa `henry`, sopra) |
+| **Bluetooth** (stampante appaiata a un telefono/tablet Android) — `tipo_stampante = BLUETOOTH` | Intent Android intercettato da RawBT | ❌ No, meccanismo separato (`genera_scontrino_bluetooth.php`) |
+
+Nota per chi è più esperto: `WIN_USB` accetta anche un target `smb://<altro-pc>/<condivisione>` (non solo `127.0.0.1`) — tecnicamente una stampante USB su un PC diverso potrebbe essere raggiunta via condivisione stampanti nativa di Windows invece che via QZ. Non proposta come alternativa standard: richiede configurare la condivisione file/stampanti di Windows tra macchine (credenziali di rete, regole firewall dedicate), più fragile da spiegare a un organizzatore non tecnico rispetto a QZ Tray.
+
+Fuori scope attuale: instradamento della stampa per reparto/categoria (es. "i primi in cucina, i dolci al banco") su stampanti diverse in base al prodotto — oggi ogni cassa ha **una sola** stampante configurata in `casse_stampanti`, non esiste il concetto di reparto. Non è una questione di QZ, sarebbe una funzionalità applicativa nuova.
+
 ---
 
 ## Appendice D — Git: versionamento delle modifiche
@@ -879,7 +902,7 @@ Diagnosticato mettendo un log lato server (`var_export($_POST, ...)` su file) de
 - [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. **Verificato end-to-end in Chromium reale**: cadenza 6s a riposo, filtro categoria non sovrascritto, pausa a tab nascosta, ripresa immediata al ritorno, nessun errore console.
 - [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP e HTTPS via servizio entrambi verificati — HTTPS richiedeva l'import della CA di LocalSystem nello store Macchina locale, vedi 2e).
 - [x] **Cutover + verifica finale** ✅ (2026-09-07) — XAMPP fermo, MariaDB nativa in produzione, porte standard 80/443, phpMyAdmin servito da Caddy. Suite Playwright completa ripetuta sulla configurazione reale (vendite e stampe reali): smoke test, stampa diretta HTTPS, stampa bridge QZ HTTP sui 3 motori, export PDF — tutto ✅. Trovato e corretto un bug reale preesistente (non introdotto dalla migrazione): PDF statistiche vuoto per un `echo` di troppo dopo `dompdf->stream()`, vedi Appendice F.
-- [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
+- [~] **Fase 3** *(in corso)* — script d'installazione per-OS (solo Windows per ora) che **copia i file** (niente binario). Wizard ridotto a una sola domanda (architettura indipendente/server, testo finalizzato — vedi 3a); QZ e HTTPS non sono più domande del wizard, sono guide separate. Fatto finora: pulizia repo (`docker/` rimossa, `variabili.env` fuori da git), `crea_dbtable_and_user.php` eseguibile da CLI con exit code corretto, pagina "Configurazione Rete" in-app per cambiare `DB_POS_HOST` senza toccare file (testata con Playwright). Resta da fare: `install.ps1` vero e proprio (rilevamento, installazione FrankenPHP+MariaDB, estensioni+gate, migrazioni, `Caddyfile`, servizi, README).
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
 - [ ] **Git** *(Appendice D)* — un commit per fase; il piano si committa man mano.
