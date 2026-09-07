@@ -70,7 +70,7 @@
     gap: 10px
 }
 
-.rete-mode-option {
+label.rete-mode-option {
     display: flex;
     align-items: flex-start;
     gap: 12px;
@@ -89,70 +89,89 @@
     font-size: 15px
 }
 
-/* Stessa meccanica di https://github.com/JohnDatserakis/switch (visto dall'utente
-   in locale): il colore "acceso" (--mc-primary) sta sempre sotto: track e' un
-   overlay che lo copre a riposo e si ritira (scale+opacity) quando si attiva,
-   invece di cambiare semplicemente colore di sfondo. Manopola grande quanto
-   meta' della pillola, senza margine, con un'easing "a molla" nello scatto. */
+/* Porting 1:1 di switch-master (https://github.com/JohnDatserakis/switch,
+   mostrato dall'utente) - stessa struttura (un solo <span>, ::before/::after),
+   stesse dimensioni, stessa easing, stesse ombre. Unica modifica: il verde
+   principale #4ed164 diventa var(--mc-primary). Tutto il resto (incluso il
+   verde del focus-ring #43b556, dettaglio separato nel riferimento originale)
+   e' lasciato invariato di proposito, su richiesta esplicita. */
 .rete-switch {
-    margin-top: 2px;
-    position: relative;
+    text-align: left;
+    width: 150px;
+    height: calc(150px / 2);
+    border-radius: 60px;
+    background-color: var(--mc-primary);
     display: inline-block;
-    flex-shrink: 0;
-    width: 46px;
-    height: 26px;
-    border-radius: 999px;
-    background: var(--mc-primary);
-    cursor: pointer
+    position: relative;
+    cursor: pointer;
+    /* Non nel riferimento originale (li' non era dentro un flex): senza
+       questo, il flex di .rete-mode-option lo restringe sotto i 150px
+       dichiarati mentre la manopola (calc(150px/2) fisso) resta invariata,
+       causando sovrapposizioni. Nessuna modifica alle dimensioni dello
+       switch stesso, solo la garanzia che vengano rispettate. */
+    flex-shrink: 0
 }
 
-.rete-switch input {
-    position: absolute;
-    inset: 0;
+.rete-switch>span {
+    display: block;
+    width: 100%;
+    height: 100%
+}
+
+.rete-switch>input[type="radio"] {
+    opacity: 0;
+    position: absolute
+}
+
+.rete-switch>span:before,
+.rete-switch>span:after {
+    content: "";
+    cursor: pointer;
+    position: absolute
+}
+
+.rete-switch>input[type="radio"]:focus~span {
+    box-shadow: 0 0 0 4px #43b556
+}
+
+.rete-switch>input[type="radio"]:checked:focus~span {
+    box-shadow: 0 0 0 4px #fff
+}
+
+.rete-switch>span {
+    border-radius: 60px
+}
+
+.rete-switch>span:before {
     width: 100%;
     height: 100%;
-    margin: 0;
-    opacity: 0;
-    cursor: pointer;
-    z-index: 2
-}
-
-.rete-switch__track {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    display: block;
-    border-radius: inherit;
-    background: var(--mc-border);
+    box-sizing: border-box;
+    background-color: #f1f1f1;
+    border-radius: 60px;
+    transition: opacity .2s ease-out .1s, transform .2s ease-out .1s;
     transform: scale(1);
-    opacity: 1;
-    transition: transform 0.2s ease-out 0.05s, opacity 0.2s ease-out 0.05s
+    opacity: 1
 }
 
-.rete-switch__thumb {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 1;
-    width: 50%;
-    height: 100%;
-    border-radius: 50%;
-    background: var(--mc-panel);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, .3);
-    transition: transform 0.4s cubic-bezier(0.44, -0.12, 0.07, 1.15)
+.rete-switch>span:after {
+    top: 50%;
+    z-index: 3;
+    transition: transform .4s cubic-bezier(0.44, -0.12, 0.07, 1.15);
+    width: calc(150px / 2);
+    height: calc(150px / 2);
+    transform: translate3d(0, -50%, 0);
+    background-color: #fff;
+    border-radius: 100%;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, .3)
 }
 
-.rete-switch input:checked ~ .rete-switch__track {
+.rete-switch>input[type="radio"]:checked~span:before {
     transform: scale(0);
     opacity: .7
 }
 
-.rete-switch input:checked ~ .rete-switch__thumb {
-    transform: translateX(100%)
-}
-
-.rete-switch:has(input:focus-visible) {
-    box-shadow: 0 0 0 3px var(--mc-ring)
+.rete-switch>input[type="radio"]:checked~span:after {
+    transform: translate3d(100%, -50%, 0)
 }
 
 .field-wrap {

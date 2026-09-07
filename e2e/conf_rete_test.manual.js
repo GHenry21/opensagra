@@ -36,7 +36,10 @@ async function confirmDialog(page) {
   log('Switch "Indipendente" selezionato di default', modeChecked, `checked=${modeChecked}`);
 
   // 3. Prova a impostare un host non valido: NON deve scrivere il file
-  await page.check('#modeClient');
+  // Click sulla card (non check diretto sul radio): lo switch-master ha lo
+  // span sopra l'input, come nel riferimento - un utente reale clicca sulla
+  // card/label, non sul pallino invisibile sotto.
+  await page.locator('.rete-mode-option', { hasText: 'Client' }).click();
   await page.fill('#serverHostInput', '10.0.0.250');
   await page.click('#btnSaveRete');
   await confirmDialog(page);
@@ -66,7 +69,7 @@ async function confirmDialog(page) {
   log('App ancora funzionante col nuovo host (get_products.php)', productsResp.ok(), `HTTP ${productsResp.status()}`);
 
   // 6. Torna a indipendente (ripristino stato produzione)
-  await page.check('#modeIndipendente');
+  await page.locator('.rete-mode-option', { hasText: 'Indipendente' }).click();
   await page.click('#btnSaveRete');
   await confirmDialog(page);
   await page.waitForTimeout(1500);

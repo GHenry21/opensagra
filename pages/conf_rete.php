@@ -55,8 +55,7 @@
                     <label class="rete-mode-option">
                         <span class="rete-switch">
                             <input type="radio" name="reteMode" value="indipendente" id="modeIndipendente" <?= $isIndipendente ? 'checked' : '' ?>>
-                            <span class="rete-switch__track"></span>
-                            <span class="rete-switch__thumb"></span>
+                            <span></span>
                         </span>
                         <span class="rete-mode-option__text">
                             <strong>Indipendente</strong>
@@ -67,8 +66,7 @@
                     <label class="rete-mode-option">
                         <span class="rete-switch">
                             <input type="radio" name="reteMode" value="client" id="modeClient" <?= !$isIndipendente ? 'checked' : '' ?>>
-                            <span class="rete-switch__track"></span>
-                            <span class="rete-switch__thumb"></span>
+                            <span></span>
                         </span>
                         <span class="rete-mode-option__text">
                             <strong>Client: punta a un server in rete</strong>
