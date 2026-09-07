@@ -464,9 +464,12 @@ function Set-FirewallRules {
     # auto-generate da FrankenPHP/MariaDB non sono affidabili su rete
     # Pubblica per un processo eseguito come servizio Windows - vedi
     # Insidia #6 nel piano, verificato con un dispositivo davvero esterno.
+    # -LocalPort vuole un array di porte, non una stringa unica con virgole
+    # (bug reale trovato testando su VM pulita, 2026-09-07: "80,443" come
+    # stringa singola veniva rifiutato con "The port is invalid").
     $rules = @(
-        @{ Name = 'opensagra HTTP/HTTPS'; Ports = '80,443' }
-        @{ Name = 'opensagra MariaDB'; Ports = '3306' }
+        @{ Name = 'opensagra HTTP/HTTPS'; Ports = @('80', '443') }
+        @{ Name = 'opensagra MariaDB'; Ports = @('3306') }
     )
     foreach ($rule in $rules) {
         $existing = Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue
