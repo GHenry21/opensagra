@@ -484,6 +484,7 @@ body.dark-mode .pos-icon-btn:hover {
   padding: 12px 16px 16px;
   border-top: 1px solid var(--mc-border);
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -507,7 +508,10 @@ body.dark-mode .pos-icon-btn:hover {
 }
 
 .pos-net-pill {
-  margin-top: 8px;
+  flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 8px;

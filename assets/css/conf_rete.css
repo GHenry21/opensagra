@@ -1,6 +1,5 @@
 .rete-shell {
     width: 100%;
-    max-width: 720px;
     display: grid;
     gap: 14px
 }
@@ -101,10 +100,4 @@
     display: flex;
     gap: 10px;
     justify-content: flex-end
-}
-
-@media (max-width: 860px) {
-    .rete-shell {
-        max-width: 100%
-    }
 }
