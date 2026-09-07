@@ -424,7 +424,7 @@ Un solo entry point (`install.ps1` su Windows, `install.sh` su macOS/Linux, o un
 
 > L'embed di FrankenPHP è stato valutato e **scartato**: dato che lo script d'installazione serve comunque (MariaDB, QZ, domande, servizio), il guadagno del binario unico è marginale, mentre la build cross-OS — soprattutto Windows — aggiunge una pipeline da mantenere. La copia dei file è più semplice e coerente con "codice aperto e ispezionabile".
 
-### 3a. Wizard: cosa automatizza (scope ridotto) ✅ finalizzato 2026-09-07
+### 3a. Wizard: cosa automatizza (scope ridotto) ✅ finalizzato 2026-09-07, semplificato ulteriormente il 07-09
 
 **Principio:** il codice di opensagra è **sempre spedito completo e identico**, tutte le funzioni presenti. Il wizard **non** abilita/disabilita funzionalità. Sostituisce solo due passi oggi manuali:
 
@@ -433,45 +433,43 @@ Un solo entry point (`install.ps1` su Windows, `install.sh` su macOS/Linux, o un
 
 Il file `config/variabili.env` resta in ogni caso un **file di testo normale, accessibile e modificabile** dopo l'installazione (l'app lo rilegge a ogni richiesta via `config/get_db_connection.php`). Il wizard lo scrive, non lo "nasconde". **In più**, da oggi, non serve nemmeno riaprirlo a mano per cambiare `DB_POS_HOST`: la pagina **Configurazione Rete** dentro l'app lo fa da interfaccia grafica (vedi sotto).
 
-Serve anche una modalità non interattiva (`--answers file.json` o parametri) per reinstallazioni ripetibili.
+Serve anche una modalità non interattiva (parametri) per reinstallazioni ripetibili.
 
-#### Domanda 1 (l'unica del wizard) — Come sono organizzate le casse?
+#### ⚠️ Aggiornamento (2026-09-07): il nucleo dell'installazione è a ZERO domande
 
-> Ogni sagra è diversa: quante postazioni cassa avrai, e vuoi vedere i totali di tutte insieme o va bene tenerle separate?
->
-> **[A] Casse indipendenti**
-> Ogni postazione PC ha la sua copia dell'app e il suo database, per conto suo. Non serve nessuna rete tra le postazioni. La stampante è collegata via USB direttamente al PC (ricorda di installare i driver per la tua stampante).
-> - 👍 Non serve rete. Se una cassa si blocca, le altre continuano a lavorare senza problemi.
-> - 👎 I dati non si parlano: ogni cassa ha il suo catalogo prodotti (da aggiornare a mano su ognuna) e le sue statistiche separate.
->
-> **[B] Server centrale + casse collegate**
-> Un solo PC (il "server") fa girare l'app. Le altre postazioni sono solo schermi che si collegano ad esso in rete locale.
-> - 👍 Un solo catalogo prodotti da tenere aggiornato, statistiche e incassi aggregati in tempo reale, un solo posto da aggiornare quando c'è una nuova versione.
-> - 👎 Se il server si spegne o la rete locale cade, tutte le casse si fermano. Serve una rete locale affidabile (meglio via cavo che WiFi, dove possibile) — consigliato un UPS o un dispositivo con batteria funzionante per il server, per non perdere tutto in caso di blackout.
+La "Domanda 1" (indipendente vs server centrale), l'unica rimasta dopo aver tolto QZ e HTTPS, è stata **rimossa anche lei**. Motivo, notato discutendo l'implementazione: guardando la tabella "Effetto sullo script" (sotto), Indipendente e Server centrale producono **esattamente le stesse identiche azioni** — stesso `DB_POS_HOST=127.0.0.1`, stesso provisioning locale. La risposta non cambiava mai nulla di quello che lo script fa davvero. Il caso realmente diverso (Cassa client) era già gestito **fuori dal wizard**, dopo l'installazione, dalla pagina Configurazione Rete.
 
-Default: **[A] Indipendenti** (scelta preselezionata nel wizard, invariabile senza motivarla — non è "la scelta giusta", è solo il caso più comune per una sagra piccola).
+Quindi: **`install.ps1` non fa più nessuna domanda di architettura**. Installa sempre e comunque una configurazione "indipendente" funzionante (che è anche l'esatta base per fare da server, essendo la stessa cosa). Se una postazione deve diventare client di un'altra, lo si decide **dopo**, in qualsiasi momento — subito o mesi dopo, nessuna differenza — dalla pagina Configurazione Rete già costruita e testata (sotto). Non riguarda solo la Fase 3: è la conferma che quella pagina non era "un passo intermedio prima dell'installer", era già **la** soluzione per questa parte.
 
-**Semplificazione importante emersa discutendo l'implementazione:** ogni installazione, anche indipendente, fa già girare una sua MariaDB — la differenza tra "indipendente" e "server" non è *se* installare un database server, ma solo *se altre postazioni lo raggiungono in rete*. Diventare "il server" per altre casse non è più un passo separato da eseguire in anticipo: è solo il risultato del fatto che altre postazioni scelgono di puntare a questa — **ma questo richiede comunque una regola firewall esplicita e corretta, vedi correzione sotto e Insidia #6.**
+**Semplificazione di fondo dietro tutto questo:** ogni installazione, anche indipendente, fa già girare una sua MariaDB — la differenza tra "indipendente" e "server" non è *se* installare un database server, ma solo *se altre postazioni lo raggiungono in rete*. Diventare "il server" per altre casse non è un passo separato da eseguire in anticipo: è solo il risultato del fatto che altre postazioni scelgono di puntare a questa — **ma questo richiede comunque una regola firewall esplicita e corretta, vedi correzione sotto e Insidia #6.**
 
 > ⚠️ **Correzione (2026-09-07, dopo test con un dispositivo davvero esterno): la frase originale qui sotto era sbagliata.** Diceva che bind-address e firewall di MariaDB "vanno sempre bene così, nessuna azione manuale necessaria" basandosi su: (1) `netstat` che mostra `0.0.0.0:3306` in ascolto, (2) la regola `MariaDB 12.3 (x64)` che *dichiara* di coprire Dominio/Privato/Pubblico, (3) un self-test riuscito dalla stessa macchina verso il proprio IP di LAN. **Tutti e tre inducevano in errore.** Un test reale da un secondo PC (Linux, via SSH), con la rete forzata su Pubblico, ha mostrato **le porte 80/443/3306 tutte bloccate** nonostante quanto sopra — il self-test "funzionava" solo perché una connessione verso il proprio IP dalla stessa macchina può bypassare il filtro reale del firewall (percorso di loopback interno), non prova nulla su un dispositivo esterno. Il log del firewall (`pfirewall.log`, con `RegistraConnessioniEliminate` attivato per la diagnosi) ha confermato `DROP TCP` su tutte e 3 le porte. **Causa reale**: le regole *legate al programma* (`mysqld.exe`, `frankenphp.exe`) create dagli installer non vengono applicate in modo affidabile su Pubblico per un processo che gira come **servizio Windows**, anche quando il loro campo "Profili" dichiara di coprire tutti e tre. Una regola *per-porta generica* (`New-NetFirewallRule -LocalPort 3306 -Profile Public`, senza vincolo di programma) invece **funziona sempre**, verificato con lo stesso dispositivo esterno. **Fix applicato**: sostituite le regole fragili con due regole esplicite per-porta, tutti i profili: `opensagra HTTP/HTTPS` (TCP 80,443) e `opensagra MariaDB` (TCP 3306) — vedi Insidia #6 per i dettagli e il comando esatto. **Lezione per la Fase 3**: `install.ps1` deve creare *sempre* queste due regole per-porta esplicite, senza fare affidamento sulle regole auto-generate dagli installer di MariaDB/FrankenPHP (per quanto sembrino corrette a leggerle) — e ogni volta che si verifica il comportamento di rete, farlo con un **dispositivo fisicamente diverso**, mai un self-test verso il proprio IP.
 
-Effetto sullo script (semplificato rispetto alla bozza iniziale):
+Cosa fa lo script, senza rami condizionali (uguale sempre):
 
-| Scenario | `config/variabili.env` | Provisioning DB |
-|---|---|---|
-| **Indipendente** (default) | `DB_POS_HOST=127.0.0.1` | eseguito in locale su questa macchina |
-| **Server centrale** | uguale a sopra: **è la stessa installazione**, non c'è un ramo a parte | uguale a sopra |
-| **Cassa client** (punta a un server esistente) | `DB_POS_HOST=<ip del server>`, impostato **dopo** l'installazione dalla pagina Configurazione Rete, non durante il wizard | nessuno: il client non crea nulla, usa il DB già provisionato sul server |
+| Passo | Comportamento |
+|---|---|
+| `config/variabili.env` | Sempre `DB_POS_HOST=127.0.0.1`, credenziali generate/di default |
+| Provisioning DB | Sempre eseguito in locale su questa macchina |
+| Diventare client di un altro server | **Non è compito di `install.ps1`** — si fa dopo, in qualsiasi momento, dalla pagina Configurazione Rete (sotto) |
 
 - Password DB: default noto per `127.0.0.1`; se in futuro serve generarne una casuale per l'accesso via LAN, lo si fa comunque nello stesso provisioning, senza rami condizionali diversi.
 - ⚠️ Resta valida la nota su **centralizzato + stampanti USB sui tablet**: la pagina in HTTPS da un host diverso blocca `ws://` verso un QZ non-loopback su Firefox/WebKit. Vedi **Appendice C**.
 
-#### QZ Tray e HTTPS: non sono più domande del wizard
+#### QZ Tray: incluso in `install.ps1`, HTTPS non è più una domanda
 
-Le due domande della bozza iniziale ("serve QZ?", "che HTTPS vuoi?") sono state **tolte dal wizard**: non sono scelte da fare una volta per tutte in fase di installazione, sono impostazioni che si affrontano dopo, per singola cassa o singola postazione.
-
-- **QZ Tray**: si installa/configura solo sulla specifica postazione che ne ha davvero bisogno (vedi la tabella "quando serve QZ" in **Appendice C**), quando si collega quella stampante — non è una domanda "sì/no" per l'intera installazione.
 - **HTTPS**: HTTP e HTTPS girano già **sempre in parallelo** di default (deciso in Fase 2, vedi Appendice C) con la CA locale generata automaticamente da Caddy (`tls internal`) — non c'è nulla da chiedere all'installazione. Il certificato è già lì; se e come fidarsi di lui su altri dispositivi (tablet) è materiale da spiegare **dopo**, come guida separata, non come domanda bloccante del wizard.
+- **QZ Tray** — decisione 2026-09-07: va **incluso nello stesso `install.ps1`** (non uno script separato da scoprire a parte), così tutto funziona da un solo comando fin da subito. Se sulla singola postazione risulta poi inutile, si disinstalla QZ Tray come un programma qualsiasi — non tocca né rompe il resto di opensagra (**da scrivere esplicitamente anche nella guida finale**).
+  - ⚠️ **La domanda giusta non è "hai una stampante USB collegata a questo PC?"** — quel caso (`WIN_USB`, stampa diretta) **non** ha bisogno di QZ, vedi tabella "quando serve QZ" sotto. La domanda corretta è: **"la stampante di questo PC deve essere raggiunta anche da altre postazioni, non solo da questo?"** — solo lì (il PC diventa un "ponte") serve installare QZ, e va installato **solo sul PC col cavo USB**, mai sulle postazioni che ne usufruiscono da remoto.
+  - Tabella completa degli scenari, verificata leggendo il codice di instradamento (`config/get_printer.php`, `print/print_receipt.php::routingStampa()`) — utile anche come base per la guida finale:
+
+    | # | Scenario | Come stampa | Serve QZ? |
+    |---|---|---|---|
+    | 1 | Stampante di **rete** (IP proprio) | Socket diretto dal server all'IP | ❌ Mai |
+    | 2 | Stampante **USB sullo stesso PC** che stampa (cassa indipendente tipica) | `WIN_USB`, condivisione locale | ❌ No — nessun ponte necessario |
+    | 3 | Stampante **USB su un PC, ma altre postazioni** devono stamparci sopra | Browser remoto → QZ Tray sul PC col cavo USB, via websocket | ✅ **Sì, unico caso reale** — QZ solo sul PC "ponte" |
+    | 4 | **Bluetooth** (appaiata a un telefono/tablet) | Intent Android → RawBT | ❌ No, meccanismo separato |
+    | 5 | Nessuno scontrino fisico (solo PDF/schermo) | — | ❌ No |
 
 #### Pagina "Configurazione Rete" ✅ implementata e testata (2026-09-07)
 
@@ -540,9 +538,9 @@ Passo intermedio sviluppato e verificato prima di scrivere l'installer vero e pr
 
 ### 3f. File e config
 
-- [ ] Copiare i file di opensagra nel path target dell'OS (`C:\opensagra`, `/opt/opensagra`, `/usr/local/opensagra`...), `vendor/` incluso.
-- [ ] Generare `Caddyfile` (root = path target; `localhost` o hostname di rete secondo la Domanda 1; `tls internal` o dominio secondo la Domanda 3).
-- [ ] Generare `config/variabili.env` dalle risposte del wizard (`DB_POS_HOST`, `DB_POS_USER`, `DB_POS_PASS`), partendo da `config/variabili.env.example`. **Lasciarlo come file di testo leggibile/modificabile.**
+- [ ] Copiare i file di opensagra in un percorso **fisso di default** (`C:\opensagra` — decisione 2026-09-07, niente domanda: chi vuole un percorso diverso lo passa come parametro in modalità non interattiva), `vendor/` incluso.
+- [ ] Generare `Caddyfile`: **sempre** HTTP+HTTPS in parallelo (nessuna domanda, vedi 3a), root = percorso d'installazione, hostname multipli (`localhost` + IP di rete rilevato, stesso schema dell'Insidia #6) + `tls internal`.
+- [ ] Generare `config/variabili.env` (`DB_POS_HOST=127.0.0.1`, `DB_POS_USER`, `DB_POS_PASS`), partendo da `config/variabili.env.example`. **Lasciarlo come file di testo leggibile/modificabile.**
 - [ ] Permessi cartella `uploads/` scrivibile dal processo FrankenPHP (ACE ereditabile `Authenticated Users:Modify`, così i file caricati restano leggibili anche fuori dal processo).
 - [ ] `upload_tmp_dir` impostato + cartella temp creata con ACL ereditabili (Soluzione A, vedi Appendice A → "`upload_tmp_dir` e ACL degli upload").
 
@@ -560,7 +558,9 @@ Passo intermedio sviluppato e verificato prima di scrivere l'installer vero e pr
 - [ ] Produrre `root-CA.crt` + procedura documentata per installarlo sui **tablet** (una volta per dispositivo) — oppure dominio reale + DNS di rete.
 - [ ] **Interazione con QZ Tray**: annotare che una pagina in HTTPS + `ws://` verso un QZ non-loopback viene bloccata (mixed-content). Vedi **Appendice C** per i test. Nessuna modifica ora.
 
-### 3i. QZ Tray (solo se Domanda 2 = Sì) — procedura esistente, non modificata
+### 3i. QZ Tray — incluso in `install.ps1`, chiesto con la domanda corretta (vedi 3a)
+
+Non un ramo condizionato da una "Domanda X" del nucleo (quel numero non esiste più, vedi 3a): è un passo dello stesso script, chiesto con "la stampante di questo PC deve essere raggiunta anche da altre postazioni?" — solo se sì si esegue quanto segue, sul PC col cavo USB.
 
 - [ ] Installare QZ Tray sul PC/tablet a cui è collegata la stampante USB.
 - [ ] Copiare `cert/cert.pem` come certificato di **override** nella cartella di QZ Tray (soppressione popup).
@@ -952,7 +952,7 @@ Diagnosticato mettendo un log lato server (`var_export($_POST, ...)` su file) de
 - [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. **Verificato end-to-end in Chromium reale**: cadenza 6s a riposo, filtro categoria non sovrascritto, pausa a tab nascosta, ripresa immediata al ritorno, nessun errore console.
 - [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP e HTTPS via servizio entrambi verificati — HTTPS richiedeva l'import della CA di LocalSystem nello store Macchina locale, vedi 2e).
 - [x] **Cutover + verifica finale** ✅ (2026-09-07) — XAMPP fermo, MariaDB nativa in produzione, porte standard 80/443, phpMyAdmin servito da Caddy. Suite Playwright completa ripetuta sulla configurazione reale (vendite e stampe reali): smoke test, stampa diretta HTTPS, stampa bridge QZ HTTP sui 3 motori, export PDF — tutto ✅. Trovato e corretto un bug reale preesistente (non introdotto dalla migrazione): PDF statistiche vuoto per un `echo` di troppo dopo `dompdf->stream()`, vedi Appendice F.
-- [~] **Fase 3** *(in corso)* — script d'installazione per-OS (solo Windows per ora) che **copia i file** (niente binario). Wizard ridotto a una sola domanda (architettura indipendente/server, testo finalizzato — vedi 3a); QZ e HTTPS non sono più domande del wizard, sono guide separate. Fatto finora: pulizia repo (`docker/` rimossa, `variabili.env` fuori da git), `crea_dbtable_and_user.php` eseguibile da CLI con exit code corretto, pagina "Configurazione Rete" in-app per cambiare `DB_POS_HOST` senza toccare file (testata con Playwright). Resta da fare: `install.ps1` vero e proprio (rilevamento, installazione FrankenPHP+MariaDB, estensioni+gate, migrazioni, `Caddyfile`, servizi, README).
+- [~] **Fase 3** *(in corso)* — script d'installazione per-OS (solo Windows per ora) che **copia i file** (niente binario). Il nucleo dell'installazione è a **zero domande** (indipendente/server erano la stessa identica installazione, la domanda è stata tolta — vedi 3a): `install.ps1` installa sempre la stessa base funzionante, l'architettura (diventare client di un altro server) si decide dopo, in qualsiasi momento, dalla pagina Configurazione Rete. QZ Tray incluso nello stesso script (una domanda mirata solo se questo PC deve fare da "ponte" stampa per altre postazioni, non "hai una USB collegata"); HTTPS sempre in parallelo di default, nessuna domanda. Percorso d'installazione fisso di default (`C:\opensagra`). Fatto finora: pulizia repo (`docker/` rimossa, `variabili.env` fuori da git, `DB_POS_SID` residuo rimosso), `crea_dbtable_and_user.php` eseguibile da CLI con exit code corretto (incluso privilegio `PROCESS` per il rafforzamento in Rete), pagina "Configurazione Rete" in-app per cambiare `DB_POS_HOST` senza toccare file, con avviso basato su connessioni reali (testata con Playwright, da riconfermare con una macchina Linux vera). Resta da fare: `install.ps1` vero e proprio (rilevamento, installazione FrankenPHP+MariaDB, estensioni+gate, migrazioni, `Caddyfile`, le due regole firewall esplicite per-porta dell'Insidia #6, servizi, QZ opzionale, README).
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
 - [ ] **Git** *(Appendice D)* — un commit per fase; il piano si committa man mano.
