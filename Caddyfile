@@ -1,8 +1,9 @@
 {
 	frankenphp
+	auto_https disable_redirects
 }
 
-http://:8080 {
+http://:80 {
 	handle_path /phpmyadmin {
 		root * C:\xampp\phpMyAdmin
 		php_server
@@ -16,7 +17,7 @@ http://:8080 {
 	php_server
 }
 
-https://localhost:8443, https://192.168.88.224:8443, https://opensagra.local:8443 {
+https://localhost, https://192.168.88.224, https://opensagra.local {
 	handle_path /phpmyadmin {
 		root * C:\xampp\phpMyAdmin
 		php_server
