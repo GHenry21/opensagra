@@ -190,9 +190,6 @@
                 </div>
             </details> -->
 
-            <form id='pdfForm' action='../print/print_stat_pdf.php' method='post'>
-                <input type='hidden' name='htmlContent' id='htmlContent'>
-            </form>
         </div>
     </div>
     </main>
@@ -640,7 +637,7 @@
                         this.loadingStats = false;
                     }
                 },
-                exportPdf() {
+                async exportPdf() {
                     let fromValue = this.filters.from || '(vuoto)';
                     let toValue = this.filters.to || '(vuoto)';
                     let cassaValue = this.filters.cassa || '(tutte)';
@@ -700,8 +697,33 @@
                     updatedHtml += `<li>Satispay ${this.formatEuro(this.paymentTotals.satispay)}</li>`;
                     updatedHtml += '</ul></div></div></body></html>';
 
-                    document.getElementById('htmlContent').value = updatedHtml;
-                    document.getElementById('pdfForm').submit();
+                    // Nota: NON usiamo più il submit nativo del <form> (POST + navigazione).
+                    // Chrome, quando una risposta POST arriva con Content-Disposition:
+                    // attachment, a volte ripete la richiesta per "materializzare" il
+                    // download e la ripetizione perde il body, generando un PDF vuoto/rotto.
+                    // Con fetch() la richiesta è unica e il salvataggio è gestito da noi.
+                    try {
+                        const resp = await fetch('../print/print_stat_pdf.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'htmlContent=' + encodeURIComponent(updatedHtml)
+                        });
+                        if (!resp.ok) {
+                            throw new Error('HTTP ' + resp.status);
+                        }
+                        const blob = await resp.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'statistiche_vendite.pdf';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                    } catch (err) {
+                        console.error('[exportPdf] errore download PDF:', err);
+                        this.resultsError = 'Errore durante la generazione del PDF.';
+                    }
                 },
                 async stampaReceipt() {
                     const cassa_id = localStorage.getItem('cassa_id');

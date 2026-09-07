@@ -12,7 +12,6 @@ if (isset($_POST['htmlContent'])) {
 	$dompdf->render();
 	
 	$dompdf->stream('statistiche_vendite.pdf', ["Attachment" => 1]);
-	echo "OK";
 } else {
 	echo "Nessun contenuto ricevuto";
 }
