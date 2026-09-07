@@ -51,28 +51,18 @@
             </section>
 
             <section class="rete-card">
-                <div class="rete-mode-row">
-                    <label class="rete-mode-option">
-                        <input type="radio" name="reteMode" value="indipendente" id="modeIndipendente" <?= $isIndipendente ? 'checked' : '' ?>>
-                        <span>
-                            <strong>Indipendente</strong>
-                            <p class="inline-muted">Questo PC usa il proprio database, in locale. È già così di
-                                default su ogni installazione.</p>
-                            <?php if ($localLabel): ?>
-                            <p class="inline-muted">IP di rete di questo PC (da dare alle altre casse che vorranno
-                                collegarsi qui come client): <code><?= $localLabel ?></code></p>
-                            <?php endif; ?>
-                        </span>
+                <div class="rete-switch-header">
+                    <label class="rete-switch">
+                        <input type="checkbox" id="modeToggle" <?= !$isIndipendente ? 'checked' : '' ?>>
+                        <span class="rete-switch__track"><span class="rete-switch__thumb"></span></span>
                     </label>
-                    <label class="rete-mode-option">
-                        <input type="radio" name="reteMode" value="client" id="modeClient" <?= !$isIndipendente ? 'checked' : '' ?>>
-                        <span>
-                            <strong>Client: punta a un server in rete</strong>
-                            <p class="inline-muted">Usa il database di un'altra installazione opensagra
-                                raggiungibile in rete locale (es. un PC "server" con più casse collegate).</p>
-                        </span>
-                    </label>
+                    <strong id="modeTitle"><?= $isIndipendente ? 'Indipendente' : 'Client: punta a un server in rete' ?></strong>
                 </div>
+                <p class="inline-muted" id="modeDescription">
+                    <?= $isIndipendente
+                        ? "Questo PC usa il proprio database, in locale. È già così di default su ogni installazione."
+                        : "Usa il database di un'altra installazione opensagra raggiungibile in rete locale (es. un PC \"server\" con più casse collegate)." ?>
+                </p>
 
                 <div class="field-wrap" id="hostFieldWrap" <?= $isIndipendente ? 'style="display:none"' : '' ?>>
                     <label for="serverHostInput">Indirizzo del server</label>
@@ -95,10 +85,11 @@
                     <h3>Come collegare altre casse a questo PC come server</h3>
                 </div>
                 <p class="inline-muted">
-                    Ogni installazione opensagra è già pronta a fare da server per le altre: non serve
-                    nessuna configurazione aggiuntiva su questo PC. Sulle altre postazioni, apri questa
+                    Ogni installazione OpenSagra è già pronta a fare da server per le altre: non serve
+                    nessuna configurazione aggiuntiva su questo PC. 
+                    Sul PC che fungerà da client, apri questa
                     stessa pagina (Configurazione Rete) e scegli "Client: punta a un server in rete",
-                    indicando l'indirizzo IP di questo PC<?= $localLabel ? " (<code>{$localLabel}</code>)" : '' ?>.
+                    indicando l'indirizzo IP di questo PC: <?= $localIp ? " <code>{$localIp}</code>" : '' ?>.
                 </p>
                 <p class="inline-muted">
                     Attenzione: se questo PC si spegne o esce dalla rete, tutte le casse collegate a lui
@@ -112,19 +103,33 @@
     <script src="../assets/js/toast.js"></script>
     <script>
         (function() {
-            const modeIndipendente = document.getElementById('modeIndipendente');
-            const modeClient = document.getElementById('modeClient');
+            const modeToggle = document.getElementById('modeToggle');
+            const modeTitle = document.getElementById('modeTitle');
+            const modeDescription = document.getElementById('modeDescription');
             const hostFieldWrap = document.getElementById('hostFieldWrap');
             const serverHostInput = document.getElementById('serverHostInput');
             const btnSave = document.getElementById('btnSaveRete');
             const statusDot = document.getElementById('reteStatusDot');
             const statusText = document.getElementById('reteStatusText');
 
-            function toggleHostField() {
-                hostFieldWrap.style.display = modeClient.checked ? '' : 'none';
+            const MODE_INFO = {
+                indipendente: {
+                    title: 'Indipendente',
+                    description: 'Questo PC usa il proprio database, in locale. È già così di default su ogni installazione.'
+                },
+                client: {
+                    title: 'Client: punta a un server in rete',
+                    description: 'Usa il database di un\'altra installazione opensagra raggiungibile in rete locale (es. un PC "server" con più casse collegate).'
+                }
+            };
+
+            function updateModeUI() {
+                const mode = modeToggle.checked ? 'client' : 'indipendente';
+                modeTitle.textContent = MODE_INFO[mode].title;
+                modeDescription.textContent = MODE_INFO[mode].description;
+                hostFieldWrap.style.display = mode === 'client' ? '' : 'none';
             }
-            modeIndipendente.addEventListener('change', toggleHostField);
-            modeClient.addEventListener('change', toggleHostField);
+            modeToggle.addEventListener('change', updateModeUI);
 
             function refreshStatus() {
                 fetch('../api/db_status.php')
@@ -145,7 +150,7 @@
             setInterval(refreshStatus, 15000);
 
             btnSave.addEventListener('click', async function() {
-                const mode = modeClient.checked ? 'client' : 'indipendente';
+                const mode = modeToggle.checked ? 'client' : 'indipendente';
                 const host = serverHostInput.value.trim();
 
                 if (mode === 'client' && host === '') {
@@ -165,7 +170,7 @@
                     const connData = await connResp.json();
                     if (connData.external_count > 0) {
                         const elenco = connData.hosts.join(', ');
-                        externalWarning = `\n\n⚠️ Attenzione: in questo momento ${connData.external_count} altra/e postazione/i ` +
+                        externalWarning = `\n\n Attenzione: in questo momento ${connData.external_count} altra/e postazione/i ` +
                             `(${elenco}) risulta/no collegata/e al database locale di questo PC — probabilmente lo usano ` +
                             `già come server condiviso.`;
                     }

@@ -32,11 +32,11 @@ async function confirmDialog(page) {
   await page.waitForTimeout(1000);
   const statusText = await page.locator('#reteStatusText').innerText();
   log('Stato iniziale: indipendente online, IP reale mostrato', !statusText.includes('127.0.0.1') && /\d+\.\d+\.\d+\.\d+/.test(statusText), statusText);
-  const modeChecked = await page.locator('#modeIndipendente').isChecked();
-  log('Radio "Indipendente" selezionato di default', modeChecked, `checked=${modeChecked}`);
+  const toggleChecked = await page.locator('#modeToggle').isChecked();
+  log('Switch su "Indipendente" (spento) di default', !toggleChecked, `checked=${toggleChecked}`);
 
   // 3. Prova a impostare un host non valido: NON deve scrivere il file
-  await page.check('#modeClient');
+  await page.check('#modeToggle');
   await page.fill('#serverHostInput', '10.0.0.250');
   await page.click('#btnSaveRete');
   await confirmDialog(page);
@@ -66,7 +66,7 @@ async function confirmDialog(page) {
   log('App ancora funzionante col nuovo host (get_products.php)', productsResp.ok(), `HTTP ${productsResp.status()}`);
 
   // 6. Torna a indipendente (ripristino stato produzione)
-  await page.check('#modeIndipendente');
+  await page.uncheck('#modeToggle');
   await page.click('#btnSaveRete');
   await confirmDialog(page);
   await page.waitForTimeout(1500);
