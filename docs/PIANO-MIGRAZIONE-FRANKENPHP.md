@@ -590,7 +590,29 @@ Non un ramo condizionato da una domanda (il nucleo è a zero domande, vedi 3a): 
 
 **Nota legale (chiesta esplicitamente, verificata 2026-09-07)**: QZ Tray è LGPL 2.1. `install.ps1` scarica l'installer ufficiale non modificato dalle release GitHub e comunica con QZ Tray solo via WebSocket (nessun codice QZ incorporato/linkato) — è "mere aggregation"/IPC secondo le stesse FAQ della FSF sulla LGPL, non genera un'opera derivata, nessun obbligo di rilasciare il codice di opensagra. Il meccanismo di firma/override per sopprimere il popup è una funzionalità ufficiale di QZ, non un aggiramento. Attenzione solo se in futuro si volesse *rebrandizzare* QZ Tray (nome/icona propri): lì servirebbe una licenza commerciale di white-labeling — non il caso qui.
 
-**Esperimento futuro, da valutare (annotato su richiesta esplicita, non pianificato)**: costruire un bridge di stampa interno a opensagra (piccolo servizio locale che parla USB/rete direttamente, sostituendo il ruolo di QZ Tray) per eliminare del tutto la dipendenza da un programma di terze parti installato a parte. Vantaggi potenziali: un componente in meno da installare/tenere aggiornato, nessun popup/certificato da gestire, controllo completo sul protocollo. Costi/rischi da valutare quando/se si affronta per davvero: QZ Tray oggi gestisce l'accesso USB raw cross-vendor (driver, permessi) e il bridge browser↔dispositivo locale via WebSocket - reimplementarlo da zero è lavoro non banale, e andrebbe rifatto anche lato browser (`qz-helper.js`, `printBridgeViaQz` in tre pagine). Non stimato, non prioritario: QZ Tray funziona, questa è un'idea per il futuro se mai emergesse un motivo concreto per toglierlo di mezzo.
+**Esperimento futuro, da valutare (annotato su richiesta esplicita, non pianificato) — bridge di stampa nativo via Mercure**
+
+Discusso il 2026-09-07, affinato in una seconda conversazione dopo aver osservato che la Fase 4 (Mercure) userebbe comunque FrankenPHP come trasporto push: invece di reimplementare da zero l'accesso USB come fa QZ Tray, l'idea è **riusare il codice di stampa diretta già scritto e testato** (`config/get_printer.php`, casi `WIN_USB`/`LINUX_USB`, libreria `escpos-php`) spostandolo su un piccolo processo residente sul PC collegato alla stampante, invece che sul server centrale:
+
+```
+Browser (HTTPS, checkout normale) → Server centrale (PHP)
+Server centrale → costruisce i byte ESC/POS (buildEscposRawReceipt, già esistente)
+                → li pubblica su un topic Mercure (server-to-server)
+PC col bridge   → un piccolo script PHP si iscrive al topic (SSE, come EventSource ma da CLI)
+                → alla ricezione, chiama WindowsPrintConnector (stesso codice di WIN_USB oggi)
+```
+
+**Risolve da solo il problema HTTPS/mixed-content di Appendice C**: oggi Firefox/WebKit bloccano `ws://` verso QZ non-loopback da una pagina `https://` perché il *browser* apre quella connessione, e il mixed-content è una policy del browser. Nel nuovo schema il browser non partecipa più allo step di stampa — è un processo PHP in CLI a parlare con Mercure via HTTP(S), e un client da riga di comando non ha un'origine da proteggere: nessuna policy di mixed-content si applica. Si potrebbe usare HTTPS ovunque senza il compromesso attuale (tenere HTTP in parallelo apposta per QZ).
+
+**I due pezzi realmente nuovi da scrivere** (il resto è riuso):
+- **Script sottoscrittore**: processo persistente sul PC bridge, connessione streaming verso `https://server/.well-known/mercure?topic=print/cassa/{id}` (token JWT nell'header `Authorization`), parsing riga-per-riga del flusso `text/event-stream` (nessuna libreria necessaria, `curl` con `CURLOPT_WRITEFUNCTION` o `fopen()`/`stream_get_line()`), riconnessione automatica (Mercure supporta `Last-Event-ID` per non perdere eventi). Da far girare come servizio persistente — riusabile lo stesso meccanismo WinSW già costruito e testato in Fase 3 per `frankenphp`.
+- **Autorizzazione JWT per topic**: Mercure richiede un JWT firmato sia per pubblicare che per sottoscrivere, con claim che elencano esplicitamente i topic permessi (non un token generico). Il server centrale userebbe un JWT "publisher" (`{"mercure":{"publish":["print/cassa/*"]}}`), ogni PC bridge un JWT "subscriber" **scoped alla sola sua cassa** (`{"mercure":{"subscribe":["print/cassa/henry"]}}`) — stessa logica di isolamento di oggi (un bridge non deve poter vedere gli scontrini di un'altra cassa). Si aggancerebbe bene allo schema esistente: una colonna tipo `bridge_token` in `casse_stampanti`, generata quando si configura una cassa con un nuovo tipo (es. `BRIDGE_NATIVE`), analogo a come oggi si configurano `qz_host`/`nome_indirizzo` per il tipo `BRIDGE`.
+
+**Vantaggi**: elimina del tutto QZ Tray (un componente di terze parti in meno da installare/scaricare/tenere aggiornato — oggi causa di 3 dei bug reali trovati in Fase 3: URL di download morto, cartella override mai creata, chiave di firma mai posizionata), nessun popup/certificato di override da gestire, risolve l'HTTPS su tutti i browser per costruzione, non solo Chromium.
+
+**Pacchetto sul PC bridge**: solo `vendor/mike42/escpos-php`, `config/get_printer.php` e il nuovo script sottoscrittore — **non l'app intera**: niente MariaDB inutilizzato sempre acceso, niente regola firewall per una porta 3306 che nessuno userà lì, niente superficie in più su un PC che deve solo stampare.
+
+**Costi/rischi non stimati** (nessuna stima di tempo fatta finora, da fare se/quando si decide di affrontarlo davvero): lo script sottoscrittore e lo schema di autorizzazione JWT sono comunque codice nuovo da scrivere e testare, anche se il pezzo difficile (parlare con l'hardware) è già pronto. Andrebbe anche rifatto lato server l'instradamento in `routingStampa()` (nuovo caso `BRIDGE_NATIVE` accanto a `BRIDGE`/QZ, non necessariamente in sostituzione — potrebbero coesistere). Non prioritario: QZ Tray funziona (verificato in Fase 3), questa resta un'idea per il futuro.
 
 ### 3j. Pulizia
 
