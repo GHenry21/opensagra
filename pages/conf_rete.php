@@ -51,18 +51,30 @@
             </section>
 
             <section class="rete-card">
-                <div class="rete-switch-header">
-                    <label class="rete-switch">
-                        <input type="checkbox" id="modeToggle" <?= !$isIndipendente ? 'checked' : '' ?>>
-                        <span class="rete-switch__track"><span class="rete-switch__thumb"></span></span>
+                <div class="rete-mode-row">
+                    <label class="rete-mode-option">
+                        <span class="rete-switch">
+                            <input type="radio" name="reteMode" value="indipendente" id="modeIndipendente" <?= $isIndipendente ? 'checked' : '' ?>>
+                            <span class="rete-switch__track"><span class="rete-switch__thumb"></span></span>
+                        </span>
+                        <span class="rete-mode-option__text">
+                            <strong>Indipendente</strong>
+                            <p class="inline-muted">Questo PC usa il proprio database, in locale. È già così di
+                                default su ogni installazione.</p>
+                        </span>
                     </label>
-                    <strong id="modeTitle"><?= $isIndipendente ? 'Indipendente' : 'Client: punta a un server in rete' ?></strong>
+                    <label class="rete-mode-option">
+                        <span class="rete-switch">
+                            <input type="radio" name="reteMode" value="client" id="modeClient" <?= !$isIndipendente ? 'checked' : '' ?>>
+                            <span class="rete-switch__track"><span class="rete-switch__thumb"></span></span>
+                        </span>
+                        <span class="rete-mode-option__text">
+                            <strong>Client: punta a un server in rete</strong>
+                            <p class="inline-muted">Usa il database di un'altra installazione opensagra
+                                raggiungibile in rete locale (es. un PC "server" con più casse collegate).</p>
+                        </span>
+                    </label>
                 </div>
-                <p class="inline-muted" id="modeDescription">
-                    <?= $isIndipendente
-                        ? "Questo PC usa il proprio database, in locale. È già così di default su ogni installazione."
-                        : "Usa il database di un'altra installazione opensagra raggiungibile in rete locale (es. un PC \"server\" con più casse collegate)." ?>
-                </p>
 
                 <div class="field-wrap" id="hostFieldWrap" <?= $isIndipendente ? 'style="display:none"' : '' ?>>
                     <label for="serverHostInput">Indirizzo del server</label>
@@ -103,33 +115,19 @@
     <script src="../assets/js/toast.js"></script>
     <script>
         (function() {
-            const modeToggle = document.getElementById('modeToggle');
-            const modeTitle = document.getElementById('modeTitle');
-            const modeDescription = document.getElementById('modeDescription');
+            const modeIndipendente = document.getElementById('modeIndipendente');
+            const modeClient = document.getElementById('modeClient');
             const hostFieldWrap = document.getElementById('hostFieldWrap');
             const serverHostInput = document.getElementById('serverHostInput');
             const btnSave = document.getElementById('btnSaveRete');
             const statusDot = document.getElementById('reteStatusDot');
             const statusText = document.getElementById('reteStatusText');
 
-            const MODE_INFO = {
-                indipendente: {
-                    title: 'Indipendente',
-                    description: 'Questo PC usa il proprio database, in locale. È già così di default su ogni installazione.'
-                },
-                client: {
-                    title: 'Client: punta a un server in rete',
-                    description: 'Usa il database di un\'altra installazione opensagra raggiungibile in rete locale (es. un PC "server" con più casse collegate).'
-                }
-            };
-
-            function updateModeUI() {
-                const mode = modeToggle.checked ? 'client' : 'indipendente';
-                modeTitle.textContent = MODE_INFO[mode].title;
-                modeDescription.textContent = MODE_INFO[mode].description;
-                hostFieldWrap.style.display = mode === 'client' ? '' : 'none';
+            function toggleHostField() {
+                hostFieldWrap.style.display = modeClient.checked ? '' : 'none';
             }
-            modeToggle.addEventListener('change', updateModeUI);
+            modeIndipendente.addEventListener('change', toggleHostField);
+            modeClient.addEventListener('change', toggleHostField);
 
             function refreshStatus() {
                 fetch('../api/db_status.php')
@@ -150,7 +148,7 @@
             setInterval(refreshStatus, 15000);
 
             btnSave.addEventListener('click', async function() {
-                const mode = modeToggle.checked ? 'client' : 'indipendente';
+                const mode = modeClient.checked ? 'client' : 'indipendente';
                 const host = serverHostInput.value.trim();
 
                 if (mode === 'client' && host === '') {

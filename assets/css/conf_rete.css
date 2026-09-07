@@ -64,18 +64,33 @@
     background: var(--mc-danger)
 }
 
-.rete-switch-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 6px
+.rete-mode-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px
 }
 
-.rete-switch-header strong {
+.rete-mode-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--mc-border);
+    border-radius: 12px;
+    cursor: pointer
+}
+
+.rete-mode-option__text {
+    display: grid;
+    gap: 4px
+}
+
+.rete-mode-option__text strong {
     font-size: 15px
 }
 
 .rete-switch {
+    margin-top: 2px;
     position: relative;
     display: inline-block;
     flex-shrink: 0;
@@ -150,4 +165,10 @@
     display: flex;
     gap: 10px;
     justify-content: flex-end
+}
+
+@media (max-width: 700px) {
+    .rete-mode-row {
+        grid-template-columns: 1fr
+    }
 }
