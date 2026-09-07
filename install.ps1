@@ -508,8 +508,31 @@ function Install-QZTray {
     $qzDataDir = "$env:USERPROFILE\AppData\Roaming\qz"
     $certSource = Join-Path $Script:InstallPath 'cert\cert.pem'
     $keySource = Join-Path $Script:SourcePath '..\private\key.pem'
-    if ((Test-Path $qzDataDir) -and (Test-Path $certSource)) {
+    if (Test-Path $certSource) {
+        # Bug reale trovato testando su VM pulita (2026-09-07): la cartella
+        # dati di QZ Tray la crea QZ Tray stesso al primo avvio - su
+        # un'installazione fresca non esiste ancora a questo punto, quindi il
+        # vecchio controllo "if Test-Path $qzDataDir" falliva sempre e
+        # saltava silenziosamente la copia del certificato di override.
+        # Risultato: popup di conferma connessione mai soppresso -> "Connection
+        # attempt cancelled by user" quando nessuno e' davanti allo schermo
+        # per cliccare Consenti.
+        New-Item -ItemType Directory -Force -Path $qzDataDir | Out-Null
         Copy-Item $certSource (Join-Path $qzDataDir 'override.crt') -Force
+
+        # QZ Tray si avvia gia' da solo dopo l'installazione silenziosa: se e'
+        # gia' in esecuzione, ha in memoria lo stato precedente (senza
+        # override) e va riavviato per ricaricare il certificato appena
+        # copiato.
+        $qzProcess = Get-Process -Name 'javaw' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*QZ Tray*' }
+        if ($qzProcess) {
+            $qzProcess | Stop-Process -Force
+            Start-Sleep -Seconds 1
+        }
+        $qzExe = 'C:\Program Files\QZ Tray\qz-tray.exe'
+        if (Test-Path $qzExe) {
+            Start-Process -FilePath $qzExe
+        }
     }
     if (Test-Path $keySource) {
         $privateDir = Split-Path $keySource
