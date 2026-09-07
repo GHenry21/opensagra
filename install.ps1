@@ -487,8 +487,18 @@ function Install-QZTray {
     $qzInstalled = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
         Where-Object { $_.DisplayName -like 'QZ Tray*' }
     if (-not $qzInstalled) {
+        # Bug reale trovato testando su VM pulita (2026-09-07): download.qz.io
+        # non esiste piu' (DNS inesistente) - QZ Tray si distribuisce solo via
+        # GitHub Releases, con nome file versionato (es.
+        # qz-tray-2.2.6-x86_64.exe), quindi non si puo' linkare un URL fisso:
+        # va risolta la release piu' recente tramite l'API GitHub.
+        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/qzind/tray/releases/latest' -Headers @{ 'User-Agent' = 'opensagra-installer' }
+        $asset = $release.assets | Where-Object { $_.name -match 'x86_64\.exe$' } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Impossibile trovare l'installer Windows di QZ Tray nell'ultima release GitHub."
+        }
         $installerPath = "$env:TEMP\qz-tray-setup.exe"
-        Invoke-WebRequest -Uri 'https://download.qz.io/stable/windows.exe' -OutFile $installerPath
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath
         Start-Process -FilePath $installerPath -ArgumentList '/S' -Wait
         Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
     }
