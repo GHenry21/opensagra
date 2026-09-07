@@ -18,6 +18,10 @@ Thumbs.db
 
 # File di configurazione locale con eventuali password (se usi file .env)
 .env
+
+# Credenziali reali del DB per questa installazione (generato dal wizard di
+# Fase 3, o copiato a mano da variabili.env.example). Resta solo in locale.
+/config/variabili.env
 # cartelle/che di lavoro
 /.liveui.json
 
