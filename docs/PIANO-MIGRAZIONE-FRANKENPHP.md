@@ -591,6 +591,34 @@ Da fare **solo se** cresce il numero di casse o si vuole il realtime anche sugli
 
 **Accettazione:** una modifica prodotto si riflette sulle altre casse in < 1 s senza polling; staccando l'hub, l'app continua a funzionare col polling condizionale.
 
+### Pro e contro (valutazione 2026-09-07, prima di decidere se promuoverla)
+
+Analisi fatta passando in rassegna il codice reale (non solo in teoria) per capire dove il realtime cambierebbe davvero qualcosa.
+
+**Cosa ha davvero un consumatore oggi:**
+
+| Pagina | Aggiornamento oggi | Beneficio reale da Mercure |
+|---|---|---|
+| `billing.php` (cassa, sempre aperta) | Polling condizionale ~6s (Fase 1) | Solo estetico/percepito, vedi sotto |
+| `add_product.php` | Nessun polling (pagina da admin) | Nessuno |
+| `storni.php` | Nessun polling, lookup manuale a bottone | Nessuno |
+| `stat_vendite.php` | Nessun polling, snapshot al caricamento | Solo se si vuole una dashboard live — funzione **nuova**, non esiste oggi |
+
+**Contro / motivi per NON farla ora:**
+- **Non è un problema di correttezza dei dati, solo di percezione**: verificato in `print/print_receipt.php` — il checkout rivalida sempre lo stock a livello DB dentro una transazione (`SELECT ... FOR UPDATE`) prima di scalare la quantità. Due casse che vedono per 6s lo stesso prodotto "disponibile" non possono mai generare una vendita doppia di un articolo esaurito: la seconda riceve un errore pulito al checkout, non un dato corrotto. Mercure chiuderebbe un gap percepito (il pulsante si disabilita prima), non un bug reale.
+- **"Realtime sugli ordini" non ha oggi nessuna funzione che lo consumerebbe** — non esiste una bacheca ordini condivisa tra casse. Sarebbe una funzionalità totalmente nuova da progettare, non un potenziamento di qualcosa che già esiste.
+- **Complessità permanente aggiunta all'installer di Fase 3**: andrebbe generata/gestita la chiave JWT e la route dell'hub nel wizard — un pezzo in più in uno script che abbiamo tenuto deliberatamente semplice (una sola domanda).
+- **Terreno nuovo per questo progetto**: a differenza di QZ/MariaDB/firewall (ormai ben conosciuti, insidie mappate), Mercure/JWT/`EventSource` non sono mai stati toccati qui — rischio concreto di sorprese scoperte solo testando, come già successo più volte in questa migrazione (firewall, HTTPS, porte).
+- **Stima se la facessi (Claude) io stesso, implementazione + test**: 6-10 ore di lavoro effettivo, con margine di incertezza reale per il punto sopra. Scomposizione: 1-2h config hub+JWT nel Caddyfile, 1-2h pubblicazione dai 5-6 endpoint di mutazione (senza mai rallentare/bloccare il checkout se l'hub è giù), 1-2h `EventSource` + fallback in `billing.php`, 1-2h test multi-browser del realtime (fattibile in autonomia, senza bisogno di hardware dell'utente), ~1h non-regressione sugli endpoint toccati, 1-3h di margine imprevisti.
+
+**Pro / motivi per farla comunque, in futuro:**
+- Se il numero di casse cresce davvero, il gap percepito (pulsante che si disabilita con qualche secondo di ritardo) diventa più visibile e fastidioso proporzionalmente al traffico.
+- Se nasce un bisogno concreto di una dashboard vendite live durante l'evento (non solo "sarebbe carino"), Mercure è la via naturale per farla bene.
+- L'hub è già dentro il binario FrankenPHP: nessuna nuova dipendenza esterna da installare, "solo" configurazione e codice applicativo.
+- Se si fa comunque per i motivi sopra, l'avviso "il server sta per fermarsi" (vedi sotto) diventerebbe praticamente gratis — un topic in più sull'infrastruttura già in piedi, invece di un meccanismo a parte.
+
+**Decisione (2026-09-07): resta opzionale/futura, non promossa.** Da rivalutare solo se cambia concretamente uno dei motivi "pro" sopra — non per il solo avviso di disconnessione, che ha una via più economica (sotto).
+
 ### Idea rimandata: avviso "il server sta per fermarsi" alle altre postazioni
 
 Emersa discutendo la pagina Configurazione Rete (2026-09-07): oggi non esiste alcun canale da un'installazione opensagra alle altre — ognuna fa solo polling verso il DB condiviso, nessuno "spinge" nulla (nessun push instantaneo possibile senza l'hub Mercure di questa fase). Un avviso reale è comunque realizzabile **senza** aspettare la Fase 4, riusando quello che già c'è: questo PC scrive un "avviso" in una riga condivisa nel DB; le altre postazioni (che già fanno polling periodico, stesso pattern di `products_version.php`) lo notano entro pochi secondi e mostrano un banner "Il server sta per fermarsi, salva il lavoro in corso". Non implementata ora su richiesta esplicita dell'utente ("non ora, rimandiamo") — da riprendere se/quando serve davvero, eventualmente insieme o al posto della Fase 4.
