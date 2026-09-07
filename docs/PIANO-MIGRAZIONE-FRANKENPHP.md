@@ -493,6 +493,10 @@ Passo intermedio sviluppato e verificato prima di scrivere l'installer vero e pr
 - Switch a un host valido raggiungibile in LAN (`192.168.88.224`, il proprio IP di rete — stesso DB, indirizzo diverso): toast di successo, `db_status.php` riflette subito il nuovo host, `api/get_products.php` continua a rispondere 200 (l'app non si rompe).
 - Ripristino a "Indipendente": tornato a `127.0.0.1` correttamente.
 
+**Rafforzamento successivo — avviso basato su connessioni reali**: `api/db_connections.php` interroga `SHOW PROCESSLIST` sul database locale (richiede il privilegio `PROCESS`, aggiunto al provisioning) e conta le connessioni davvero attive da altri indirizzi in questo momento; il dialogo di conferma le mostra per nome host invece di un avviso generico sempre uguale.
+
+⚠️ **Da testare con una macchina Linux vera quando ne mettiamo in piedi una come cassa permanente** (2026-09-07): finora verificato solo con connessioni auto-aperte dalla stessa macchina Windows (via IP di LAN invece di loopback, per non farle contare come locali da MariaDB) e con il PC Linux usato per il debug del firewall via SSH — mai con un'installazione opensagra reale e stabile su Linux che si connette normalmente. La meccanica (`SHOW PROCESSLIST` filtrato per host non-locale) non dovrebbe cambiare comportamento in base al sistema operativo del client, ma va comunque confermato con un caso d'uso reale prima di considerarlo definitivamente verificato.
+
 **Nota su MariaDB nativa** (verificato su questa macchina, Windows, MariaDB 12.3): bind-address già su tutte le interfacce (`netstat` conferma `0.0.0.0:3306`). ~~Regole firewall già presenti e create dall'installer MSI ufficiale, nessuna azione manuale necessaria~~ — **smentito da un test reale, vedi la correzione qui sopra e Insidia #6**: quelle regole non bastano su rete Pubblica per un dispositivo davvero esterno. `install.ps1` deve creare esplicitamente le due regole per-porta descritte in Insidia #6, non fare affidamento su quelle degli installer.
 
 ### 3b. Rilevamento
