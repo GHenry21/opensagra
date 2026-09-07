@@ -46,7 +46,12 @@ $Script:RequiredExtensions = @('mysqli', 'mbstring', 'gd', 'zip', 'intl', 'curl'
 
 # Cartelle/file del pacchetto di release da NON copiare nell'installazione
 # (materiale di sviluppo, non serve a chi usa l'app)
-$Script:ExcludeFromCopy = @('.git', 'e2e', 'docs', 'node_modules', 'install.ps1', '.gitignore', '.gitattributes')
+$Script:ExcludeFromCopy = @(
+    '.git', '.vscode', 'e2e', 'docs', 'node_modules', 'install.ps1',
+    '.gitignore', '.gitattributes', 'archive', 'playwright-report',
+    'test-results', 'package.json', 'package-lock.json', 'playwright.config.js',
+    'bt.html', 'navbar example.html'
+)
 
 # ============================================================================
 # Interfaccia grafica (WPF in un runspace separato, aggiornata dal thread
