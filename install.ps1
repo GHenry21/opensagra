@@ -503,11 +503,24 @@ function Install-QZTray {
         Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
     }
 
-    # Procedura certificati esistente (Appendice C), non modificata: override
-    # del certificato di firma per sopprimere i popup di consenso.
+    # Genera (una tantum, idempotente) la coppia chiave/certificato di firma
+    # per QZ Tray se non ne esiste gia' una valida - vedi
+    # config/genera_certificati_qz.php. Deve girare PRIMA della copia in
+    # override.crt qui sotto, cosi' quello copiato e' il certificato vero
+    # (generato per QUESTA installazione), non il file di esempio committato
+    # in git da Copy-AppFiles. Sostituisce il vecchio $keySource: prima
+    # calcolava un percorso "sorgente" per una chiave da copiare, ma non la
+    # copiava mai da nessuna parte (bug reale, mai eseguito nulla) ne' teneva
+    # conto del fatto che chiave e certificato ora si generano assieme.
+    & "$Script:FrankenDir\frankenphp.exe" php-cli (Join-Path $Script:InstallPath 'config\genera_certificati_qz.php')
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Generazione dei certificati QZ Tray fallita (vedi output sopra).'
+    }
+
+    # Procedura certificati: override del certificato di firma per sopprimere
+    # i popup di consenso.
     $qzDataDir = "$env:USERPROFILE\AppData\Roaming\qz"
     $certSource = Join-Path $Script:InstallPath 'cert\cert.pem'
-    $keySource = Join-Path $Script:SourcePath '..\private\key.pem'
     if (Test-Path $certSource) {
         # Bug reale trovato testando su VM pulita (2026-09-07): la cartella
         # dati di QZ Tray la crea QZ Tray stesso al primo avvio - su
@@ -533,11 +546,6 @@ function Install-QZTray {
         if (Test-Path $qzExe) {
             Start-Process -FilePath $qzExe
         }
-    }
-    if (Test-Path $keySource) {
-        $privateDir = Split-Path $keySource
-        New-Item -ItemType Directory -Force -Path $privateDir | Out-Null
-        # la chiave privata va generata una tantum (openssl), non generata qui
     }
     Add-InstallChecklistItem 'QZ Tray installato'
 }
