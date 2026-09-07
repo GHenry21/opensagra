@@ -253,6 +253,25 @@ function Install-FrankenPHP {
     Add-InstallChecklistItem 'FrankenPHP installato'
 }
 
+function Install-WinSW {
+    # frankenphp-service.exe non e' un eseguibile di FrankenPHP: e' WinSW
+    # (Windows Service Wrapper) scaricato a parte e rinominato, cosi' come
+    # fatto a mano in Fase 2 - non arriva con l'installer ufficiale di
+    # FrankenPHP, quindi va scaricato qui esplicitamente (bug reale trovato
+    # testando su VM pulita, 2026-09-07: il pacchetto di release non lo
+    # includeva e Register-FrankenPHPService falliva).
+    $winswExe = "$Script:FrankenDir\frankenphp-service.exe"
+    if (Test-Path $winswExe) {
+        Add-InstallChecklistItem 'WinSW (frankenphp-service.exe) gia'' presente'
+        return
+    }
+    Invoke-WebRequest -Uri 'https://github.com/winsw/winsw/releases/latest/download/WinSW-x64.exe' -OutFile $winswExe
+    if (-not (Test-Path $winswExe)) {
+        throw 'Download di WinSW (frankenphp-service.exe) non riuscito.'
+    }
+    Add-InstallChecklistItem 'WinSW (frankenphp-service.exe) scaricato'
+}
+
 function Set-PhpExtensions {
     $iniPath = "$Script:FrankenDir\php.ini"
     if (-not (Test-Path $iniPath)) {
@@ -500,6 +519,7 @@ try {
 
     Set-InstallProgress -Percent 5 -Status 'Installazione di FrankenPHP...'
     Install-FrankenPHP
+    Install-WinSW
 
     Set-InstallProgress -Percent 10 -Status 'Installazione dei componenti runtime...'
     Install-VCRedist
