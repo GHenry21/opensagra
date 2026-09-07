@@ -194,6 +194,25 @@ function Test-Prerequisites {
     }
 }
 
+function Disable-LegacyXamppServices {
+    # Insidia #7 (piano, 2026-09-07): se la macchina ha (o ha avuto) XAMPP,
+    # i suoi servizi Windows (Apache2.4, mysql) possono essere rimasti
+    # StartType=Automatic anche dopo averli fermati dal pannello di
+    # controllo - fermare il processo non cambia il tipo di avvio del
+    # servizio. Scoperto con un riavvio reale: al boot successivo httpd.exe
+    # ha vinto la porta 80 su frankenphp.exe (Windows non impedisce il
+    # doppio bind se nessuno chiede l'esclusiva, ma solo uno riceve il
+    # traffico). Va disabilitato esplicitamente l'avvio, non solo fermato.
+    $legacyServices = @('Apache2.4', 'mysql')
+    foreach ($name in $legacyServices) {
+        $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+        if (-not $svc) { continue }
+        if ($svc.Status -ne 'Stopped') { Stop-Service -Name $name -Force }
+        if ($svc.StartType -ne 'Disabled') { Set-Service -Name $name -StartupType Disabled }
+    }
+    Add-InstallChecklistItem 'Servizi XAMPP legacy verificati/disattivati'
+}
+
 function Install-FrankenPHP {
     if (Test-Path "$Script:FrankenDir\frankenphp.exe") {
         Add-InstallChecklistItem 'FrankenPHP gia'' presente'
@@ -442,6 +461,9 @@ function Install-QZTray {
 try {
     Test-Prerequisites
     Show-InstallWindow
+
+    Set-InstallProgress -Percent 3 -Status 'Verifica di eventuali installazioni precedenti...'
+    Disable-LegacyXamppServices
 
     Set-InstallProgress -Percent 5 -Status 'Installazione di FrankenPHP...'
     Install-FrankenPHP
