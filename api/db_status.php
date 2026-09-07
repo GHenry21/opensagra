@@ -10,12 +10,19 @@
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/env_reader.php';
+require_once __DIR__ . '/../config/local_ip.php';
 
 $env = loadPosEnvVars();
+$isSelf = in_array($env['host'], ['127.0.0.1', 'localhost'], true);
 
 $start = microtime(true);
 $result = [
     'host' => $env['host'],
+    // Per "Indipendente" (127.0.0.1) mostriamo l'IP di rete reale: il
+    // loopback non dice nulla di utile a chi deve collegare un'altra
+    // cassa a questa macchina come server.
+    'display_host' => $isSelf ? (detectLocalLanIp() ?? $env['host']) : $env['host'],
+    'is_self' => $isSelf,
     'db' => $env['db'],
     'online' => false,
 ];

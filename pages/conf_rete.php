@@ -10,6 +10,7 @@
     <?php include __DIR__ . '/../includes/head-favicons.php'; ?>
     <?php require_once __DIR__ . '/../includes/icons.php'; ?>
     <?php require_once __DIR__ . '/../config/env_reader.php'; ?>
+    <?php require_once __DIR__ . '/../config/local_ip.php'; ?>
     <title>Configurazione Rete</title>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
@@ -21,7 +22,11 @@
     <div class="pos-main-panel">
     <?php include __DIR__ . '/../includes/header.php'; ?>
     <main class="management-shell">
-        <?php $env = loadPosEnvVars(); $isIndipendente = ($env['host'] === '127.0.0.1' || $env['host'] === 'localhost'); ?>
+        <?php
+        $env = loadPosEnvVars();
+        $isIndipendente = ($env['host'] === '127.0.0.1' || $env['host'] === 'localhost');
+        $localIp = detectLocalLanIp();
+        ?>
         <div class="rete-shell">
             <section class="rete-card">
                 <div class="panel-title-row panel-title-bordered">
@@ -48,6 +53,10 @@
                             <strong>Indipendente</strong>
                             <p class="inline-muted">Questo PC usa il proprio database, in locale. È già così di
                                 default su ogni installazione.</p>
+                            <?php if ($localIp): ?>
+                            <p class="inline-muted">IP di rete di questo PC (da dare alle altre casse che vorranno
+                                collegarsi qui come client): <code><?= htmlspecialchars($localIp) ?></code></p>
+                            <?php endif; ?>
                         </span>
                     </label>
                     <label class="rete-mode-option">
@@ -84,7 +93,7 @@
                     Ogni installazione opensagra è già pronta a fare da server per le altre: non serve
                     nessuna configurazione aggiuntiva su questo PC. Sulle altre postazioni, apri questa
                     stessa pagina (Configurazione Rete) e scegli "Client: punta a un server in rete",
-                    indicando l'indirizzo IP di questo PC.
+                    indicando l'indirizzo IP di questo PC<?= $localIp ? " (<code>" . htmlspecialchars($localIp) . "</code>)" : '' ?>.
                 </p>
                 <p class="inline-muted">
                     Attenzione: se questo PC si spegne o esce dalla rete, tutte le casse collegate a lui
@@ -116,10 +125,11 @@
                 fetch('../api/db_status.php')
                     .then((r) => r.json())
                     .then((data) => {
+                        const shownHost = data.display_host || data.host;
                         statusDot.className = 'rete-status-dot' + (data.online ? ' is-online' : ' is-offline');
                         statusText.textContent = data.online
-                            ? `Connesso a ${data.host} (${data.latency_ms} ms)`
-                            : `Non raggiungibile: ${data.host}`;
+                            ? `Connesso a ${shownHost} (${data.latency_ms} ms)`
+                            : `Non raggiungibile: ${shownHost}`;
                     })
                     .catch(() => {
                         statusDot.className = 'rete-status-dot is-offline';
@@ -129,12 +139,27 @@
             refreshStatus();
             setInterval(refreshStatus, 15000);
 
-            btnSave.addEventListener('click', function() {
+            btnSave.addEventListener('click', async function() {
                 const mode = modeClient.checked ? 'client' : 'indipendente';
                 const host = serverHostInput.value.trim();
 
                 if (mode === 'client' && host === '') {
                     showToast('Indica l\'indirizzo del server.', 'error');
+                    return;
+                }
+
+                // Conferma sempre, anche se la modalità sembra già quella attuale:
+                // è un'operazione che cambia il database usato da tutta l'app, va
+                // fatta con intenzione, non con un click distratto.
+                const confirmMessage = mode === 'indipendente'
+                    ? 'Questo PC tornerà a usare il proprio database in locale. Se altre casse sono collegate a questo PC come server, smetteranno di funzionare finché non le ripunti altrove. Continuare?'
+                    : `Questo PC userà d'ora in poi il database del server all'indirizzo ${host}. I dati locali di questo PC (se presenti) resteranno lì ma non verranno più usati finché non torni a "Indipendente". Continuare?`;
+                const confirmed = await showConfirm(confirmMessage, {
+                    title: 'Conferma cambio rete',
+                    confirmLabel: 'Sì, applica',
+                    cancelLabel: 'Annulla'
+                });
+                if (!confirmed) {
                     return;
                 }
 

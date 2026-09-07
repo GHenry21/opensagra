@@ -48,11 +48,6 @@ $_hNavGroups = [
             'label' => 'Configura Casse',
             'icon' => 'coins',
         ],
-        [
-            'file' => 'conf_rete.php',
-            'label' => 'Configurazione Rete',
-            'icon' => 'network',
-        ],
     ],
 ];
 ?>
@@ -82,16 +77,17 @@ $_hNavGroups = [
     </nav>
     <?php endforeach; ?>
     <nav class="pos-sidebar__nav pos-sidebar__nav--gap" aria-label="Strumenti database">
+        <a href="<?= $_hPages ?>conf_rete.php"
+            class="pos-sidebar__link<?= $_hCurrentPage === 'conf_rete.php' ? ' is-active' : '' ?>"
+            <?= $_hCurrentPage === 'conf_rete.php' ? 'aria-current="page"' : '' ?>>
+            <?= pos_icon('network') ?>
+            <span>Configurazione Rete</span>
+        </a>
         <a href="http://<?= htmlspecialchars($_hDbHost) ?>/phpmyadmin" target="_blank" rel="noopener noreferrer"
             class="pos-sidebar__link">
             <?= pos_icon('database-table') ?>
             <span>Gestione Database</span>
         </a>
-        <button type="button" id="posCreateDbBtn" class="pos-sidebar__link"
-            data-url="<?= $_hRoot ?>config/crea_dbtable_and_user.php">
-            <?= pos_icon('list-ordered') ?>
-            <span>Crea DB e Tabelle</span>
-        </button>
     </nav>
     <div class="pos-sidebar__divider"></div>
     <div class="pos-sidebar__footer">
@@ -191,35 +187,6 @@ $_hNavGroups = [
                 }
             });
 
-            var createDbBtn = document.getElementById('posCreateDbBtn');
-            if (createDbBtn) {
-                createDbBtn.addEventListener('click', function() {
-                    var url = this.getAttribute('data-url');
-                    this.style.pointerEvents = 'none';
-                    this.style.opacity = '0.6';
-                    var button = this;
-                    fetch(url)
-                        .then(function(response) {
-                            if (!response.ok) {
-                                throw new Error('Errore nella richiesta: ' + response.statusText);
-                            }
-                            return response.text();
-                        })
-                        .then(function(data) {
-                            var messaggioPulito = data.replace(/<br\s*\/?>/gi, '\n');
-                            showToast('Operazione completata:\n' + messaggioPulito, 'success');
-                        })
-                        .catch(function(error) {
-                            console.error('Errore:', error);
-                            showToast('Si è verificato un errore durante la creazione del database.', 'error');
-                        })
-                        .finally(function() {
-                            button.style.pointerEvents = 'auto';
-                            button.style.opacity = '1';
-                        });
-                });
-            }
-
             var chiudiCassaBtn = document.getElementById('chiudiCassaBtn');
             if (chiudiCassaBtn) {
                 chiudiCassaBtn.addEventListener('click', function() {
@@ -295,7 +262,7 @@ $_hNavGroups = [
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     dot.className = 'pos-net-pill__dot' + (data.online ? ' is-online' : ' is-offline');
-                    text.textContent = 'Rete: ' + data.host + (data.online ? '' : ' (offline)');
+                    text.textContent = 'Rete: ' + (data.display_host || data.host) + (data.online ? '' : ' (offline)');
                 })
                 .catch(function() {
                     dot.className = 'pos-net-pill__dot is-offline';
