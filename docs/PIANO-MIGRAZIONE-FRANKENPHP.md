@@ -587,6 +587,10 @@ Da fare **solo se** cresce il numero di casse o si vuole il realtime anche sugli
 
 **Accettazione:** una modifica prodotto si riflette sulle altre casse in < 1 s senza polling; staccando l'hub, l'app continua a funzionare col polling condizionale.
 
+### Idea rimandata: avviso "il server sta per fermarsi" alle altre postazioni
+
+Emersa discutendo la pagina Configurazione Rete (2026-09-07): oggi non esiste alcun canale da un'installazione opensagra alle altre — ognuna fa solo polling verso il DB condiviso, nessuno "spinge" nulla (nessun push instantaneo possibile senza l'hub Mercure di questa fase). Un avviso reale è comunque realizzabile **senza** aspettare la Fase 4, riusando quello che già c'è: questo PC scrive un "avviso" in una riga condivisa nel DB; le altre postazioni (che già fanno polling periodico, stesso pattern di `products_version.php`) lo notano entro pochi secondi e mostrano un banner "Il server sta per fermarsi, salva il lavoro in corso". Non implementata ora su richiesta esplicita dell'utente ("non ora, rimandiamo") — da riprendere se/quando serve davvero, eventualmente insieme o al posto della Fase 4.
+
 ---
 
 ## Appendice A — Estensioni PHP: lista e abilitazione
