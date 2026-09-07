@@ -629,6 +629,23 @@ Da fare **solo se** cresce il numero di casse o si vuole il realtime anche sugli
 
 **Accettazione:** una modifica prodotto si riflette sulle altre casse in < 1 s senza polling; staccando l'hub, l'app continua a funzionare col polling condizionale.
 
+### Fondamenta poste (2026-09-08), su richiesta esplicita — non la funzionalità completa
+
+La decisione "resta opzionale/futura, non promossa" (sotto) non è stata ribaltata come giudizio di merito, ma si è deciso comunque di **preparare l'infrastruttura** in anticipo, così che se/quando si promuove Fase 4 per davvero, il pezzo difficile e già rischioso (hub, JWT, protocollo Mercure — mai toccato prima in questo progetto) è già testato con hardware/servizi reali, non solo in teoria.
+
+**Fatto e verificato:**
+- [x] Hub Mercure abilitato nel `Caddyfile` di sviluppo (direttiva `mercure` **dentro** ogni blocco di sito, non a livello globale — primo tentativo fallito con errore Caddy "must appear in a site block").
+- [x] `config/mercure.php`: `mintMercureJwt()` (firma HS256 scritta a mano, nessuna libreria JWT aggiunta a `composer.json` — serve solo firmare, non decodificare/verificare né altri algoritmi) e `publishMercureUpdate()` (pubblica un update, non fa mai fallire il chiamante se l'hub è giù).
+- [x] **Bug reale trovato testando**: la funzione nativa `mercure_publish()` di FrankenPHP (menzionata nella sua documentazione) restituisce `false` da `frankenphp php-cli` — disponibile solo dentro il processo del server web vero e proprio. Scelto invece il protocollo HTTP standard di Mercure (POST a `/.well-known/mercure`), che funziona identico da qualunque contesto.
+- [x] **Bug reale trovato testando**: l'URL di default dell'hub puntava a `127.0.0.1`, che fallisce con un TLS alert generico ("internal error") — il `Caddyfile` emette certificati solo per gli hostname esplicitamente elencati nel site address, non per l'IP di loopback. Corretto a `localhost`.
+- [x] **Bug reale trovato testando, il più importante**: senza il campo `private` nella richiesta di pubblicazione, Mercure consegna l'update a **qualsiasi** subscriber con un JWT valido, indipendentemente dal suo claim `subscribe` — lo scoping per topic (già pensato per l'isolamento per-cassa del futuro bridge di stampa, vedi 3i) **non funzionava affatto** senza questo campo. Corretto e riverificato con un vero test di isolamento: un subscriber con lo scope giusto riceve l'update, uno con lo scope sbagliato (stesso topic richiesto, JWT diverso) non riceve nulla.
+- [x] `Caddyfile` tolto dal tracking git (path assoluti locali, e ora può contenere il segreto JWT in chiaro) — tracciato solo `Caddyfile.example` senza segreti, stesso trattamento di `variabili.env`/`variabili.env.example`.
+
+**Deliberatamente NON fatto** (resta il lavoro della vera Fase 4, se/quando promossa):
+- Nessuna chiamata a `publishMercureUpdate()` dai punti di mutazione reali (`update_product.php`, checkout, ecc.).
+- Nessun `EventSource` lato client in `billing.php`.
+- `install.ps1` **non genera** il blocco `mercure`/il segreto JWT per le installazioni reali — le fondamenta vivono solo nell'ambiente di sviluppo per ora, l'installer resta a "zero domande" e senza questo pezzo in più finché Fase 4 non viene davvero promossa.
+
 ### Pro e contro (valutazione 2026-09-07, prima di decidere se promuoverla)
 
 Analisi fatta passando in rassegna il codice reale (non solo in teoria) per capire dove il realtime cambierebbe davvero qualcosa.
