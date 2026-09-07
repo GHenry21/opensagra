@@ -690,7 +690,7 @@ body.sidebar-page {
   color: var(--mc-text-soft);
 }
 
-.management-page button:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link) {
+.management-page button:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):not(.confirm-dialog-btn) {
   height: 40px;
   padding: 0 14px;
   border-radius: var(--ui-radius-sm);
@@ -732,7 +732,7 @@ body.sidebar-page {
   filter: none;
 }
 
-.management-page button:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):hover {
+.management-page button:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):not(.pos-sidebar__link):not(.confirm-dialog-btn):hover {
   background: color-mix(in srgb, var(--mc-primary) 74%, #000 26%);
   filter: none;
 }

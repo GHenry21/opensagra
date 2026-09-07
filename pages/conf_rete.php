@@ -156,7 +156,7 @@
                     : `Questo PC userà d'ora in poi il database del server all'indirizzo ${host}. I dati locali di questo PC (se presenti) resteranno lì ma non verranno più usati finché non torni a "Indipendente". Continuare?`;
                 const confirmed = await showConfirm(confirmMessage, {
                     title: 'Conferma cambio rete',
-                    confirmLabel: 'Sì, applica',
+                    confirmLabel: 'Applica',
                     cancelLabel: 'Annulla'
                 });
                 if (!confirmed) {
