@@ -607,7 +607,9 @@
 
      #modalBackdrop #modalSaveBtn {
          background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%) !important;
-         color: #fff !important;
+         /* --mc-primary-text: bianco su questo sfondo resta sotto 3:1 di
+            contrasto in entrambi i temi, vedi pos-redesign.css */
+         color: var(--mc-primary-text) !important;
      }
 
      #modalBackdrop #modalSaveBtn:hover {

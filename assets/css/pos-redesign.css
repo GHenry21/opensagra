@@ -696,7 +696,10 @@ body.sidebar-page {
   border-radius: var(--ui-radius-sm);
   border: 1px solid var(--mc-border);
   background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
-  color: #ffffff;
+  /* --mc-primary-text (non bianco): su questo sfondo il bianco resta sotto
+     3:1 di contrasto in entrambi i temi (misurato ~2.6:1 chiaro, ~2.35:1
+     scuro), il testo scuro sale a ~5.7:1 / ~7.3:1. */
+  color: var(--mc-primary-text);
   font-weight: 700;
   cursor: pointer;
   transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
