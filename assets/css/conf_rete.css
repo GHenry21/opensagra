@@ -21,6 +21,25 @@
     font-size: 16px
 }
 
+.panel-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px
+}
+
+.panel-title-bordered {
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--mc-primary)
+}
+
+.panel-title-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    color: var(--mc-primary)
+}
+
 .rete-status-row {
     margin-top: 12px;
     display: flex;
