@@ -175,6 +175,22 @@ Fermando Apache si è rotto il link `http://<host>/phpmyadmin` di `includes/side
 
 **Per la Fase 3**: se l'installer generico prevede di offrire phpMyAdmin, questa stessa ricetta (`handle_path` verso la cartella phpMyAdmin, nessuna modifica al suo config) si applica identica su qualunque installazione — vale la pena includerla come opzione dello script.
 
+### Passaggio alle porte standard 80/443 (2026-09-07) ✅
+
+Ultimo step della migrazione: con XAMPP fermo le porte 80/443 sono libere per davvero — l'app non richiede più di specificare la porta nel browser, come con XAMPP.
+
+**Conflitto trovato e risolto — `auto_https disable_redirects`.** Appena cambiate le porte, `http://192.168.88.224/` (e qualunque altro host elencato nel blocco HTTPS) ha iniziato a rispondere con un redirect automatico verso HTTPS invece di servire l'HTTP diretto — esattamente il comportamento che per le casse col bridge QZ **non vogliamo** (tutta la scelta "HTTP per il bridge" fatta in Appendice C si basa sul restare in chiaro). Causa: quando un sito HTTPS del Caddyfile elenca un nome/IP, Caddy genera **da solo** una regola di redirect per quel nome su HTTP→HTTPS — con `localhost:8443`/`8080` non si vedeva perché le due porte non si sovrapponevano mai sullo stesso nome, ma passando entrambe alle porte standard il conflitto è emerso. **Fix**: `auto_https disable_redirects` nel blocco di opzioni globali — disattiva solo il redirect automatico, non la gestione automatica dei certificati. Verificato: HTTP diretto e HTTPS tornano entrambi a funzionare indipendentemente sullo stesso host/IP.
+
+**`PmaAbsoluteUri` di phpMyAdmin aggiornato** di conseguenza (`http://localhost/phpmyadmin/`, senza più `:8080`).
+
+**Firewall — chiarito il meccanismo, non solo "funziona".** Cambiando porta, l'accesso da telefono ha continuato a funzionare **senza** ricreare la regola esplicita — non perché le porte 80/443 siano esenti dal firewall, ma perché Windows aveva già creato in automatico una regola **per programma** (`frankenphp.exe`, `Port=Any`, `Profile=Private`) la prima volta che l'eseguibile si è messo in ascolto: copre qualunque porta usi, non solo quelle di allora. La stessa identica cosa succedeva con XAMPP (`Apache HTTP Server | Port=Any | Profile=Private`, trovata nell'elenco regole) — da qui il ricordo "con XAMPP non serviva". **Il limite reale**: quella regola auto-creata è solo per rete **Privata**. Se Windows riclassifica la rete come Pubblica (rischio reale, già discusso), la regola automatica non si applica e si ripresenta lo stesso identico blocco già riprodotto e risolto in precedenza. **Per la Fase 3**: includere comunque la regola esplicita, ora sulle porte reali:
+
+```powershell
+New-NetFirewallRule -DisplayName "FrankenPHP opensagra (HTTP/HTTPS)" -Direction Inbound -Protocol TCP -LocalPort 80,443 -Action Allow -Profile Private,Public
+```
+
+Non è ridondante nonostante l'auto-regola di Windows: quella copre solo Private, questa aggiunge la resilienza su Public che serve davvero.
+
 ### 2b. Estensioni PHP ✅ FATTO (2026-09-06)
 
 Lista chiusa, ricavata dal codice app + `require` dei vendor (dettaglio e snippet in **Appendice A**):
@@ -256,6 +272,44 @@ PHP.ini usato: `php.ini-development` (mostra errori a video, comodo in questa fa
   }
   ```
   (creato con `Out-File -Encoding ascii`, non `utf8`, per evitare il BOM visto sopra)
+
+  **⚠️ Versione finale, dopo il passaggio alle porte 80/443 (2026-09-07) — vedi "Passaggio alle porte standard" più sotto per il perché di ogni riga:**
+
+  ```
+  {
+  	frankenphp
+  	auto_https disable_redirects
+  }
+
+  http://:80 {
+  	handle_path /phpmyadmin {
+  		root * C:\xampp\phpMyAdmin
+  		php_server
+  	}
+  	handle_path /phpmyadmin/* {
+  		root * C:\xampp\phpMyAdmin
+  		php_server
+  	}
+  	root * C:\xampp\htdocs\opensagra
+  	encode zstd gzip
+  	php_server
+  }
+
+  https://localhost, https://192.168.88.224, https://opensagra.local {
+  	handle_path /phpmyadmin {
+  		root * C:\xampp\phpMyAdmin
+  		php_server
+  	}
+  	handle_path /phpmyadmin/* {
+  		root * C:\xampp\phpMyAdmin
+  		php_server
+  	}
+  	root * C:\xampp\htdocs\opensagra
+  	encode zstd gzip
+  	php_server
+  	tls internal
+  }
+  ```
 
   **⚠️ Insidia #6 — CRITICA per la Fase 3, scoperta testando da telefono (2026-09-06): un sito legato a un solo hostname non risponde da altri dispositivi.** La prima versione era `http://localhost:8080` / `https://localhost:8443` — funzionava perfettamente per tutti i nostri test **perché tutti fatti dalla stessa macchina**, ma un telefono/tablet che si collega via IP di LAN (`http://192.168.88.224:8080`) riceveva **200 con corpo vuoto, nessun errore, nessun redirect** — riproducibile su ogni path (radice, API, pagine), non un caso isolato. Causa: Caddy lega un sito definito con un hostname esplicito (`localhost`) **solo** a richieste con quell'Host header esatto; qualunque altro Host non trova un sito e ottiene una risposta vuota invece di un errore parlante — il sintomo più ingannevole possibile, perché sembra "quasi funzionare".
 
