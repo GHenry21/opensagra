@@ -240,7 +240,7 @@ a:focus-visible {
 }
 
 .pos-icon-btn {
-  width: 36px;
+  width: 126px;
   height: 36px;
   display: inline-flex;
   align-items: center;
@@ -696,10 +696,7 @@ body.sidebar-page {
   border-radius: var(--ui-radius-sm);
   border: 1px solid var(--mc-border);
   background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
-  /* --mc-primary-text (non bianco): su questo sfondo il bianco resta sotto
-     3:1 di contrasto in entrambi i temi (misurato ~2.6:1 chiaro, ~2.35:1
-     scuro), il testo scuro sale a ~5.7:1 / ~7.3:1. */
-  color: var(--mc-primary-text);
+  color: #ffffff;
   font-weight: 700;
   cursor: pointer;
   transition: filter 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
@@ -1079,10 +1076,11 @@ body.sidebar-page {
 
 .confirm-dialog-btn--primary {
   background: var(--mc-primary);
-  color: var(--mc-primary-text);
+  color: #ffffff;
 }
 
 .confirm-dialog-btn--primary:hover {
+  background: color-mix(in srgb, var(--mc-primary) 74%, #000 26%);
   filter: brightness(1.08);
 }
 

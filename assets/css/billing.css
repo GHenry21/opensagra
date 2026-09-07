@@ -1527,9 +1527,7 @@ body.dark-mode .pay-pill__icon--satispay {
   height: 40px;
   width: 100%;
   background: color-mix(in srgb, var(--mc-primary) 88%, #000 12%);
-  /* --mc-primary-text: bianco su questo sfondo resta sotto 3:1 di
-     contrasto in entrambi i temi, vedi pos-redesign.css */
-  color: var(--mc-primary-text);
+  color: #ffffff;
 }
 
 .danger-btn {
