@@ -21,7 +21,17 @@
  * codice 0 anche in caso di errore — inutilizzabile per l'automazione).
  */
 
-require_once __DIR__ . '/get_db_connection.php';
+// Nota: NON si include get_db_connection.php, perche' apre subito una
+// connessione come utente applicativo (pos_own) - su un'istanza vergine
+// quell'utente non esiste ancora, essendo proprio questo script a doverlo
+// creare. Si legge solo variabili.env, senza connettersi.
+require_once __DIR__ . '/env_reader.php';
+
+$envVars = loadPosEnvVars();
+$servername = $envVars['host'];
+$username   = $envVars['user'];
+$password   = $envVars['pass'];
+$database   = $envVars['db'];
 
 $isCli = (PHP_SAPI === 'cli');
 
@@ -43,7 +53,7 @@ function fail(string $msg): void
 }
 
 // --- Parsing argomenti CLI (nessun effetto se lanciato da browser) ---
-$rootHost = $servername; // da get_db_connection.php: stesso host dell'app
+$rootHost = $servername; // da variabili.env: stesso host dell'app
 $rootUser = 'root';
 $rootPass = '';
 
@@ -75,7 +85,7 @@ HELP;
     }
 }
 
-// Riassegna/utilizza i valori caricati da get_db_connection.php per l'utente applicativo
+// Riassegna/utilizza i valori caricati da variabili.env per l'utente applicativo
 $db_host        = $servername;
 $nuovo_utente   = $username;
 $nuova_password = $password;

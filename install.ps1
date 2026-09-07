@@ -218,6 +218,28 @@ function Disable-LegacyXamppServices {
     Add-InstallChecklistItem 'Servizi XAMPP legacy verificati/disattivati'
 }
 
+function Install-VCRedist {
+    # Scoperto testando su una VM davvero pulita (2026-09-07, mai emerso
+    # prima perche' ogni macchina usata finora aveva gia' Visual Studio/altri
+    # software che lo installano come effetto collaterale): le DLL delle
+    # estensioni PHP (mysqli.dll, mbstring.dll, ecc.) dipendono dal Visual
+    # C++ Redistributable. Senza, frankenphp.exe non fallisce con un errore
+    # PHP leggibile - il processo intero non parte, exit code -1073741515
+    # (0xC0000135, STATUS_DLL_NOT_FOUND di Windows), nessun output.
+    if (Test-Path 'C:\Windows\System32\vcruntime140.dll') {
+        Add-InstallChecklistItem 'Visual C++ Redistributable gia'' presente'
+        return
+    }
+    $installerPath = "$env:TEMP\vc_redist.x64.exe"
+    Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile $installerPath
+    Start-Process -FilePath $installerPath -ArgumentList '/install', '/quiet', '/norestart' -Wait
+    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path 'C:\Windows\System32\vcruntime140.dll')) {
+        throw 'Installazione del Visual C++ Redistributable non riuscita.'
+    }
+    Add-InstallChecklistItem 'Visual C++ Redistributable installato'
+}
+
 function Install-FrankenPHP {
     if (Test-Path "$Script:FrankenDir\frankenphp.exe") {
         Add-InstallChecklistItem 'FrankenPHP gia'' presente'
@@ -240,8 +262,14 @@ function Set-PhpExtensions {
     New-Item -ItemType Directory -Force -Path $Script:UploadTmpDir | Out-Null
     icacls $Script:UploadTmpDir /grant '*S-1-5-11:(OI)(CI)M' /grant '*S-1-5-18:(OI)(CI)F' | Out-Null
 
+    # Bug reale trovato testando su VM pulita (2026-09-07): FrankenPHP crea
+    # gia' da solo un php.ini con voci COMMENTATE (";extension=mysqli") come
+    # suggerimento - un controllo ingenuo su una sottostringa le conta come
+    # "gia' presenti" e salta l'aggiunta vera, lasciando tutte le estensioni
+    # disattivate. Il controllo deve escludere esplicitamente le righe
+    # commentate (regex multilinea ancorata all'inizio riga).
     $iniContent = Get-Content $iniPath -Raw
-    if ($iniContent -notmatch 'extension=mysqli') {
+    if ($iniContent -notmatch '(?m)^\s*extension\s*=\s*mysqli\s*$') {
         Add-Content $iniPath @"
 
 extension_dir = "ext"
@@ -472,6 +500,9 @@ try {
 
     Set-InstallProgress -Percent 5 -Status 'Installazione di FrankenPHP...'
     Install-FrankenPHP
+
+    Set-InstallProgress -Percent 10 -Status 'Installazione dei componenti runtime...'
+    Install-VCRedist
 
     Set-InstallProgress -Percent 15 -Status 'Configurazione delle estensioni PHP...'
     Set-PhpExtensions
