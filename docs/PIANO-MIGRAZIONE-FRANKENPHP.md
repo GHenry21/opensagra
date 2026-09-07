@@ -844,11 +844,41 @@ Nata da una domanda legittima durante la Fase 2e: se l'installazione richiede pa
 
 Su ogni OS, **Firefox tiene un proprio store di certificati separato e per-utente** — mai toccato dall'elevazione a livello di sistema, va sempre gestito a parte (stessa procedura di import manuale vista in Fase 2d, Insidia #5). È l'unico passo dell'intera installazione che, per sua natura, **non può essere automatizzato una volta per tutte**: va ripetuto per ogni profilo Firefox su ogni postazione che lo userà.
 
-## Riepilogo checklist di alto livello
+## Appendice F — Verifica finale su produzione (2026-09-07): porte 80/443 + MariaDB nativa
+
+Dopo il cutover (XAMPP fermo, MariaDB nativa come servizio, Caddy su 80/443) e lo switch di porta, ripetuta tutta la suite di test con Playwright sulla configurazione reale finale, registrando vendite vere e stampando davvero dove serviva (autorizzato).
+
+Script: `e2e/fase_final_verification.manual.js` (smoke test completo) + `e2e/fase_final_remaining.manual.js` (rilancio mirato dei due casi che richiedevano un fix).
+
+### Risultati
+
+- ✅ Carrello, filtro categorie, `sign-message.php`, `statistiche_vendite.php`, `statistiche_storni.php`, `conf_casse.php`, `get_receipt_config.php`, `open_drawer.php`, `chiudi_cassa.php` — tutti OK su HTTP, nessun errore console.
+- ✅ Stampa diretta (cassa di rete, no QZ) su HTTPS.
+- ✅ Stampa bridge QZ (cassa con stampante condivisa) su HTTP, sui 3 motori (Chromium, Firefox, WebKit) — conferma finale che la scelta architetturale "HTTP per le casse bridge_qz" elimina davvero il mixed content su tutti i browser, non solo su Chromium.
+- ❌→✅ **Download PDF statistiche**: falliva ("Nessun contenuto ricevuto") nel flusso di download reale via Playwright. Bug vero trovato e corretto, vedi sotto.
+
+### Bug reale trovato: PDF statistiche vuoto/rotto (non un limite di curl/Playwright)
+
+**Sintomo**: cliccando "Scarica PDF" in `stat_vendite.php`, il file scaricato era il testo `Nessun contenuto ricevuto` (25 byte) invece del PDF.
+
+**Causa**: `print/print_stat_pdf.php` faceva `echo "OK";` **dopo** `$dompdf->stream(...)`. `stream()` invia già una risposta HTTP completa (header `Content-Length` calcolato sui soli byte del PDF, poi il corpo). Il testo extra veniva accodato al corpo, quindi i byte effettivi superavano `Content-Length` dichiarato. I client rigorosi trattano questo come risposta malformata:
+- `fetch()` del browser: `net::ERR_CONTENT_LENGTH_MISMATCH`, la promise va in reject.
+- `curl`: `transfer closed with N bytes remaining to read` — **questo è lo stesso fenomeno già osservato ed erroneamente attribuito, durante il debug della Fase 2d, a un limite di curl con risposte `Content-Disposition: attachment`.** Non era un limite di curl: era questo bug, e curl lo segnalava correttamente.
+
+Diagnosticato mettendo un log lato server (`var_export($_POST, ...)` su file) dentro `print_stat_pdf.php` e osservando, durante il click reale via Playwright, **due richieste POST**: la prima con `$_POST['htmlContent']` popolato (quella genera il PDF vero e invia la risposta tagliata), la seconda con `$_POST` vuoto — quest'ultima è il risultato del download-manager di Chrome che, di fronte a una risposta POST con `Content-Disposition: attachment` percepita come incompleta/malformata, ripete la richiesta per "materializzare" il salvataggio; la ripetizione non porta con sé il body originale.
+
+**Fix applicato (commit `f80764a`)**:
+1. Rimossa la `echo "OK";` superflua in `print_stat_pdf.php` — `stream()` chiude già la risposta.
+2. `exportPdf()` in `stat_vendite.php` migrato da form-submit nativo (POST + navigazione del browser, con `<form id="pdfForm">` e hidden input ora inutili e rimossi) a `fetch()` + `blob()` + `<a download>` sintetico: la richiesta è unica, gestita interamente lato client, e non dipende più dal comportamento (a volte fragile, e ora comunque corretto a monte) del download-manager del browser su risposte POST.
+
+**Lezione**: un bug del genere può restare invisibile per anni con XAMPP/Apache se il client di test (o l'utente) non nota mai la discrepanza di pochi byte — betrayed solo testando il *download reale* end-to-end (Playwright con `waitForEvent('download')` + lettura dei byte scaricati), non con richieste HTTP dirette che ignorano l'esatta corrispondenza di `Content-Length`. Motivo in più per preferire questo tipo di test rispetto a un semplice controllo "risponde 200".
+
+
 
 - [x] **Fase 0** ✅ — migrazione DDL + `stock.updated_at` + indice; rimosse le query DDL da `get_products.php`; `pos.sql` aggiornato. Commit `ca260d0`.
 - [x] **Fase 1** ✅ — `api/products_version.php`; loop condizionale in `billing.php` con guardia in-flight, pausa a tab nascosto, backoff, merge array, init categorie una-tantum. **Verificato end-to-end in Chromium reale**: cadenza 6s a riposo, filtro categoria non sovrascritto, pausa a tab nascosta, ripresa immediata al ritorno, nessun errore console.
 - [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP e HTTPS via servizio entrambi verificati — HTTPS richiedeva l'import della CA di LocalSystem nello store Macchina locale, vedi 2e).
+- [x] **Cutover + verifica finale** ✅ (2026-09-07) — XAMPP fermo, MariaDB nativa in produzione, porte standard 80/443, phpMyAdmin servito da Caddy. Suite Playwright completa ripetuta sulla configurazione reale (vendite e stampe reali): smoke test, stampa diretta HTTPS, stampa bridge QZ HTTP sui 3 motori, export PDF — tutto ✅. Trovato e corretto un bug reale preesistente (non introdotto dalla migrazione): PDF statistiche vuoto per un `echo` di troppo dopo `dompdf->stream()`, vedi Appendice F.
 - [ ] **Fase 3** — script d'installazione per-OS che **copia i file** (niente binario). Wizard a scope ridotto: genera `variabili.env` (architettura indipendente/centralizzata + IP server) e fa il provisioning DB riusando/adattando `config/crea_dbtable_and_user.php`; + QZ sì/no e HTTPS CA locale/dominio. Install: FrankenPHP + MariaDB, estensioni + gate, migrazioni, `Caddyfile`, servizi, HTTPS/CA, QZ (procedura esistente), rimozione `docker/`, `variabili.env` fuori da git, README.
 - [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
