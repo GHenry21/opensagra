@@ -165,16 +165,19 @@
                     <!-- BRIDGE NATIVO: i byte ESC/POS vengono pubblicati su Mercure e il
                          processo opensagra-print-bridge sul PC-ponte li stampa. Modello
                          "a una riga": qui si configura direttamente la stampante del ponte
-                         (tipo + nome/IP) e l'ID-topic; la discovery interroga il ponte via
+                         (tipo + nome/IP) e l'ID del ponte (topic Mercure); la discovery interroga il ponte via
                          proxy server-to-server (niente QZ Tray, niente IP a runtime). -->
                     <template v-if="modalData.tipo_stampante === 'BRIDGE_NATIVE'">
                         <div class="modal-field">
-                            <label for="modalBridgeTopic">ID ponte (topic) *</label>
+                            <label for="modalBridgeTopic">ID del ponte</label>
                             <input type="text" id="modalBridgeTopic" v-model.trim="modalData.bridge_topic"
                                 :placeholder="modalData.cassa_id || 'es. bridge_cucina'">
                             <p class="modal-field-hint">
-                                Deve combaciare con <code>PRINT_BRIDGE_CASSE</code> / <code>--cassa=</code>
-                                sul PC-ponte. Vuoto = usa l'ID cassa.
+                                Collega questa cassa al processo di stampa in esecuzione sul PC-ponte
+                                (lo stesso valore indicato all'avvio del bridge).
+                                Lascialo vuoto per usare l'ID di questa cassa: va bene quasi sempre.
+                                Metti lo stesso ID su più casse solo se devono stampare tutte
+                                sulla stessa stampante del ponte.
                             </p>
                         </div>
                         <div class="modal-field">
@@ -870,7 +873,7 @@
                     }
 
                     if (tipoStampante === 'BRIDGE_NATIVE' && !(this.modalData.bridge_topic || '').trim() && !cassaId) {
-                        this.mostraMessaggio("Indica l'ID ponte (topic) oppure l'ID cassa.", 'error');
+                        this.mostraMessaggio("Indica l'ID del ponte oppure l'ID cassa.", 'error');
                         return;
                     }
 
