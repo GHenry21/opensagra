@@ -157,8 +157,7 @@
                         <label for="modalTipoStampante">Tipo Stampante *</label>
                         <select id="modalTipoStampante" v-model="modalData.tipo_stampante"
                             @change="onTipoStampanteChange">
-                            <option value="WIN_USB">WINDOWS USB</option>
-                            <option value="LINUX_USB">LINUX USB</option>
+                            <option value="USB">USB / STAMPANTE LOCALE</option>
                             <option value="RETE">RETE</option>
                             <option value="BRIDGE_NATIVE">BRIDGE NATIVO</option>
                             <option value="BLUETOOTH">BLUETOOTH</option>
@@ -185,7 +184,7 @@
                             <option v-for="c in bridgeNativeTargets" :key="c" :value="c">{{ c }}</option>
                         </select>
                         <p class="modal-field-hint" v-if="bridgeNativeTargets.length === 0">
-                            Nessuna cassa con stampante diretta (WINDOWS USB / LINUX USB / RETE) configurata:
+                            Nessuna cassa con stampante diretta (USB / RETE) configurata:
                             configurane prima una, poi punta qui questa cassa.
                         </p>
                     </div>
@@ -201,35 +200,22 @@
                             {{ loadingQzPrinters ? 'Ricerca in corso...' : 'Ricerca Stampanti' }}
                         </button>
 
-                        <!-- Mostra il select per le stampanti WIN_USB -->
+                        <!-- USB / stampante locale: un solo select, la discovery e l'hint
+                             seguono l'OS dell'host (serverIsWindows). Copre anche le righe
+                             legacy WIN_USB / LINUX_USB quando si modifica una cassa vecchia. -->
                         <div id="modalNomeIndirizzoWrap">
-                            <div v-if="modalData.tipo_stampante === 'WIN_USB'" class="win-printer-wrap">
-                                <select id="modalNomeIndirizzoSelect" :class="{ 'is-placeholder': !winSelectValue }"
-                                    v-model="winSelectValue" @change="onWinPrinterSelectChange">
-                                    <!-- placeholder per selezione stampanti Windows -->
+                            <div v-if="isUsbFamilyType" class="win-printer-wrap">
+                                <select id="modalNomeIndirizzoSelect" :class="{ 'is-placeholder': !usbSelectValue }"
+                                    v-model="usbSelectValue" @change="onUsbPrinterSelectChange">
                                     <option value="" disabled selected hidden>Seleziona la stampante dall'elenco
                                     </option>
                                     <option value="__manual__">Manuale...</option>
-                                    <option v-for="printer in winPrinters" :key="printer" :value="printer">{{ printer }}
+                                    <option v-for="printer in usbPrinters" :key="printer" :value="printer">{{ printer }}
                                     </option>
                                 </select>
-                                <input type="text" id="modalNomeIndirizzoManual" ref="manualInput"
-                                    v-model="modalData.nome_indirizzo" v-show="winSelectValue === '__manual__'"
-                                    placeholder="Inserisci nome stampante Windows">
-                            </div>
-                            <!-- Mostra il select per le stampanti Linux solo se il tipo è LINUX_USB -->
-                            <div v-else-if="modalData.tipo_stampante === 'LINUX_USB'" class="win-printer-wrap">
-                                <select id="modalNomeIndirizzoSelect" :class="{ 'is-placeholder': !linuxSelectValue }"
-                                    v-model="linuxSelectValue" @change="onLinuxPrinterSelectChange">
-                                    <option value="" disabled selected hidden>Seleziona la stampante dall'elenco
-                                    </option>
-                                    <option value="__manual__">Manuale...</option>
-                                    <option v-for="printer in linuxPrinters" :key="printer" :value="printer">{{ printer
-                                        }}</option>
-                                </select>
-                                <input type="text" id="modalNomeIndirizzoManual" ref="linuxManualInput"
-                                    v-model="modalData.nome_indirizzo" v-show="linuxSelectValue === '__manual__'"
-                                    placeholder="Inserisci nome stampante Linux o device path">
+                                <input type="text" id="modalNomeIndirizzoManual" ref="usbManualInput"
+                                    v-model="modalData.nome_indirizzo" v-show="usbSelectValue === '__manual__'"
+                                    :placeholder="serverIsWindows ? 'Inserisci nome stampante Windows' : 'Inserisci nome stampante Linux o device path'">
                             </div>
                             <!-- Mostra il select per le stampanti Bridge solo se il tipo è BRIDGE -->
                             <div v-else-if="modalData.tipo_stampante === 'BRIDGE'" class="win-printer-wrap">
@@ -304,6 +290,9 @@
 
     <script src="../assets/js/qz-helper.js"></script>
     <script>
+        // OS dell'host che serve questa pagina (== host che stampa nel modello wrapper).
+        // Serve al modal per decidere quale discovery USB lanciare e che hint mostrare.
+        window.__OPENSAGRA_SERVER_OS__ = <?= json_encode(PHP_OS_FAMILY) ?>;
 
         let qzScriptLoadPromise = null;
         let qzConnectionTarget = null;
@@ -451,7 +440,9 @@
                     linuxPrinters: [],
                     bridgePrinters: [],
                     bluetoothPrinters: [],
-                    linuxSelectValue: '',
+                    // OS dell'host che stampa: decide discovery e hint del tipo USB unificato.
+                    serverOs: String(window.__OPENSAGRA_SERVER_OS__ || 'Windows'),
+                    usbSelectValue: '',
                     bridgeSelectValue: '',
                     highlightBridgeSelect: false,
                     loadingQzPrinters: false,
@@ -461,8 +452,7 @@
                     modalOpen: false,
                     isCreatingRecord: false,
                     currentEditIndex: null,
-                    modalData: { cassa_id: '', tipo_stampante: 'WIN_USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
-                    winSelectValue: '__manual__',
+                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
                     _windowsPrintersPromise: null,
                     _linuxPrintersPromise: null,
                     expandedRows: {}
@@ -489,6 +479,17 @@
 
                     return stampanti.sort((a, b) => this.compareValues(a.record[this.sortKey], b.record[this.sortKey]) * (this.sortDirection === 'asc' ? 1 : -1));
                 },
+                serverIsWindows() {
+                    return String(this.serverOs || '').toLowerCase() === 'windows';
+                },
+                // Tipo USB unificato + alias legacy: stesso trattamento lato UI.
+                isUsbFamilyType() {
+                    return ['USB', 'WIN_USB', 'LINUX_USB'].includes(this.modalData.tipo_stampante);
+                },
+                // Elenco per il select USB: segue l'OS dell'host che stampa.
+                usbPrinters() {
+                    return this.serverIsWindows ? this.winPrinters : this.linuxPrinters;
+                },
                 nomeIndirizzoPlaceholder() {
                     const tipo = this.modalData.tipo_stampante;
                     if (tipo === 'BRIDGE') {
@@ -504,11 +505,8 @@
                     if (this.modalData.tipo_stampante === 'BLUETOOTH') {
                         return '-';
                     }
-                    if (this.modalData.tipo_stampante === 'WIN_USB' && this.winSelectValue !== '__manual__') {
-                        return (this.winSelectValue || '').trim();
-                    }
-                    if (this.modalData.tipo_stampante === 'LINUX_USB' && this.linuxSelectValue && this.linuxSelectValue !== '__manual__') {
-                        return (this.linuxSelectValue || '').trim();
+                    if (this.isUsbFamilyType && this.usbSelectValue && this.usbSelectValue !== '__manual__') {
+                        return (this.usbSelectValue || '').trim();
                     }
                     if (this.modalData.tipo_stampante === 'BRIDGE' && this.bridgeSelectValue && this.bridgeSelectValue !== '__manual__') {
                         return (this.bridgeSelectValue || '').trim();
@@ -517,8 +515,9 @@
                 },
                 // Casse eleggibili come "cassa-ponte" per BRIDGE_NATIVE: quelle con una
                 // stampante diretta (il processo bridge sul loro PC sa stamparci sopra).
+                // USB = tipo unificato; WIN_USB / LINUX_USB restano validi come legacy.
                 bridgeNativeTargets() {
-                    const direct = ['WIN_USB', 'LINUX_USB', 'RETE'];
+                    const direct = ['USB', 'WIN_USB', 'LINUX_USB', 'RETE'];
                     return this.stampantiData
                         .filter((r) => direct.includes(r.tipo_stampante) && r.cassa_id !== this.modalData.cassa_id)
                         .map((r) => r.cassa_id);
@@ -639,8 +638,9 @@
 
                 formatTipoStampante(tipo) {
                     const mappaTipi = {
-                        'WIN_USB': 'WINDOWS USB',
-                        'LINUX_USB': 'LINUX USB',
+                        'USB': 'USB / LOCALE',
+                        'WIN_USB': 'USB (Windows)',
+                        'LINUX_USB': 'USB (Linux)',
                         'RETE': 'RETE',
                         'BRIDGE_NATIVE': 'BRIDGE NATIVO',
                         'BRIDGE': 'BRIDGE (QZ)',
@@ -698,19 +698,17 @@
                     return this._linuxPrintersPromise;
                 },
                 async caricaStampantiPerTipo(tipoStampante) {
-                    if (tipoStampante === 'WIN_USB') {
-                        await this.caricaStampantiWindows();
-                        this.winSelectValue = this.winPrinters.includes(this.modalData.nome_indirizzo)
+                    // USB unificato (+ alias legacy WIN_USB / LINUX_USB): la discovery
+                    // segue l'OS dell'host che serve la pagina, non il valore salvato.
+                    if (['USB', 'WIN_USB', 'LINUX_USB'].includes(tipoStampante)) {
+                        if (this.serverIsWindows) {
+                            await this.caricaStampantiWindows();
+                        } else {
+                            await this.caricaStampantiLinux();
+                        }
+                        this.usbSelectValue = this.usbPrinters.includes(this.modalData.nome_indirizzo)
                             ? this.modalData.nome_indirizzo
-                            : '';
-                        return;
-                    }
-
-                    if (tipoStampante === 'LINUX_USB') {
-                        await this.caricaStampantiLinux();
-                        this.linuxSelectValue = this.linuxPrinters.includes(this.modalData.nome_indirizzo)
-                            ? this.modalData.nome_indirizzo
-                            : '';
+                            : (this.modalData.nome_indirizzo ? '__manual__' : '');
                     }
                 },
 
@@ -795,12 +793,12 @@
                         this.modalData.nome_indirizzo = '';
                     }
                 },
-                onLinuxPrinterSelectChange() {
-                    if (this.linuxSelectValue && this.linuxSelectValue !== '__manual__') {
-                        this.modalData.nome_indirizzo = this.linuxSelectValue;
-                    } else if (this.linuxSelectValue === '__manual__') {
+                onUsbPrinterSelectChange() {
+                    if (this.usbSelectValue && this.usbSelectValue !== '__manual__') {
+                        this.modalData.nome_indirizzo = this.usbSelectValue;
+                    } else if (this.usbSelectValue === '__manual__') {
                         this.$nextTick(() => {
-                            this.$refs.linuxManualInput && this.$refs.linuxManualInput.focus();
+                            this.$refs.usbManualInput && this.$refs.usbManualInput.focus();
                         });
                     } else {
                         this.modalData.nome_indirizzo = '';
@@ -938,27 +936,24 @@
                             : '';
                     }
                 },
-                onWinPrinterSelectChange() {
-                    if (this.winSelectValue !== '__manual__') {
-                        this.modalData.nome_indirizzo = this.winSelectValue;
-                    } else {
-                        this.$nextTick(() => {
-                            this.$refs.manualInput && this.$refs.manualInput.focus();
-                        });
-                    }
-                },
                 openModal(index) {
                     this.isCreatingRecord = index === null;
                     this.currentEditIndex = index;
 
                     this.modalData = this.isCreatingRecord
-                        ? { cassa_id: '', tipo_stampante: 'WIN_USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
+                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
                         : {
                             ...this.stampantiData[index],
                             abilita_contanti: Number(this.stampantiData[index].abilita_contanti) === 1,
                             abilita_carta: Number(this.stampantiData[index].abilita_carta) === 1,
                             abilita_satispay: Number(this.stampantiData[index].abilita_satispay) === 1
                         };
+
+                    // Migrazione pigra: le righe legacy WIN_USB / LINUX_USB si presentano
+                    // come 'USB' nel modal. Il DB cambia solo se l'utente salva.
+                    if (['WIN_USB', 'LINUX_USB'].includes(this.modalData.tipo_stampante)) {
+                        this.modalData.tipo_stampante = 'USB';
+                    }
 
                     this.modalOpen = true;
 
@@ -972,7 +967,8 @@
                     if (this.modalData.tipo_stampante === 'BRIDGE' && this.modalData.qz_host) {
                         this.fetchQzPrinters();
                     }
-                    // Per Linux avvia discovery solo quando il tipo selezionato è LINUX_USB.
+                    // La discovery USB (Windows o Linux) parte da caricaStampantiPerTipo,
+                    // che sceglie in base a serverIsWindows.
                 },
 
                 closeModal() {

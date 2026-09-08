@@ -57,7 +57,7 @@ function normalizeWindowsUsbTarget($target) {
 
 try {
     $payload = getInputPayload();
-    $tipo = trim((string) ($payload['tipo_stampante'] ?? 'WIN_USB'));
+    $tipo = trim((string) ($payload['tipo_stampante'] ?? 'USB'));
     $target = trim((string) ($payload['nome_indirizzo'] ?? $payload['printer'] ?? ''));
     $cassaId = trim((string) ($payload['cassa_id'] ?? ''));
 
@@ -69,18 +69,23 @@ try {
     $debug[] = 'Tipo: ' . $tipo;
     $debug[] = 'Target: ' . $target;
 
-    if ($tipo === 'LINUX_USB') {
+    // Tipo unificato 'USB': il connector dipende dall'OS di questo host (dove gira
+    // il wrapper). 'LINUX_USB' / 'WIN_USB' restano come override espliciti legacy.
+    $useLinux = ($tipo === 'LINUX_USB')
+        || ($tipo === 'USB' && PHP_OS_FAMILY !== 'Windows');
+
+    if ($useLinux) {
         if (str_starts_with($target, '/')) {
             $connector = new FilePrintConnector($target);
-            $debug[] = 'Using FilePrintConnector (LINUX_USB device path)';
+            $debug[] = 'Using FilePrintConnector (device path Linux)';
         } else {
             $connector = new CupsPrintConnector($target);
-            $debug[] = 'Using CupsPrintConnector (LINUX_USB CUPS queue)';
+            $debug[] = 'Using CupsPrintConnector (coda CUPS Linux)';
         }
     } else {
         $normalizedTarget = normalizeWindowsUsbTarget($target);
         $connector = new WindowsPrintConnector($normalizedTarget);
-        $debug[] = 'Using WindowsPrintConnector (WIN_USB)';
+        $debug[] = 'Using WindowsPrintConnector (Windows)';
         $debug[] = 'Normalized target: ' . $normalizedTarget;
     }
 

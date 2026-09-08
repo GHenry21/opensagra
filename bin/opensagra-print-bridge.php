@@ -6,7 +6,7 @@
  * Gira sul PC a cui e' collegata (USB / rete / ...) la stampante di una cassa.
  * Si iscrive al topic Mercure `print/cassa/{id}` sull'hub del server e, alla
  * ricezione, scrive i byte ESC/POS gia' pronti direttamente sulla stampante
- * locale (stesso codice escpos-php di WIN_USB oggi). Il browser non partecipa
+ * locale (stesso codice escpos-php del tipo USB diretto). Il browser non partecipa
  * piu' allo step di stampa: niente WebSocket, niente mixed-content, niente
  * popup/certificati di override.
  *

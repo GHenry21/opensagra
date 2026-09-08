@@ -13,6 +13,26 @@ function isLinuxDevicePath($target)
     return str_starts_with((string) $target, '/');
 }
 
+/**
+ * USB / stampante locale in modello wrapper: il tipo salvato e' 'USB' (OS-agnostico).
+ * L'host che stampa davvero (dove gira il wrapper / opensagra-print-bridge) sa se e'
+ * Windows o Linux: qui si risolve al volo il connector giusto, cosi' la stessa riga di
+ * config e' portabile fra i due sistemi. I vecchi tipi WIN_USB / LINUX_USB restano
+ * gestiti a parte come alias legacy che forzano il connector storico.
+ */
+function usbConnectorForTarget($nomeStamp)
+{
+    if (PHP_OS_FAMILY === 'Windows') {
+        return new WindowsPrintConnector(normalizeWindowsUsbTarget($nomeStamp));
+    }
+
+    // Linux / macOS: un path assoluto (es. /dev/usb/lp0) e' scrittura raw, tutto il
+    // resto e' una coda CUPS (nome da 'lpstat -p').
+    return isLinuxDevicePath($nomeStamp)
+        ? new FilePrintConnector($nomeStamp)
+        : new CupsPrintConnector($nomeStamp);
+}
+
 function normalizeWindowsUsbTarget($target)
 {
     $target = trim((string) $target);
@@ -97,7 +117,12 @@ function getPrinterConnector($connectionDB, $cassa_id)
             $portaStamp = (int) ($printerSettings['porta'] ?: 9100);
             return new NetworkPrintConnector($indirizzoIPStamp, $portaStamp); // Network
 
+        case 'USB':
+            // Tipo unificato: il connector dipende dall'OS dell'host che stampa.
+            return usbConnectorForTarget($printerSettings['nome_indirizzo']);
+
         case 'LINUX_USB':
+            // Legacy (righe pre-fusione): forza il connector Linux storico.
             $nomeStamp = $printerSettings['nome_indirizzo'];
             // Device path (es. /dev/usb/lp0): scrittura diretta. Altrimenti e' una coda CUPS (es. da 'lpstat -p').
             return isLinuxDevicePath($nomeStamp)
@@ -105,6 +130,7 @@ function getPrinterConnector($connectionDB, $cassa_id)
                 : new CupsPrintConnector($nomeStamp);
 
         case 'WIN_USB':
+            // Legacy (righe pre-fusione): forza WindowsPrintConnector storico.
             $nomeStamp = $printerSettings['nome_indirizzo'];
             return new WindowsPrintConnector(normalizeWindowsUsbTarget($nomeStamp)); // Windows USB
 
