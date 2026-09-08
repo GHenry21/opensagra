@@ -15,8 +15,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
 // Include la connessione al database
 require_once __DIR__ . '/../config/get_db_connection.php';
 
+function ensureBridgeHostColumn($connectionDB) {
+    // qz_host -> bridge_host: da Fase 4 (QZ Tray rimosso) il campo e' l'IP del
+    // PC-ponte usato solo dalla discovery BRIDGE_NATIVE, niente piu' a che fare
+    // con QZ. Rinomina idempotente; la migrazione 002 fa lo stesso una tantum.
+    $hasOld = $connectionDB->query("SHOW COLUMNS FROM casse_stampanti LIKE 'qz_host'");
+    $hasNew = $connectionDB->query("SHOW COLUMNS FROM casse_stampanti LIKE 'bridge_host'");
+    if ($hasOld && $hasOld->num_rows > 0 && $hasNew && $hasNew->num_rows === 0) {
+        $connectionDB->query("ALTER TABLE casse_stampanti CHANGE COLUMN qz_host bridge_host VARCHAR(255) NULL");
+    } else {
+        $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_host VARCHAR(255) NULL AFTER porta");
+    }
+}
+
 function ensurePaymentMethodColumns($connectionDB) {
-    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_contanti TINYINT(1) NOT NULL DEFAULT 1 AFTER qz_host");
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_contanti TINYINT(1) NOT NULL DEFAULT 1 AFTER porta");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_carta TINYINT(1) NOT NULL DEFAULT 0 AFTER abilita_contanti");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_satispay TINYINT(1) NOT NULL DEFAULT 0 AFTER abilita_carta");
 }
@@ -29,7 +42,7 @@ function ensureFondoCassaColumn($connectionDB) {
 function ensureBridgeNativeColumns($connectionDB) {
     // Modello BRIDGE_NATIVE "a una riga": tipo stampante fisica del ponte +
     // id-topic Mercure. Vuoti = vecchio modello "a due righe".
-    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER qz_host");
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER bridge_host");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_topic VARCHAR(50) NULL AFTER bridge_printer_type");
 }
 
@@ -48,6 +61,7 @@ function normalizePaymentFlag($value, $default) {
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
+    ensureBridgeHostColumn($connectionDB);
     ensurePaymentMethodColumns($connectionDB);
     ensureFondoCassaColumn($connectionDB);
     ensureBridgeNativeColumns($connectionDB);
@@ -88,7 +102,7 @@ try {
 
             case 'list':
             default:
-                $result = $connectionDB->query("SELECT cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa, ultima_chiusura FROM casse_stampanti ORDER BY cassa_id ASC");
+                $result = $connectionDB->query("SELECT cassa_id, tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa, ultima_chiusura FROM casse_stampanti ORDER BY cassa_id ASC");
                 $stampanti = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
                 echo json_encode($stampanti);
                 break;
@@ -115,7 +129,7 @@ try {
             $tipo_stampante = trim($input['tipo_stampante'] ?? '');
             $nome_indirizzo = trim($input['nome_indirizzo'] ?? '');
             $porta          = isset($input['porta']) ? (int)$input['porta'] : 0;
-            $qz_host        = trim($input['qz_host'] ?? '');
+            $bridge_host    = trim($input['bridge_host'] ?? '');
             // Modello BRIDGE_NATIVE "a una riga": stampante fisica del ponte +
             // id-topic Mercure. Solo per BRIDGE_NATIVE, altrimenti azzerati.
             $bridge_printer_type = trim($input['bridge_printer_type'] ?? '');
@@ -170,8 +184,8 @@ try {
                     exit;
                 }
 
-                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssisssiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
+                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("sssisssiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Stampante aggiunta con successo.']);
@@ -182,8 +196,8 @@ try {
                 break;
 
             case 'update':
-                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, qz_host = ?, bridge_printer_type = ?, bridge_topic = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
-                $stmt->bind_param("sssisssiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
+                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, bridge_host = ?, bridge_printer_type = ?, bridge_topic = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
+                $stmt->bind_param("sssisssiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Configurazione aggiornata con successo.']);

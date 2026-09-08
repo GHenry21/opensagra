@@ -65,9 +65,9 @@
                                                     @click="toggleSort('nome_indirizzo')">Nome/IP <span
                                                         aria-hidden="true"
                                                         v-html="sortIcon('nome_indirizzo')"></span></button></th>
-                                            <th :aria-sort="sortAria('qz_host')"><button type="button"
-                                                    class="table-sort-btn" @click="toggleSort('qz_host')">IP ponte <span
-                                                        aria-hidden="true" v-html="sortIcon('qz_host')"></span></button>
+                                            <th :aria-sort="sortAria('bridge_host')"><button type="button"
+                                                    class="table-sort-btn" @click="toggleSort('bridge_host')">IP ponte <span
+                                                        aria-hidden="true" v-html="sortIcon('bridge_host')"></span></button>
                                             </th>
                                             <th class="printer-col-porta" :aria-sort="sortAria('porta')"><button
                                                     type="button" class="table-sort-btn"
@@ -123,7 +123,7 @@
                                                 </div>
                                             </td>
                                             <td data-label="Nome/IP">{{ item.record.nome_indirizzo || '-' }}</td>
-                                            <td data-label="IP ponte" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE_NATIVE' }">{{ item.record.qz_host || '-' }}</td>
+                                            <td data-label="IP ponte" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE_NATIVE' }">{{ item.record.bridge_host || '-' }}</td>
                                             <td class="printer-col-porta" data-label="Porta" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'RETE' && !(item.record.tipo_stampante === 'BRIDGE_NATIVE' && item.record.bridge_printer_type === 'RETE') }">{{ item.record.porta || '0' }}</td>
 
                                         </tr>
@@ -188,7 +188,7 @@
                         <div class="modal-field" v-if="modalData.bridge_printer_type !== 'RETE'">
                             <label for="modalBridgeIp">IP del PC-ponte (per la ricerca)</label>
                             <div class="win-printer-wrap">
-                                <input type="text" id="modalBridgeIp" v-model.trim="modalData.qz_host"
+                                <input type="text" id="modalBridgeIp" v-model.trim="modalData.bridge_host"
                                     placeholder="es. 192.168.1.50">
                                 <button type="button" id="discoverBridgeNativeBtn"
                                     @click="discoverBridgeNativePrinters" :disabled="loadingBridgeNativePrinters"
@@ -327,7 +327,7 @@
                     modalOpen: false,
                     isCreatingRecord: false,
                     currentEditIndex: null,
-                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
+                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, bridge_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
                     _windowsPrintersPromise: null,
                     _linuxPrintersPromise: null,
                     expandedRows: {}
@@ -342,7 +342,7 @@
                             if (!filtro) {
                                 return true;
                             }
-                            const haystack = [record.cassa_id, record.tipo_stampante, record.nome_indirizzo, record.qz_host, record.porta]
+                            const haystack = [record.cassa_id, record.tipo_stampante, record.nome_indirizzo, record.bridge_host, record.porta]
                                 .map(this.normalizzaTesto)
                                 .join(' ');
                             return haystack.includes(filtro);
@@ -460,7 +460,7 @@
                                 tipo_stampante: record.tipo_stampante,
                                 nome_indirizzo: record.nome_indirizzo,
                                 porta: record.porta,
-                                qz_host: record.qz_host || '',
+                                bridge_host: record.bridge_host || '',
                                 abilita_contanti: nextRecord.abilita_contanti,
                                 abilita_carta: nextRecord.abilita_carta,
                                 abilita_satispay: nextRecord.abilita_satispay,
@@ -502,7 +502,6 @@
                         'LINUX_USB': 'USB (Linux)',
                         'RETE': 'RETE',
                         'BRIDGE_NATIVE': 'BRIDGE NATIVO',
-                        'BRIDGE': 'BRIDGE (QZ)',
                         'BLUETOOTH': 'BLUETOOTH'
                     };
                     return mappaTipi[tipo] || tipo || '-';
@@ -571,7 +570,8 @@
                     }
                 },
 
-                // Cerca le stampanti QZ Tray sull'host specificato
+                // Select stampante USB locale: propaga la scelta in nome_indirizzo
+                // (o apre il campo manuale).
                 onUsbPrinterSelectChange() {
                     if (this.usbSelectValue && this.usbSelectValue !== '__manual__') {
                         this.modalData.nome_indirizzo = this.usbSelectValue;
@@ -618,7 +618,7 @@
                     if (this.loadingBridgeNativePrinters) {
                         return;
                     }
-                    const host = (this.modalData.qz_host || '').trim();
+                    const host = (this.modalData.bridge_host || '').trim();
                     if (!host) {
                         this.mostraMessaggio("Inserisci prima l'IP del PC-ponte.", 'error');
                         return;
@@ -736,7 +736,7 @@
                                 nome_indirizzo: config.nome_indirizzo,
                                 porta: config.porta,
                                 cassa_id: config.cassa_id,
-                                qz_host: config.qz_host || '',
+                                bridge_host: config.bridge_host || '',
                                 bridge_printer_type: config.bridge_printer_type || '',
                                 bridge_topic: config.bridge_topic || ''
                             })
@@ -772,7 +772,7 @@
                         tipo_stampante: this.modalData.tipo_stampante,
                         nome_indirizzo: this.resolvedNomeIndirizzo,
                         porta: Number(this.modalData.porta || 0),
-                        qz_host: (this.modalData.qz_host || '').trim(),
+                        bridge_host: (this.modalData.bridge_host || '').trim(),
                         bridge_printer_type: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
                         bridge_topic: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? ((this.modalData.bridge_topic || '').trim() || (this.modalData.cassa_id || '').trim()) : ''
                     };
@@ -808,7 +808,7 @@
                     this.currentEditIndex = index;
 
                     this.modalData = this.isCreatingRecord
-                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
+                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, bridge_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
                         : {
                             ...this.stampantiData[index],
                             abilita_contanti: Number(this.stampantiData[index].abilita_contanti) === 1,
@@ -854,7 +854,7 @@
                     const cassaId = (this.modalData.cassa_id || '').trim();
                     const tipoStampante = this.modalData.tipo_stampante;
                     const nomeIndirizzo = this.resolvedNomeIndirizzo;
-                    const qzHost = (this.modalData.qz_host || '').trim();
+                    const bridgeHost = (this.modalData.bridge_host || '').trim();
                     const porta = this.modalData.porta;
                     const record = this.isCreatingRecord ? null : this.stampantiData[this.currentEditIndex];
                     const isBluetooth = tipoStampante === 'BLUETOOTH';
@@ -894,7 +894,7 @@
                                 tipo_stampante: tipoStampante,
                                 nome_indirizzo: nomeIndirizzo,
                                 porta: porta,
-                                qz_host: qzHost,
+                                bridge_host: bridgeHost,
                                 bridge_printer_type: tipoStampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
                                 bridge_topic: tipoStampante === 'BRIDGE_NATIVE' ? ((this.modalData.bridge_topic || '').trim() || cassaId) : '',
                                 abilita_contanti: this.modalData.abilita_contanti ? 1 : 0,

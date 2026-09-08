@@ -6,15 +6,24 @@ use Mike42\Escpos\Printer;
 
 function getPrinterSettings($connectionDB, $cassa_id)
 {
-    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS qz_host VARCHAR(255) NULL AFTER porta");
+    // qz_host -> bridge_host: da Fase 4 (QZ Tray rimosso) e' solo l'IP del
+    // PC-ponte per la discovery BRIDGE_NATIVE. Rinomina idempotente (vedi anche
+    // config/migrations/002_qz_host_to_bridge_host.php).
+    $hasOld = $connectionDB->query("SHOW COLUMNS FROM casse_stampanti LIKE 'qz_host'");
+    $hasNew = $connectionDB->query("SHOW COLUMNS FROM casse_stampanti LIKE 'bridge_host'");
+    if ($hasOld && $hasOld->num_rows > 0 && $hasNew && $hasNew->num_rows === 0) {
+        $connectionDB->query("ALTER TABLE casse_stampanti CHANGE COLUMN qz_host bridge_host VARCHAR(255) NULL");
+    } else {
+        $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_host VARCHAR(255) NULL AFTER porta");
+    }
     // Modello BRIDGE_NATIVE "a una riga": la stampante fisica del ponte e'
     // descritta qui (bridge_printer_type + nome_indirizzo/porta) e il topic
     // Mercure e' bridge_topic (default cassa_id). bridge_printer_type vuoto =
     // vecchio modello "a due righe" (nome_indirizzo = cassa-ponte).
-    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER qz_host");
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER bridge_host");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_topic VARCHAR(50) NULL AFTER bridge_printer_type");
 
-    $query = "SELECT tipo_stampante, nome_indirizzo, porta, qz_host, bridge_printer_type, bridge_topic
+    $query = "SELECT tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic
                 FROM casse_stampanti
                WHERE cassa_id = ? ";
     $stmt = $connectionDB->prepare($query);
@@ -29,7 +38,7 @@ function getPrinterSettings($connectionDB, $cassa_id)
             'tipo_stampante' => $row['tipo_stampante'], /* ?: $defaultConfig['tipo_stampante'], */
             'nome_indirizzo' => $row['nome_indirizzo'],
             'porta' => $row['porta'],
-            'qz_host' => trim((string) ($row['qz_host'] ?? '')),
+            'bridge_host' => trim((string) ($row['bridge_host'] ?? '')),
             'bridge_printer_type' => trim((string) ($row['bridge_printer_type'] ?? '')),
             'bridge_topic' => trim((string) ($row['bridge_topic'] ?? '')),
         ];
