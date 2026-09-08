@@ -14,8 +14,6 @@
     <script src="../assets/js/vue.global.js"></script>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
-    <script src="../assets/js/qz-tray.js"></script>
-    <script src="../assets/js/qz-helper.js"></script>
     <script src="../assets/js/chart.min.js"></script>
     <!-- jQuery incluso -->
 </head>
@@ -219,8 +217,6 @@
                     fromStat: null,
                     toStat: null,
                     cassaStat: null,
-                    qzScriptLoadPromise: null,
-                    qzConnectionTarget: null,
                     activePreset: 'oggi',
                     ordiniTotali: 0,
                     valoreMedioOrdine: 0,
@@ -255,147 +251,6 @@
                 }
             },
             methods: {
-                loadScript(url) {
-                    return new Promise((resolve, reject) => {
-                        const script = document.createElement('script');
-                        script.src = url;
-                        script.async = true;
-                        script.onload = () => resolve(url);
-                        script.onerror = () => reject(new Error('Load failed: ' + url));
-                        document.head.appendChild(script);
-                    });
-                },
-                normalizeQzHost(host) {
-                    return String(host || '').trim().replace(/^https?:\/\//i, '').replace(/\/$/, '');
-                },
-                async ensureQzLibraryLoaded() {
-                    if (window.qz) {
-                        return;
-                    }
-
-                    if (!this.qzScriptLoadPromise) {
-                        this.qzScriptLoadPromise = (async () => {
-                            const candidates = ['qz-tray.js', '/qz-tray.js', './qz-tray.js', 'http://localhost:8182/qz-tray.js', 'http://127.0.0.1:8182/qz-tray.js'];
-                            const errors = [];
-                            for (const url of candidates) {
-                                try {
-                                    await this.loadScript(url);
-                                    if (window.qz) {
-                                        return;
-                                    }
-                                } catch (err) {
-                                    errors.push(err.message);
-                                }
-                            }
-                            throw new Error('QZ script non raggiungibile. Tentativi: ' + errors.join(' | '));
-                        })();
-                    }
-
-                    await this.qzScriptLoadPromise;
-
-                    if (!window.qz) {
-                        throw new Error('QZ Tray non disponibile nel browser.');
-                    }
-                },
-                setupQzSecurity() {
-                    // La configurazione certificato/firma (necessaria perché QZ Tray accetti
-                    // il job senza mostrare il popup di conferma non presidiato) è definita
-                    // globalmente in assets/js/qz-helper.js, la stessa usata da billing.php.
-                    if (typeof window.setupQzSecurity === 'function') {
-                        window.setupQzSecurity();
-                    }
-                },
-                async ensureQzConnected(host, port = 8182) {
-                    console.debug('[QZ] ensureQzConnected: caricamento libreria...');
-                    await this.ensureQzLibraryLoaded();
-                    console.debug('[QZ] libreria caricata, versione:', window.qz && qz.VERSION);
-                    this.setupQzSecurity();
-                    console.debug('[QZ] setupQzSecurity eseguito');
-
-                    const cleanHost = this.normalizeQzHost(host);
-                    if (!cleanHost) {
-                        throw new Error('Host QZ mancante nella configurazione stampante.');
-                    }
-
-                    const targetKey = cleanHost + ':' + Number(port || 8182);
-                    if (qz.websocket.isActive() && this.qzConnectionTarget === targetKey) {
-                        console.debug('[QZ] connessione già attiva verso', targetKey);
-                        return;
-                    }
-
-                    if (qz.websocket.isActive()) {
-                        try {
-                            console.debug('[QZ] disconnessione connessione precedente...');
-                            await qz.websocket.disconnect();
-                        } catch (err) {
-                            console.warn('Disconnessione QZ precedente fallita:', err);
-                        }
-                    }
-
-                    console.debug('[QZ] connessione a', cleanHost, 'porta', port);
-                    await qz.websocket.connect({
-                        host: cleanHost,
-                        usingSecure: false,
-                        port: {
-                            secure: [],
-                            insecure: [Number(port || 8182)]
-                        },
-                        retries: 2,
-                        delay: 0.25
-                    });
-                    console.debug('[QZ] connesso');
-
-                    this.qzConnectionTarget = targetKey;
-                },
-                async printBridgeViaQz(response) {
-                    console.debug('[QZ] printBridgeViaQz payload:', response);
-                    const payload = response && typeof response === 'object' ? response : null;
-                    if (!payload) {
-                        throw new Error('Risposta bridge non valida.');
-                    }
-
-                    const printerName = String(payload.qz_printer_name || payload.printer || '').trim();
-                    const qzHost = String(payload.qz_host || payload.bridge_host || payload.host || '').trim();
-                    const qzPort = Number(payload.qz_port || 8182);
-                    const rawBase64 = String(payload.qz_data_base64 || '').trim();
-
-                    if (!printerName) {
-                        throw new Error('Nome stampante bridge mancante.');
-                    }
-                    if (!qzHost) {
-                        throw new Error('Host QZ bridge mancante.');
-                    }
-                    if (!rawBase64) {
-                        throw new Error('Dati ESC/POS bridge mancanti.');
-                    }
-
-                    await this.ensureQzConnected(qzHost, qzPort);
-
-                    try {
-                        const found = await qz.printers.find(printerName);
-                        console.debug('[QZ] stampante trovata:', found);
-                    } catch (err) {
-                        // Non bloccante: qz.configs.create funziona anche senza una find() riuscita,
-                        // e billing.php (che stampa correttamente) non la usa affatto.
-                        console.warn('[QZ] qz.printers.find fallita, si prosegue comunque:', err);
-                    }
-
-                    const config = qz.configs.create(printerName, {
-                        encoding: 'ISO-8859-1'
-                    });
-                    console.debug('[QZ] config creata per', printerName, 'invio dati raw base64, lunghezza', rawBase64.length);
-
-                    const data = [{
-                        type: 'raw',
-                        format: 'command',
-                        flavor: 'base64',
-                        data: rawBase64
-                    }];
-
-                    console.debug('[QZ] invio qz.print...');
-                    await qz.print(config, data);
-                    console.debug('[QZ] qz.print completato senza errori');
-                },
                 convertToMySQLDatetime(datetimeLocal) {
                     const date = new Date(datetimeLocal);
                     const pad = (n) => n.toString().padStart(2, '0');
@@ -728,7 +583,7 @@
                 async stampaReceipt() {
                     const cassa_id = localStorage.getItem('cassa_id');
                     const cassaInfo = this.cassaStat ? this.findCassaInfo(this.cassaStat) : null;
-                    console.debug('[QZ] stampaReceipt: cassa_id=', cassa_id, 'cassaStat=', this.cassaStat);
+                    console.debug('[stampa] stampaReceipt: cassa_id=', cassa_id, 'cassaStat=', this.cassaStat);
 
                     try {
                         const response = await $.ajax({
@@ -751,11 +606,6 @@
                             })
                         });
 
-                        console.debug('[QZ] risposta print_stat_receipt.php:', response);
-
-                        if (response && response.method === 'bridge_qz') {
-                            await this.printBridgeViaQz(response);
-                        }
                         if (response && response.method === 'bridge_native' && response.published === false) {
                             window.showToast('Report non arrivato alla stampante: ponte non raggiungibile.', 'error');
                             return;
@@ -765,7 +615,7 @@
                         const printer = response && response.printer ? ' (' + response.printer + ')' : '';
                         window.showToast('Scontrino stampato con successo! Metodo: ' + method + printer, 'success');
                     } catch (error) {
-                        console.error('[QZ] Errore stampa scontrino:', error);
+                        console.error('[stampa] Errore stampa scontrino:', error);
                         window.showToast('Errore durante la stampa dello scontrino: ' + (error && error.message ? error.message : error), 'error');
                     }
                 }

@@ -556,50 +556,14 @@ function postToPrintrzJob($host, $port, $printerName, $rawData) {
 }
 
 
-// Gestisce l'instradamento della stampa (Bridge, Bluetooth o Diretta)
+// Gestisce l'instradamento della stampa (Bridge nativo, Bluetooth o Diretta)
 
 function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $sconto, $pagato, $resto, $dataOra = null) {
     $printerSettings = getPrinterSettings($connectionDB, $cassa_id);
     $receiptConfig = getReceiptConfig($connectionDB);
     $tipoStampante = $printerSettings['tipo_stampante'] ?? '';
-    
-    // CASO 1: BRIDGE (QZ Tray)
-    if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE') {
-        $printerName = trim((string)($printerSettings['nome_indirizzo'] ?? ''));
-        $qzHost = trim((string)($printerSettings['qz_host'] ?? ''));
 
-        if ($printerName === '') {
-            http_response_code(400);
-            echo json_encode([
-                'error' => 'Configurazione bridge non valida: nome stampante QZ mancante. Verificare conf_casse.php',
-                'cassa_id' => $cassa_id,
-                'printer_settings' => $printerSettings
-            ]);
-            exit;
-        }
-        if ($qzHost === '') {
-            http_response_code(400);
-            echo json_encode([
-                'error' => 'Configurazione bridge non valida: host QZ mancante. Inserire l\'indirizzo IP o hostname del bridge QZ Tray in conf_casse.php',
-                'cassa_id' => $cassa_id,
-                'nome_stampante' => $printerName,
-                'printer_settings' => $printerSettings
-            ]);
-            exit;
-        }
-
-        // QZ Tray: il browser stampa localmente usando i byte ESC/POS restituiti dal backend.
-        $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
-        
-        return [
-            'method' => 'bridge_qz',
-            'printer' => $printerName,
-            'qz_host' => $qzHost,
-            'qz_port' => 8182,
-            'qz_data_base64' => base64_encode($rawReceipt)
-        ];
-    }
-        // CASO 1-bis: BRIDGE_NATIVE (sostituto di QZ Tray, Fase 4 punto 2).
+        // CASO 1: BRIDGE_NATIVE (bridge di stampa nativo via Mercure, Fase 4 punto 2).
         // Il browser NON stampa: i byte ESC/POS vengono pubblicati su un topic
         // Mercure `print/cassa/{id}` e il processo bin/opensagra-print-bridge.php
         // sul PC col cavo li riceve e stampa.

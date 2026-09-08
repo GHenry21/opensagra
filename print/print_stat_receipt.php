@@ -183,30 +183,6 @@ if ($cassa == null || $cassa == '') {
 try {
     $printerSettings = getPrinterSettings($connectionDB, $cassa_id);
 
-    if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE') {
-        $printerName = trim((string) ($printerSettings['nome_indirizzo'] ?? ''));
-        $qzHost = trim((string) ($printerSettings['qz_host'] ?? ''));
-
-        if ($printerName === '') {
-            throw new Exception('Configurazione bridge non valida: nome stampante QZ mancante.');
-        }
-        if ($qzHost === '') {
-            throw new Exception('Configurazione bridge non valida: host QZ mancante.');
-        }
-
-        $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
-
-        echo json_encode([
-            'success' => true,
-            'method' => 'bridge_qz',
-            'printer' => $printerName,
-            'qz_host' => $qzHost,
-            'qz_port' => 8182,
-            'qz_data_base64' => base64_encode($rawReceipt)
-        ]);
-        exit;
-    }
-
     if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
         $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
         $routing = bridgeNativeRouting($printerSettings, $cassa_id);

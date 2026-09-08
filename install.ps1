@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     Installazione completamente automatica, senza domande: porta una macchina
-    pulita ad app funzionante (FrankenPHP + MariaDB nativa + QZ Tray), sempre
-    con la stessa identica configurazione "indipendente". Se una postazione
+    pulita ad app funzionante (FrankenPHP + MariaDB nativa), sempre con la
+    stessa identica configurazione "indipendente". Se una postazione
     deve diventare client di un'altra installazione, si decide DOPO, in
     qualsiasi momento, dalla pagina Configurazione Rete dentro l'app - non
     e' compito di questo script (vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md,
@@ -22,8 +22,8 @@
 
 .NOTES
     Bozza iniziale (2026-09-07): i passi Install-FrankenPHP, Install-
-    MariaDBEngine, Register-MariaDBService, Register-FrankenPHPService e
-    Install-QZTray sono scritti secondo i comandi gia' documentati e provati
+    MariaDBEngine, Register-MariaDBService e Register-FrankenPHPService sono
+    scritti secondo i comandi gia' documentati e provati
     in questo piano, ma su QUESTA macchina (gia' completamente configurata)
     imboccano sempre il ramo "gia' presente, salto" - il ramo di
     installazione da zero non e' verificabile end-to-end senza una macchina
@@ -51,10 +51,7 @@ $Script:ExcludeFromCopy = @(
     '.gitignore', '.gitattributes', 'archive', 'playwright-report',
     'test-results', 'package.json', 'package-lock.json', 'playwright.config.js',
     'bt.html', 'navbar example.html',
-    # Chiave privata di firma QZ Tray, bundlata accanto a install.ps1 (vedi
-    # Install-QZTray/installa_certificati_qz.php) - NON deve mai finire dentro
-    # la webroot copiata qui: e' fuori dalla webroot per costruzione, per non
-    # essere mai raggiungibile via browser.
+    # Materiale sensibile bundlato accanto a install.ps1: mai dentro la webroot.
     'private'
 )
 
@@ -503,76 +500,6 @@ function Set-FirewallRules {
     Add-InstallChecklistItem 'Regole firewall configurate'
 }
 
-function Install-QZTray {
-    # Installato sempre, nessuna domanda (deciso 2026-09-07: "deve funzionare
-    # tutto subito, chi non ne ha bisogno disinstalla QZ Tray come un
-    # programma qualsiasi" - vedi piano, sezione 3a).
-    $qzInstalled = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -like 'QZ Tray*' }
-    if (-not $qzInstalled) {
-        # Bug reale trovato testando su VM pulita (2026-09-07): download.qz.io
-        # non esiste piu' (DNS inesistente) - QZ Tray si distribuisce solo via
-        # GitHub Releases, con nome file versionato (es.
-        # qz-tray-2.2.6-x86_64.exe), quindi non si puo' linkare un URL fisso:
-        # va risolta la release piu' recente tramite l'API GitHub.
-        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/qzind/tray/releases/latest' -Headers @{ 'User-Agent' = 'opensagra-installer' }
-        $asset = $release.assets | Where-Object { $_.name -match 'x86_64\.exe$' } | Select-Object -First 1
-        if (-not $asset) {
-            throw "Impossibile trovare l'installer Windows di QZ Tray nell'ultima release GitHub."
-        }
-        $installerPath = "$env:TEMP\qz-tray-setup.exe"
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath
-        Start-Process -FilePath $installerPath -ArgumentList '/S' -Wait
-        Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-    }
-
-    # Posiziona (una tantum, idempotente) la chiave privata di firma per QZ
-    # Tray, copiandola dal pacchetto di installazione - vedi
-    # config/installa_certificati_qz.php per il perche' (stessa coppia
-    # chiave/certificato per ogni installazione, non una generata per
-    # macchina: due installazioni con certificati diversi che parlano con lo
-    # stesso QZ Tray fisico non si fiderebbero a vicenda senza un passo di
-    # sync manuale - bug pratico trovato testando con una VM + la macchina
-    # reale nello stesso scenario). La chiave va bundlata a parte nel
-    # pacchetto, in una cartella 'private\key.pem' accanto a questo stesso
-    # script (mai in git).
-    $bundledKeyPath = Join-Path $Script:SourcePath 'private\key.pem'
-    & "$Script:FrankenDir\frankenphp.exe" php-cli (Join-Path $Script:InstallPath 'config\installa_certificati_qz.php') --source-key="$bundledKeyPath"
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Posizionamento della chiave privata QZ Tray fallito (vedi output sopra).'
-    }
-
-    # Procedura certificati: override del certificato di firma per sopprimere
-    # i popup di consenso. Percorso corretto (verificato nel codice sorgente
-    # di QZ Tray, classe qz.auth.Certificate: SystemUtilities.getJarParentPath()
-    # + Constants.OVERRIDE_CERT): la cartella di installazione di QZ Tray
-    # stessa, NON %APPDATA%\qz - quest'ultima e' solo dove QZ Tray tiene il
-    # proprio stato (allowed.dat/blocked.dat/log), il file li' viene ignorato
-    # (bug reale di questa sessione: usato quel percorso sbagliato inizialmente,
-    # il popup di conferma continuava a comparire nonostante override.crt
-    # fosse presente e corretto - solo nel posto sbagliato).
-    $qzInstallDir = 'C:\Program Files\QZ Tray'
-    $certSource = Join-Path $Script:InstallPath 'cert\cert.pem'
-    if (Test-Path $certSource) {
-        Copy-Item $certSource (Join-Path $qzInstallDir 'override.crt') -Force
-
-        # QZ Tray si avvia gia' da solo dopo l'installazione silenziosa: se e'
-        # gia' in esecuzione, ha in memoria lo stato precedente (senza
-        # override) e va riavviato per ricaricare il certificato appena
-        # copiato.
-        $qzProcess = Get-Process -Name 'javaw' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*QZ Tray*' }
-        if ($qzProcess) {
-            $qzProcess | Stop-Process -Force
-            Start-Sleep -Seconds 1
-        }
-        $qzExe = Join-Path $qzInstallDir 'qz-tray.exe'
-        if (Test-Path $qzExe) {
-            Start-Process -FilePath $qzExe
-        }
-    }
-    Add-InstallChecklistItem 'QZ Tray installato'
-}
-
 # ============================================================================
 # Orchestrazione
 # ============================================================================
@@ -612,11 +539,8 @@ try {
     Set-InstallProgress -Percent 75 -Status 'Registrazione dei servizi...'
     Register-FrankenPHPService
 
-    Set-InstallProgress -Percent 85 -Status 'Configurazione delle regole di rete...'
+    Set-InstallProgress -Percent 90 -Status 'Configurazione delle regole di rete...'
     Set-FirewallRules
-
-    Set-InstallProgress -Percent 95 -Status 'Installazione di QZ Tray...'
-    Install-QZTray
 
     Close-InstallWindow -Success
 } catch {

@@ -13,7 +13,6 @@
     <script src="../assets/js/vue.global.js"></script>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
-    <script src="../assets/js/qz-tray.js"></script>
 
 </head>
 
@@ -67,7 +66,7 @@
                                                         aria-hidden="true"
                                                         v-html="sortIcon('nome_indirizzo')"></span></button></th>
                                             <th :aria-sort="sortAria('qz_host')"><button type="button"
-                                                    class="table-sort-btn" @click="toggleSort('qz_host')">QZ Host <span
+                                                    class="table-sort-btn" @click="toggleSort('qz_host')">IP ponte <span
                                                         aria-hidden="true" v-html="sortIcon('qz_host')"></span></button>
                                             </th>
                                             <th class="printer-col-porta" :aria-sort="sortAria('porta')"><button
@@ -124,7 +123,7 @@
                                                 </div>
                                             </td>
                                             <td data-label="Nome/IP">{{ item.record.nome_indirizzo || '-' }}</td>
-                                            <td data-label="QZ Host / IP ponte" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE' && item.record.tipo_stampante !== 'BRIDGE_NATIVE' }">{{ item.record.qz_host || '-' }}</td>
+                                            <td data-label="IP ponte" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE_NATIVE' }">{{ item.record.qz_host || '-' }}</td>
                                             <td class="printer-col-porta" data-label="Porta" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'RETE' && !(item.record.tipo_stampante === 'BRIDGE_NATIVE' && item.record.bridge_printer_type === 'RETE') }">{{ item.record.porta || '0' }}</td>
 
                                         </tr>
@@ -163,16 +162,6 @@
                             <option value="BLUETOOTH">BLUETOOTH</option>
                         </select>
                     </div>
-                    <!-- Mostra il campo Host QZ Tray solo se il tipo è BRIDGE -->
-                    <div class="modal-field" id="modalBridgeHostField"
-                        :style="{ display: modalData.tipo_stampante === 'BRIDGE' ? '' : 'none' }">
-                        <label>Host QZ Tray *</label>
-                        <div id="modalBridgeHostWrap">
-                            <input type="text" id="modalQzHost" v-model.trim="modalData.qz_host"
-                                placeholder="es. 192.168.1.50 o pc-cassa.local">
-                        </div>
-                    </div>
-
                     <!-- BRIDGE NATIVO: i byte ESC/POS vengono pubblicati su Mercure e il
                          processo opensagra-print-bridge sul PC-ponte li stampa. Modello
                          "a una riga": qui si configura direttamente la stampante del ponte
@@ -233,16 +222,9 @@
                         </div>
                     </template>
 
-                    <!-- Button per refresh stampanti Bridge-->
                     <div class="modal-field"
                         v-if="modalData.tipo_stampante !== 'BLUETOOTH' && modalData.tipo_stampante !== 'BRIDGE_NATIVE'">
                         <label>{{ nomeIndirizzoLabel }} *</label>
-                        <button v-if="modalData.tipo_stampante === 'BRIDGE'" type="button" id="refreshBridgePrintersBtn"
-                            @click="refreshBridgePrinters" :disabled="loadingQzPrinters"
-                            title="Ricerca Stampanti Bridge">
-                            <?= pos_icon('refresh-cw', ['class' => 'icon-refresh', ':class' => "{ 'spin-animation': loadingQzPrinters }"]) ?>
-                            {{ loadingQzPrinters ? 'Ricerca in corso...' : 'Ricerca Stampanti' }}
-                        </button>
 
                         <!-- USB / stampante locale: un solo select, la discovery e l'hint
                              seguono l'OS dell'host (serverIsWindows). Copre anche le righe
@@ -260,22 +242,6 @@
                                 <input type="text" id="modalNomeIndirizzoManual" ref="usbManualInput"
                                     v-model="modalData.nome_indirizzo" v-show="usbSelectValue === '__manual__'"
                                     :placeholder="serverIsWindows ? 'Inserisci nome stampante Windows' : 'Inserisci nome stampante Linux o device path'">
-                            </div>
-                            <!-- Mostra il select per le stampanti Bridge solo se il tipo è BRIDGE -->
-                            <div v-else-if="modalData.tipo_stampante === 'BRIDGE'" class="win-printer-wrap">
-                                <select id="modalNomeIndirizzoSelect" v-model="bridgeSelectValue"
-                                    :class="{ 'is-placeholder': !bridgeSelectValue, 'field-highlight': highlightBridgeSelect }"
-                                    @change="onBridgePrinterSelectChange">
-                                    <option value="" disabled selected hidden>Seleziona la stampante dall'elenco
-                                    </option>
-                                    <option value="__manual__">Manuale...</option>
-                                    <option v-for="printer in bridgePrinters" :key="printer" :value="printer">{{ printer
-                                        }}</option>
-                                </select>
-                                <!-- Mostra il campo di input manuale solo se l'utente seleziona "Manuale..." nel select -->
-                                <input type="text" id="modalNomeIndirizzoManual" ref="bridgeManualInput"
-                                    v-model="modalData.nome_indirizzo" v-show="bridgeSelectValue === '__manual__'"
-                                    placeholder="Inserisci nome stampante QZ">
                             </div>
                             <input v-else type="text" id="modalNomeIndirizzo" v-model="modalData.nome_indirizzo"
                                 :placeholder="nomeIndirizzoPlaceholder">
@@ -332,148 +298,14 @@
     </div>
     </div>
 
-    <script src="../assets/js/qz-helper.js"></script>
     <script>
         // OS dell'host che serve questa pagina (== host che stampa nel modello wrapper).
         // Serve al modal per decidere quale discovery USB lanciare e che hint mostrare.
         window.__OPENSAGRA_SERVER_OS__ = <?= json_encode(PHP_OS_FAMILY) ?>;
 
-        let qzScriptLoadPromise = null;
-        let qzConnectionTarget = null;
-
-        function loadScript(url) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = url;
-                script.async = true;
-                script.onload = () => resolve(url);
-                script.onerror = () => reject(new Error('Load failed: ' + url));
-                document.head.appendChild(script);
-            });
-        }
-
-        function normalizeQzHost(host) {
-            return String(host || '')
-                .trim()
-                .replace(/^https?:\/\//i, '')
-                .replace(/\/$/, '');
-        }
-
-        async function ensureQzLibraryLoaded() {
-            if (window.qz) {
-                return;
-            }
-
-            if (!qzScriptLoadPromise) {
-                qzScriptLoadPromise = (async () => {
-                    const candidates = [
-                        'qz-tray.js',
-                        '/qz-tray.js',
-                        './qz-tray.js',
-                        'http://localhost:8182/qz-tray.js',
-                        'http://127.0.0.1:8182/qz-tray.js'
-                    ];
-
-                    const errors = [];
-                    for (const url of candidates) {
-                        try {
-                            await loadScript(url);
-                            if (window.qz) {
-                                return;
-                            }
-                        } catch (err) {
-                            errors.push(err.message);
-                        }
-                    }
-
-                    throw new Error('QZ script non raggiungibile. Tentativi: ' + errors.join(' | '));
-                })();
-            }
-
-            await qzScriptLoadPromise;
-
-            if (!window.qz) {
-                throw new Error('QZ Tray non disponibile nel browser.');
-            }
-        }
-        // Carica la funziona JS per firmare i messaggi di QZ
-        document.addEventListener("DOMContentLoaded", function () {
-            setupQzSecurity();
-        });
-
-        async function ensureQzConnected(host, port = 8182) {
-            await ensureQzLibraryLoaded();
-            setupQzSecurity();
-
-            const cleanHost = normalizeQzHost(host);
-            if (!cleanHost) {
-                throw new Error('Host QZ mancante nella configurazione stampante.');
-            }
-
-            const targetKey = cleanHost + ':' + Number(port || 8182);
-            if (qz.websocket.isActive() && qzConnectionTarget === targetKey) {
-                return;
-            }
-
-            if (qz.websocket.isActive()) {
-                try {
-                    await qz.websocket.disconnect();
-                } catch (err) {
-                    console.warn('Disconnessione QZ precedente fallita:', err);
-                }
-            }
-
-            await qz.websocket.connect({
-                host: cleanHost,
-                usingSecure: false,
-                retries: 2,
-                delay: 0.25
-            });
-
-            qzConnectionTarget = targetKey;
-        }
-
         // Invia i byte ESC/POS in Base64 all'app RawBT tramite il suo URI scheme dedicato
         function inviaBase64ARawBT(base64Data) {
             window.location.href = 'rawbt:base64,' + base64Data;
-        }
-
-        async function printBridgeViaQz(response) {
-            const payload = response && typeof response === 'object' ? response : null;
-            if (!payload) {
-                throw new Error('Risposta bridge non valida.');
-            }
-
-            const printerName = String(payload.qz_printer_name || payload.printer || '').trim();
-            const qzHost = String(payload.qz_host || payload.bridge_host || payload.host || '').trim();
-            const qzPort = Number(payload.qz_port || 8182);
-            const rawBase64 = String(payload.qz_data_base64 || '').trim();
-
-            if (!printerName) {
-                throw new Error('Nome stampante bridge mancante.');
-            }
-            if (!qzHost) {
-                throw new Error('Host QZ bridge mancante.');
-            }
-            if (!rawBase64) {
-                throw new Error('Dati ESC/POS bridge mancanti.');
-            }
-
-            await ensureQzConnected(qzHost, qzPort);
-            await qz.printers.find(printerName);
-
-            const config = qz.configs.create(printerName, {
-                encoding: 'ISO-8859-1'
-            });
-
-            const data = [{
-                type: 'raw',
-                format: 'command',
-                flavor: 'base64',
-                data: rawBase64
-            }];
-
-            await qz.print(config, data);
         }
 
         const app = Vue.createApp({
@@ -482,7 +314,6 @@
                     stampantiData: [],
                     winPrinters: [],
                     linuxPrinters: [],
-                    bridgePrinters: [],
                     bridgeNativePrinters: [],
                     bridgeNativeSelectValue: '',
                     loadingBridgeNativePrinters: false,
@@ -490,9 +321,6 @@
                     // OS dell'host che stampa: decide discovery e hint del tipo USB unificato.
                     serverOs: String(window.__OPENSAGRA_SERVER_OS__ || 'Windows'),
                     usbSelectValue: '',
-                    bridgeSelectValue: '',
-                    highlightBridgeSelect: false,
-                    loadingQzPrinters: false,
                     searchQuery: '',
                     sortKey: '',
                     sortDirection: 'asc',
@@ -538,11 +366,7 @@
                     return this.serverIsWindows ? this.winPrinters : this.linuxPrinters;
                 },
                 nomeIndirizzoPlaceholder() {
-                    const tipo = this.modalData.tipo_stampante;
-                    if (tipo === 'BRIDGE') {
-                        return 'Nome stampante QZ Tray';
-                    }
-                    return tipo === 'RETE' ? 'Indirizzo IP stampante' : 'Nome stampante o device path';
+                    return this.modalData.tipo_stampante === 'RETE' ? 'Indirizzo IP stampante' : 'Nome stampante o device path';
                 },
                 nomeIndirizzoLabel() {
                     return this.modalData.tipo_stampante === 'RETE' ? 'Indirizzo IP' : 'Nome Stampante';
@@ -554,9 +378,6 @@
                     }
                     if (this.isUsbFamilyType && this.usbSelectValue && this.usbSelectValue !== '__manual__') {
                         return (this.usbSelectValue || '').trim();
-                    }
-                    if (this.modalData.tipo_stampante === 'BRIDGE' && this.bridgeSelectValue && this.bridgeSelectValue !== '__manual__') {
-                        return (this.bridgeSelectValue || '').trim();
                     }
                     return (this.modalData.nome_indirizzo || '').trim();
                 }
@@ -751,86 +572,6 @@
                 },
 
                 // Cerca le stampanti QZ Tray sull'host specificato
-                async fetchQzPrinters() {
-                    const host = (this.modalData.qz_host || '').trim();
-                    if (!host) {
-                        this.mostraMessaggio("Inserisci prima l'Host QZ Tray (es. IP o hostname).", 'error');
-                        return;
-                    }
-
-                    this.loadingQzPrinters = true;
-                    try {
-                        // Si connette al QZ Tray remoto (usa la porta 8182 standard)
-                        await ensureQzConnected(host, 8182);
-
-                        // Esegue la discovery di tutte le stampanti installate sul PC remoto
-                        const printers = await qz.printers.find();
-                        const normalizedPrinters = (Array.isArray(printers) ? printers : [])
-                            .map((printer) => String(printer || '').trim())
-                            .filter((printer) => printer.length > 0);
-
-                        this.bridgePrinters = normalizedPrinters;
-
-                        if (normalizedPrinters.length === 0) {
-                            this.bridgeSelectValue = '';
-                            this.mostraMessaggio('Nessuna stampante trovata su QZ Tray. Puoi inserire il nome manualmente.', 'error');
-                            return;
-                        }
-
-                        const preview = normalizedPrinters.slice(0, 8).join(', ');
-                        const extra = normalizedPrinters.length > 8 ? ` (+${normalizedPrinters.length - 8} altre)` : '';
-                        this.mostraMessaggio(`Trovate ${normalizedPrinters.length} stampanti: ${preview}${extra}`, 'success');
-                        this.triggerBridgeSelectHighlight();
-
-                        // Imposta il valore della select in base al nome salvato
-                        if (this.bridgePrinters.includes(this.modalData.nome_indirizzo)) {
-                            this.bridgeSelectValue = this.modalData.nome_indirizzo;
-                        } else if (normalizedPrinters.length === 1) {
-                            this.bridgeSelectValue = normalizedPrinters[0];
-                            this.modalData.nome_indirizzo = normalizedPrinters[0];
-                        } else {
-                            this.bridgeSelectValue = '';
-                        }
-                    } catch (err) {
-                        console.error('Errore fetchQzPrinters:', err);
-                        this.bridgePrinters = [];
-                        this.mostraMessaggio("Errore nel recupero delle stampanti QZ Tray: " + (err && err.message ? err.message : 'Controlla che QZ Tray sia in esecuzione e raggiungibile all\'host specificato.'), 'error');
-                    }
-                    finally {
-                        this.loadingQzPrinters = false;
-                    }
-                },
-                async refreshBridgePrinters() {
-                    if (this.loadingQzPrinters) {
-                        return;
-                    }
-                    await this.fetchQzPrinters();
-                },
-                triggerBridgeSelectHighlight() {
-                    this.highlightBridgeSelect = false;
-                    if (this._bridgeHighlightTimer) {
-                        clearTimeout(this._bridgeHighlightTimer);
-                    }
-                    this.$nextTick(() => {
-                        this.highlightBridgeSelect = true;
-                        this._bridgeHighlightTimer = setTimeout(() => {
-                            this.highlightBridgeSelect = false;
-                        }, 4200);
-                    });
-                },
-
-                onBridgePrinterSelectChange() {
-                    this.highlightBridgeSelect = false;
-                    if (this.bridgeSelectValue && this.bridgeSelectValue !== '__manual__') {
-                        this.modalData.nome_indirizzo = this.bridgeSelectValue;
-                    } else if (this.bridgeSelectValue === '__manual__') {
-                        this.$nextTick(() => {
-                            this.$refs.bridgeManualInput && this.$refs.bridgeManualInput.focus();
-                        });
-                    } else {
-                        this.modalData.nome_indirizzo = '';
-                    }
-                },
                 onUsbPrinterSelectChange() {
                     if (this.usbSelectValue && this.usbSelectValue !== '__manual__') {
                         this.modalData.nome_indirizzo = this.usbSelectValue;
@@ -966,9 +707,6 @@
                     if (tipoStampante === 'RETE') {
                         return '../print/test_print_lan.php';
                     }
-                    if (tipoStampante === 'BRIDGE') {
-                        return '../print/test_print_bridge.php';
-                    }
                     if (tipoStampante === 'BRIDGE_NATIVE') {
                         return '../print/test_print_bridge_native.php';
                     }
@@ -981,11 +719,6 @@
                     // Per Bluetooth non serve nome_indirizzo
                     if (!config || !config.tipo_stampante || (!config.nome_indirizzo && config.tipo_stampante !== 'BLUETOOTH')) {
                         this.mostraMessaggio('Config stampante incompleta per il test.', 'error');
-                        return;
-                    }
-
-                    if (config.tipo_stampante === 'BRIDGE' && !config.qz_host) {
-                        this.mostraMessaggio("Config BRIDGE incompleta: manca l'host QZ Tray.", 'error');
                         return;
                     }
 
@@ -1008,10 +741,6 @@
                                 bridge_topic: config.bridge_topic || ''
                             })
                         });
-
-                        if (config.tipo_stampante === 'BRIDGE') {
-                            await printBridgeViaQz(response);
-                        }
 
                         if (config.tipo_stampante === 'BLUETOOTH' && response && response.success) {
                             if (response.base64) {
@@ -1073,11 +802,6 @@
                     }
                     // Aggiorna i valori delle select in base al tipo di stampante selezionato
                     void this.caricaStampantiPerTipo(this.modalData.tipo_stampante);
-                    if (this.modalData.tipo_stampante === 'BRIDGE') {
-                        this.bridgeSelectValue = this.bridgePrinters.includes(this.modalData.nome_indirizzo)
-                            ? this.modalData.nome_indirizzo
-                            : '';
-                    }
                 },
                 openModal(index) {
                     this.isCreatingRecord = index === null;
@@ -1101,15 +825,6 @@
                     this.modalOpen = true;
 
                     void this.caricaStampantiPerTipo(this.modalData.tipo_stampante);
-
-                    this.bridgeSelectValue = this.modalData.tipo_stampante === 'BRIDGE' && this.bridgePrinters.includes(this.modalData.nome_indirizzo)
-                        ? this.modalData.nome_indirizzo
-                        : '';
-
-                    // Se stiamo modificando una stampante BRIDGE, carichiamo le sue stampanti
-                    if (this.modalData.tipo_stampante === 'BRIDGE' && this.modalData.qz_host) {
-                        this.fetchQzPrinters();
-                    }
 
                     if (this.modalData.tipo_stampante === 'BRIDGE_NATIVE') {
                         if (!this.modalData.bridge_printer_type) {
@@ -1151,11 +866,6 @@
 
                     if (!isBluetooth && (porta === '' || porta === null || typeof porta === 'undefined' || isNaN(porta) || porta < 0)) {
                         this.mostraMessaggio("La porta deve essere un numero valido.", 'error');
-                        return;
-                    }
-
-                    if (tipoStampante === 'BRIDGE' && !qzHost) {
-                        this.mostraMessaggio("Per BRIDGE devi indicare l'host QZ Tray.", 'error');
                         return;
                     }
 
@@ -1272,9 +982,6 @@
                 this.caricaStampanti();
             },
             beforeUnmount() {
-                if (this._bridgeHighlightTimer) {
-                    clearTimeout(this._bridgeHighlightTimer);
-                }
                 document.removeEventListener('keydown', this.handleEscapeKey);
             }
         });

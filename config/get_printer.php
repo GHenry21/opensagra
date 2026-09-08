@@ -64,9 +64,6 @@ function getPrinterConnector($connectionDB, $cassa_id)
                 $printerSettings['porta'] ?? null
             );
 
-        case 'BRIDGE':
-            throw new InvalidArgumentException('Il tipo stampante BRIDGE richiede il flusso di stampa QZ Tray dal browser.');
-
         case 'BRIDGE_NATIVE':
             // Il PC che stampa davvero (dove gira opensagra-print-bridge.php) ha
             // la sua stampante configurata come tipo diretto (WIN_USB/RETE/...),

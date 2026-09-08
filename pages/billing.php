@@ -436,8 +436,6 @@
     <script src="../assets/js/vue.global.js"></script>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
-    <script src="../assets/js/qz-tray.js"></script>
-    <script src="../assets/js/qz-helper.js"></script>
     <script>
         const DEFAULT_DISCOUNT_PRESETS = [5, 10, 15];
         // Intervallo del polling condizionale prodotti a riposo (Fase 1 del piano di
@@ -450,172 +448,7 @@
         // Endpoint dell'hub Mercure: path assoluto (non relativo a /pages/) perche'
         // la route vive alla radice dell'origine, servita dallo stesso Caddy.
         const MERCURE_HUB_PATH = '/.well-known/mercure';
-        let qzScriptLoadPromise = null;
-        let qzConnectionTarget = null;
-        let qzLoadedFromHost = null;
-        let lastQzHost = null;
 
-        function normalizeJsonResponse(response) {
-            if (response && typeof response === 'object') {
-                return response;
-            }
-            if (typeof response === 'string') {
-                try {
-                    return JSON.parse(response);
-                } catch (e) {
-                    return null;
-                }
-            }
-            return null;
-        }
-
-        function normalizeQzHost(host) {
-            return String(host || '')
-                .trim()
-                .replace(/^https?:\/\//i, '')
-                .replace(/\/$/, '');
-        }
-
-        function loadScript(url) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
-                script.async = true;
-                script.onload = () => resolve(url);
-                script.onerror = () => reject(new Error('Load failed: ' + url));
-                document.head.appendChild(script);
-            });
-        }
-
-        async function ensureQzLibraryLoaded(qzHost = null) {
-            if (window.qz) {
-                return;
-            }
-
-            if (!qzScriptLoadPromise) {
-                qzScriptLoadPromise = (async () => {
-                    const candidates = [
-                        '../assets/js/qz-tray.js',
-                        '/opensagra/assets/js/qz-tray.js',
-                        '/assets/js/qz-tray.js'
-                    ];
-                    const errors = [];
-                    for (const url of candidates) {
-                        try {
-                            await loadScript(url);
-                            if (window.qz) {
-                                if (qzHost) {
-                                    qzLoadedFromHost = normalizeQzHost(qzHost);
-                                }
-                                return;
-                            }
-                        } catch (err) {
-                            errors.push(url + ' (' + err.message + ')');
-                        }
-                    }
-                    throw new Error('QZ script non raggiungibile. Tentativi: ' + errors.join(' | '));
-                })();
-            }
-
-            await qzScriptLoadPromise;
-
-            if (!window.qz || !window.qz.websocket) {
-                throw new Error('QZ Tray non disponibile nel browser.');
-            }
-        }
-        
-        // Firma certificati messaggi                                      
-        document.addEventListener("DOMContentLoaded", function () {
-            setupQzSecurity();
-        });
-
-        async function ensureQzConnected(host, port = 8182) {
-            const cleanHost = normalizeQzHost(host);
-            if (!cleanHost) {
-                throw new Error('Host QZ mancante nella configurazione stampante.');
-            }
-
-            let connectHost = cleanHost;
-         /*   const clientHostname = window.location.hostname;
-
-            if (clientHostname === cleanHost) {
-                connectHost = 'localhost';
-            }*/
-
-            if (lastQzHost !== connectHost) {
-                if (qz && qz.websocket && qz.websocket.isActive && qz.websocket.isActive()) {
-                    try {
-                        await qz.websocket.disconnect();
-                    } catch (err) {
-                        console.warn('Disconnect precedente fallito:', err);
-                    }
-                }
-
-                window.qz = null;
-                qzScriptLoadPromise = null;
-                qzConnectionTarget = null;
-                qzLoadedFromHost = null;
-                lastQzHost = connectHost;
-            }
-
-            await ensureQzLibraryLoaded(connectHost);
-            setupQzSecurity();
-
-            const targetKey = connectHost + ':' + Number(port || 8182);
-            if (qz.websocket.isActive && qz.websocket.isActive() && qzConnectionTarget === targetKey) {
-                return;
-            }
-
-            if (qz.websocket.isActive && qz.websocket.isActive()) {
-                try {
-                    await qz.websocket.disconnect();
-                } catch (err) {
-                    console.warn('Disconnessione precedente fallita:', err);
-                }
-            }
-
-            try {
-                await qz.websocket.connect({
-                    host: connectHost,
-                    usingSecure: false,
-                    port: {
-                        secure: [],
-                        insecure: [Number(port || 8182)]
-                    }
-                });
-                qzConnectionTarget = targetKey;
-            } catch (connectErr) {
-                throw new Error('Impossibile connettersi a QZ Tray su ' + connectHost + ':' + port + '. Errore: ' + (connectErr.message || connectErr));
-            }
-        }
-
-        async function printBridgeViaQz(response) {
-            const payload = normalizeJsonResponse(response);
-            if (!payload) {
-                throw new Error('Risposta bridge non valida.');
-            }
-
-            const printerName = String(payload.qz_printer_name || payload.printer || '').trim();
-            const qzHost = String(payload.qz_host || payload.bridge_host || payload.host || '').trim();
-            const rawBase64 = String(payload.qz_data_base64 || '').trim();
-
-            if (!printerName || !qzHost || !rawBase64) {
-                throw new Error('Configurazione stampante incompleta.');
-            }
-
-            await ensureQzConnected(qzHost);
-
-            const config = qz.configs.create(printerName, { encoding: 'ISO-8859-1' });
-            const data = ['\x1B' + '\x40', '\x1B' + '\x61' + '\x31', '\x1B' + '\x61' + '\x30'];
-
-            try {
-                data.push(atob(rawBase64));
-            } catch (err) {
-                throw new Error('Decodifica base64 fallita.');
-            }
-
-            await qz.print(config, data);
-        }
         // Invia i byte ESC/POS in Base64 all'app RawBT tramite il suo URI scheme dedicato
         function inviaBase64ARawBT(base64Data) {
             window.location.href = 'rawbt:base64,' + base64Data;
@@ -1771,13 +1604,6 @@
                                 } 
                                 break;
 
-                            case 'bridge_qz':
-                                  // Chiamata alla tua funzione WebSocket / QZ Tray
-                                if (typeof printBridgeViaQz === 'function') {
-                                    await printBridgeViaQz(response);
-                                }
-                                break;
-
                             case 'direct':
                                   // La stampa è già stata eseguita dal server (USB Windows/Linux o Rete)
                                 console.log("Scontrino inviato con successo dalla stampante di rete/USB del server.");
@@ -1905,9 +1731,7 @@
                     $.get('../print/print_last_receipt.php', { cassa_id: cassaId, id: order.id })
                         .done(async (response) => {
                             try {
-                                if (response && response.method === 'bridge_qz') {
-                                    await printBridgeViaQz(response);
-                                } else if (response && response.method === 'bluetooth_rawbt') {
+                                if (response && response.method === 'bluetooth_rawbt') {
                                     if (response.base64) {
                                         inviaBase64ARawBT(response.base64);
                                     } else {
