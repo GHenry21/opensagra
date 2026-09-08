@@ -161,7 +161,31 @@ function publishProductsChanged(mysqli $db): void
     $row = $res ? $res->fetch_assoc() : null;
 
     publishMercureUpdate('products', [
+        // 'type' distingue gli eventi sull'EventSource condiviso del client:
+        // il protocollo Mercure NON trasporta il topic al subscriber, quindi
+        // il payload deve auto-descriversi (vedi anche publishClusterAnnounce).
+        'type' => 'products',
         'version' => (int) ($row['version'] ?? 0),
         'count' => (int) ($row['count'] ?? 0),
+    ]);
+}
+
+/**
+ * Avviso di stato del cluster verso le casse (Fase 4, punto 3 - topic
+ * 'cluster/announce', una-via server -> client). Lo pubblica un processo
+ * lato server: oggi il CLI bin/opensagra-announce.php a mano, domani il
+ * wrapper prima di fermare FrankenPHP ('shutdown') e alla ripartenza ('back').
+ *
+ * $kind: 'shutdown' (il server sta per fermarsi/riavviarsi, le vendite
+ * potrebbero non salvarsi) | 'back' (di nuovo su, il client pulisce il banner).
+ * Non lancia mai, come publishMercureUpdate.
+ */
+function publishClusterAnnounce(string $kind, int $etaSeconds = 0, string $message = ''): bool
+{
+    return publishMercureUpdate('cluster/announce', [
+        'type' => 'announce',
+        'kind' => $kind,
+        'eta_seconds' => max(0, $etaSeconds),
+        'message' => $message,
     ]);
 }

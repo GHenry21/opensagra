@@ -19,6 +19,21 @@
     <div class="pos-main-panel">
     <?php include __DIR__ . '/../includes/header.php'; ?>
     <div id="app">
+        <!-- Fase 4 punto 3: avviso "il server sta per fermarsi" (topic Mercure
+             cluster/announce). Barra fissa in alto, chiudibile a mano; sparisce
+             da sola quando il server torna a mandare eventi. -->
+        <div v-if="serverAnnounce" class="server-announce" role="alert">
+            <span class="server-announce__icon" aria-hidden="true"><?= pos_icon('network') ?></span>
+            <span class="server-announce__text">
+                Il server sta per fermarsi<template v-if="serverAnnounce.etaSeconds"> (~{{ serverAnnounce.etaSeconds }}s)</template>.
+                Le vendite potrebbero non essere salvate finché non torna operativo.
+                <template v-if="serverAnnounce.message"> {{ serverAnnounce.message }}</template>
+            </span>
+            <button type="button" class="server-announce__close" aria-label="Nascondi avviso"
+                @click="clearServerAnnounce">
+                <?= pos_icon('x') ?>
+            </button>
+        </div>
         <main class="billing-shell" :class="{ 'product-picker-open': isProductPickerOpen }">
             <section class="billing-panel products-panel" id="products" aria-label="Catalogo prodotti"
                 :class="{ 'is-open': isProductPickerOpen, 'is-closing': isProductPickerClosing }"
@@ -676,6 +691,10 @@
                     // atteso, se il componente si smonta durante il fetch del token
                     // la ripresa dopo l'await non deve aprire un EventSource orfano.
                     _destroyed: false,
+                    // Avviso "il server sta per fermarsi" (Fase 4 punto 3): null
+                    // oppure { kind, message, etaSeconds, at }. Vedi handleClusterAnnounce.
+                    serverAnnounce: null,
+                    _announceTimer: null,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1506,7 +1525,13 @@
                     }
 
                     this.teardownProductsRealtime();
-                    const url = MERCURE_HUB_PATH + '?topic=' + encodeURIComponent(info.topic || 'products');
+                    // L'hub vuole un parametro topic= per ogni topic sottoscritto.
+                    const topics = Array.isArray(info.topics) && info.topics.length
+                        ? info.topics
+                        : [info.topic || 'products'];
+                    const url = MERCURE_HUB_PATH + '?' + topics
+                        .map((t) => 'topic=' + encodeURIComponent(t))
+                        .join('&');
                     let es;
                     try {
                         es = new EventSource(url, { withCredentials: true });
@@ -1533,6 +1558,16 @@
                             payload = JSON.parse(event.data);
                         } catch (e) {
                             payload = null;
+                        }
+                        if (payload && payload.type === 'announce') {
+                            this.handleClusterAnnounce(payload);
+                            return;
+                        }
+                        // Qualunque evento non-announce vuol dire che hub e server
+                        // rispondono: se c'era un avviso "sta per fermarsi", il
+                        // server e' evidentemente tornato -> via il banner.
+                        if (this.serverAnnounce && this.serverAnnounce.kind !== 'back') {
+                            this.clearServerAnnounce();
                         }
                         if (payload) {
                             this.syncProductsFromVersion(Number(payload.version), Number(payload.count));
@@ -1590,6 +1625,38 @@
                         this._productsSse = null;
                     }
                     this._productsSseHealthy = false;
+                },
+                // Fase 4 punto 3: avviso di stato del cluster ricevuto via
+                // Mercure (topic 'cluster/announce', pubblicato dal server con
+                // bin/opensagra-announce.php / dal wrapper allo shutdown).
+                handleClusterAnnounce(payload) {
+                    if (!payload || payload.kind === 'back') {
+                        this.clearServerAnnounce();
+                        return;
+                    }
+                    if (payload.kind !== 'shutdown') {
+                        return; // kind non gestito
+                    }
+                    this.serverAnnounce = {
+                        kind: 'shutdown',
+                        message: typeof payload.message === 'string' ? payload.message : '',
+                        etaSeconds: Number(payload.eta_seconds) || 0,
+                        at: Date.now()
+                    };
+                    // Rete di sicurezza: se il "back" non arriva mai (server
+                    // sparito per sempre, relay giu'), il banner non resta
+                    // eterno. 10 min e poi si toglie da solo.
+                    if (this._announceTimer) {
+                        clearTimeout(this._announceTimer);
+                    }
+                    this._announceTimer = setTimeout(() => this.clearServerAnnounce(), 600000);
+                },
+                clearServerAnnounce() {
+                    this.serverAnnounce = null;
+                    if (this._announceTimer) {
+                        clearTimeout(this._announceTimer);
+                        this._announceTimer = null;
+                    }
                 },
                 async loadPaymentMethods() {
                     const cassaId = this.currentCassaId || localStorage.getItem('cassa_id') || 'ND';
@@ -2009,6 +2076,7 @@
                     clearTimeout(this._productsPollTimer);
                 }
                 this.teardownProductsRealtime();
+                this.clearServerAnnounce();
                 if (this._productsVisibilityHandler) {
                     document.removeEventListener('visibilitychange', this._productsVisibilityHandler);
                 }

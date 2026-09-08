@@ -1941,3 +1941,64 @@ body.dark-mode .pay-pill__icon--satispay {
     width: 100vw;
   }
 }
+
+/* Fase 4 punto 3: barra "il server sta per fermarsi". Fissa in alto, sopra
+   tutto, non sposta il layout a due pannelli sotto. */
+.server-announce {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--mc-danger) 16%, var(--mc-panel));
+  border-bottom: 2px solid var(--mc-danger);
+  color: var(--mc-text);
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: var(--ui-shadow-strong);
+}
+
+.server-announce__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--mc-danger);
+}
+
+.server-announce__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.server-announce__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.server-announce__close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--mc-text-soft);
+  cursor: pointer;
+}
+
+.server-announce__close:hover {
+  background: var(--mc-hover-soft);
+  color: var(--mc-text);
+}
+
+.server-announce__close svg {
+  width: 16px;
+  height: 16px;
+}

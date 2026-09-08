@@ -11,7 +11,10 @@
  * QUESTO PROCESSO: gira SOLO sui client (DB_POS_HOST remoto). Si iscrive in
  * streaming all'hub del SERVER e ri-pubblica ogni evento sull'hub LOCALE.
  * Cosi' billing.php del client - invariato - riceve gli eventi del server dal
- * suo hub locale di sempre.
+ * suo hub locale di sempre. Topic inoltrati: 'products' (catalogo/scorte) e
+ * 'cluster/announce' (avviso "il server sta per fermarsi", Fase 4 punto 3).
+ * Mercure non trasporta il topic al subscriber: il topic locale su cui
+ * ripubblicare si ricava dal campo 'type' del payload.
  *
  * Lanciato dal wrapper come processo figlio (non un servizio - vedi piano 3g).
  * Su un server / installazione indipendente esce subito senza fare nulla.
@@ -22,8 +25,15 @@ require_once __DIR__ . '/../config/env_reader.php';
 require_once __DIR__ . '/../config/mercure.php';
 require_once __DIR__ . '/mercure_subscriber.php';
 
-const RELAY_TOPICS = ['products'];
+const RELAY_TOPICS = ['products', 'cluster/announce'];
 const RELAY_LOCAL_HUB = 'https://localhost/.well-known/mercure';
+
+// type del payload -> topic locale su cui ri-pubblicare. Un type sconosciuto
+// non viene inoltrato (non sappiamo dove metterlo).
+const RELAY_TYPE_TO_TOPIC = [
+    'products' => 'products',
+    'announce' => 'cluster/announce',
+];
 
 function relayLog(string $msg): void
 {
@@ -48,19 +58,29 @@ runMercureSubscriber([
     'label'    => 'relay',
     'mint_jwt' => static fn() => mintMercureJwt([], RELAY_TOPICS, MERCURE_SUB_JWT_TTL),
     'on_event' => static function ($data) {
+        // Un evento senza struttura JSON non e' inoltrabile: non sappiamo su
+        // che topic locale metterlo.
+        if (!is_array($data)) {
+            return;
+        }
         // Difesa contro l'eco: se DB_POS_HOST fosse (per errore di config)
         // l'IP di QUESTA macchina, l'hub del server e quello locale sarebbero
         // lo stesso hub - ripubblicare qui rimanderebbe l'evento a noi stessi,
         // all'infinito. Marchiamo cio' che ripubblichiamo e scartiamo gli
         // eventi gia' marchiati. Il client ignora la chiave `_relay`.
-        if (is_array($data) && !empty($data['_relay'])) {
+        if (!empty($data['_relay'])) {
             return;
         }
-        $payload = is_array($data) ? $data + ['_relay' => 1] : $data;
+
+        $localTopic = RELAY_TYPE_TO_TOPIC[$data['type'] ?? 'products'] ?? null;
+        if ($localTopic === null) {
+            relayLog("relay: type sconosciuto ('" . ($data['type'] ?? '') . "'), evento non inoltrato.");
+            return;
+        }
 
         // Ri-pubblica sull'hub LOCALE, cosi' billing.php locale lo riceve.
-        if (!publishMercureUpdate('products', $payload, RELAY_LOCAL_HUB)) {
-            relayLog("relay: ripubblicazione sull'hub locale fallita (hub locale giu'?).");
+        if (!publishMercureUpdate($localTopic, $data + ['_relay' => 1], RELAY_LOCAL_HUB)) {
+            relayLog("relay: ripubblicazione di '$localTopic' sull'hub locale fallita (hub locale giu'?).");
         }
     },
 ]);
