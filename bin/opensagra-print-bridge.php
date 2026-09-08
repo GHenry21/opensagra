@@ -62,8 +62,14 @@ if ($cassa === '') {
 }
 
 $env = loadPosEnvVars();
-if (($env['mercure_jwt_secret'] ?? '') === '') {
-    bridgeLog("print-bridge: MERCURE_JWT_SECRET non configurato - esco (ripartira' quando il segreto e' sincronizzato).");
+
+// Ci si iscrive all'hub del server (o locale se questa e' il server): serve il
+// segreto giusto per quell'hub - quello REMOTO sincronizzato da conf_rete su un
+// PC-ponte in modalita' client, quello locale su un'installazione indipendente.
+$hubUrl = mercureHubUrl();
+$hubSecret = mercureSecretForHub($hubUrl);
+if ($hubSecret === '') {
+    bridgeLog("print-bridge: segreto Mercure non disponibile per l'hub - esco (ripartira' quando conf_rete l'ha sincronizzato).");
     exit(0);
 }
 
@@ -139,10 +145,10 @@ function printRaw(string $bytes, string $cassa, string $sinkFile, array $data): 
 bridgeLog("print-bridge: cassa '$cassa', topic '$topic'" . ($sinkFile !== '' ? ", SINK=$sinkFile" : '') . ".");
 
 runMercureSubscriber([
-    'hub_url'  => mercureHubUrl(),          // hub del server (o locale se questa e' il server)
+    'hub_url'  => $hubUrl,                  // hub del server (o locale se questa e' il server)
     'topics'   => [$topic],
     'label'    => "print-bridge[$cassa]",
-    'mint_jwt' => static fn() => mintMercureJwt([], [$topic], MERCURE_SUB_JWT_TTL),  // scoped: solo questa cassa
+    'mint_jwt' => static fn() => mintMercureJwt([], [$topic], MERCURE_SUB_JWT_TTL, $hubSecret),  // scoped: solo questa cassa
     'on_event' => static function ($data) use ($cassa, $sinkFile) {
         if (!is_array($data) || !isset($data['data_base64'])) {
             bridgeLog("print-bridge: evento senza 'data_base64', ignorato.");

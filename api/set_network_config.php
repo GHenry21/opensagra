@@ -10,6 +10,7 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/env_reader.php';
 require_once __DIR__ . '/../config/env_writer.php';
+require_once __DIR__ . '/../config/app_config.php';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $mode = $data['mode'] ?? '';
@@ -30,6 +31,17 @@ if ($mode === 'client' && $targetHost === '') {
 
 $env = loadPosEnvVars();
 
+// Segreto Mercure da propagare in variabili.env (Fase 4, Opzione A):
+//  - client       -> lo si LEGGE dal DB del server (tabella app_config) e lo
+//                    si salva come MERCURE_JWT_SECRET_REMOTE, cosi' relay e
+//                    bridge firmano token che l'hub del server accetta, senza
+//                    copia a mano. Vuoto se il server non l'ha (ancora)
+//                    pubblicato: si resta sul polling, nessun errore.
+//  - indipendente -> si AZZERA il _REMOTE (non c'e' piu' un server) e si
+//                    pubblica il proprio segreto locale nel DB, cosi' i
+//                    prossimi client lo trovano.
+$remoteSecret = '';
+
 // Verifica la connessione PRIMA di scrivere: mai salvare un host che non
 // risponde, altrimenti l'app resta rotta finché non si torna qui a mano.
 try {
@@ -44,6 +56,11 @@ try {
         ]);
         exit;
     }
+    if ($mode === 'client') {
+        $remoteSecret = getAppConfig($conn, 'MERCURE_JWT_SECRET', '');
+    } elseif ($env['mercure_jwt_secret'] !== '') {
+        setAppConfig($conn, 'MERCURE_JWT_SECRET', $env['mercure_jwt_secret']);
+    }
     $conn->close();
 } catch (mysqli_sql_exception $e) {
     http_response_code(422);
@@ -57,4 +74,16 @@ if (!setEnvValue($env['env_file'], 'DB_POS_HOST', $targetHost)) {
     exit;
 }
 
-echo json_encode(['success' => true, 'host' => $targetHost, 'mode' => $mode]);
+// client -> scrive il segreto del server (anche vuoto: azzera un valore
+// stantio di una sessione precedente); indipendente -> azzera.
+setEnvValue($env['env_file'], 'MERCURE_JWT_SECRET_REMOTE', $mode === 'client' ? $remoteSecret : '');
+
+echo json_encode([
+    'success' => true,
+    'host' => $targetHost,
+    'mode' => $mode,
+    // il client sa che il realtime cross-macchina e' pronto solo se ha
+    // ricevuto il segreto; se false, resta sul polling finche' il server non
+    // lo pubblica (una qualsiasi modifica prodotti lato server basta).
+    'mercure_secret_synced' => $mode === 'client' ? ($remoteSecret !== '') : true,
+]);

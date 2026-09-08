@@ -47,16 +47,23 @@ if (!$isClient) {
     relayLog("relay: DB_POS_HOST e' locale ('{$env['host']}'): non e' una postazione client, niente da fare. Esco.");
     exit(0);
 }
-if (($env['mercure_jwt_secret'] ?? '') === '') {
-    relayLog("relay: MERCURE_JWT_SECRET non configurato - esco (ripartira' quando il segreto e' sincronizzato).");
+
+// L'hub a cui ci si iscrive e' quello del SERVER: serve il suo segreto
+// (MERCURE_JWT_SECRET_REMOTE, sincronizzato da conf_rete). Fallback a quello
+// locale se non ancora sincronizzato - probabile 401, ma runMercureSubscriber
+// lo gestisce (attesa e retry).
+$serverHub = mercureHubUrl();
+$serverSecret = mercureSecretForHub($serverHub);
+if ($serverSecret === '') {
+    relayLog("relay: segreto Mercure del server non disponibile - esco (ripartira' quando conf_rete l'ha sincronizzato).");
     exit(0);
 }
 
 runMercureSubscriber([
-    'hub_url'  => mercureHubUrl(),   // hub del server (da DB_POS_HOST)
+    'hub_url'  => $serverHub,        // hub del server (da DB_POS_HOST)
     'topics'   => RELAY_TOPICS,
     'label'    => 'relay',
-    'mint_jwt' => static fn() => mintMercureJwt([], RELAY_TOPICS, MERCURE_SUB_JWT_TTL),
+    'mint_jwt' => static fn() => mintMercureJwt([], RELAY_TOPICS, MERCURE_SUB_JWT_TTL, $serverSecret),
     'on_event' => static function ($data) {
         // Un evento senza struttura JSON non e' inoltrabile: non sappiamo su
         // che topic locale metterlo.

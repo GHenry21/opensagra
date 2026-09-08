@@ -6,7 +6,7 @@
  */
 
 /**
- * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,print_bridge_casse:string}
+ * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,mercure_jwt_secret_remote:string,print_bridge_casse:string}
  */
 function loadPosEnvVars(): array
 {
@@ -47,6 +47,14 @@ function loadPosEnvVars(): array
         // config/mercure.php. Vuoto se l'hub non e' configurato su questa
         // installazione (Fase 4, opzionale).
         'mercure_jwt_secret' => $vars['MERCURE_JWT_SECRET'] ?? '',
+        // Segreto dell'hub Mercure del SERVER, in modalita' rete. Lo scrive
+        // api/set_network_config.php leggendolo dal DB del server (tabella
+        // app_config) al passaggio a client - non si tocca a mano. Vuoto su
+        // un'installazione indipendente / server. Serve per firmare i JWT
+        // diretti all'hub del server (relay, bridge, checkout) mentre l'hub
+        // LOCALE del client resta sul suo MERCURE_JWT_SECRET. Vedi
+        // config/mercure.php::mercureSecretForHub().
+        'mercure_jwt_secret_remote' => $vars['MERCURE_JWT_SECRET_REMOTE'] ?? '',
         // PC-ponte (modalita' client): id topic di stampa serviti da questo PC,
         // lista separata da virgole. Letto da bin/opensagra-print-bridge.php
         // (--cassa= lo sovrascrive) e da api/stampanti.php per riportare il

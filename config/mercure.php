@@ -19,10 +19,40 @@
  */
 
 require_once __DIR__ . '/env_reader.php';
+require_once __DIR__ . '/app_config.php';
 
 function base64UrlEncode(string $data): string
 {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+
+/**
+ * Segreto giusto per firmare un JWT diretto all'hub `$hubUrl`.
+ *
+ * In modalita' rete ci sono DUE hub: quello LOCALE del client (che verifica
+ * col MERCURE_JWT_SECRET del Caddyfile del client) e quello del SERVER (che
+ * verifica col segreto del server). Il client conosce il primo come
+ * `mercure_jwt_secret` e il secondo, sincronizzato dal DB, come
+ * `mercure_jwt_secret_remote`.
+ *
+ * - hub localhost/127.0.0.1  -> segreto LOCALE
+ * - qualunque altro host      -> segreto REMOTO se impostato, altrimenti
+ *   quello locale (installazione indipendente: unico hub, unico segreto).
+ */
+function mercureSecretForHub(string $hubUrl): string
+{
+    $env = loadPosEnvVars();
+    $isLocalHub = str_contains($hubUrl, '//localhost/')
+        || str_contains($hubUrl, '//localhost:')
+        || str_contains($hubUrl, '//127.0.0.1/')
+        || str_contains($hubUrl, '//127.0.0.1:');
+
+    if ($isLocalHub) {
+        return $env['mercure_jwt_secret'];
+    }
+    return $env['mercure_jwt_secret_remote'] !== ''
+        ? $env['mercure_jwt_secret_remote']
+        : $env['mercure_jwt_secret'];
 }
 
 /**
@@ -53,10 +83,16 @@ function mercureHubUrl(): string
  * @param string[] $publish   topic che questo token puo' pubblicare (es. ['*'] o ['stock/1'])
  * @param string[] $subscribe topic che questo token puo' sottoscrivere
  * @param int      $ttlSeconds validita' del token, in secondi (default 1h)
+ * @param string   $secret    segreto di firma; vuoto (default) = quello locale
+ *                            (MERCURE_JWT_SECRET). Passare quello del server
+ *                            per i token diretti al suo hub - vedi
+ *                            mercureSecretForHub().
  */
-function mintMercureJwt(array $publish = [], array $subscribe = [], int $ttlSeconds = 3600): string
+function mintMercureJwt(array $publish = [], array $subscribe = [], int $ttlSeconds = 3600, string $secret = ''): string
 {
-    $secret = loadPosEnvVars()['mercure_jwt_secret'];
+    if ($secret === '') {
+        $secret = loadPosEnvVars()['mercure_jwt_secret'];
+    }
     if ($secret === '') {
         throw new RuntimeException('MERCURE_JWT_SECRET non configurato in variabili.env - hub Mercure non attivo su questa installazione.');
     }
@@ -102,7 +138,7 @@ function publishMercureUpdate(string $topic, $data, string $hubUrl = ''): bool
     }
 
     try {
-        $jwt = mintMercureJwt([$topic]);
+        $jwt = mintMercureJwt([$topic], [], 3600, mercureSecretForHub($hubUrl));
     } catch (Throwable $e) {
         return false;
     }
@@ -153,8 +189,39 @@ function publishMercureUpdate(string $topic, $data, string $hubUrl = ''): bool
  * mai: se l'hub e' giu' o non configurato, publishMercureUpdate() torna false
  * in silenzio e la mutazione applicativa resta valida comunque.
  */
+/**
+ * Solo lato SERVER: pubblica il proprio MERCURE_JWT_SECRET nella tabella
+ * app_config, cosi' che un client lo legga al passaggio a modalita' rete
+ * (api/set_network_config.php) invece di copiarlo a mano (Fase 4, Opzione A).
+ *
+ * Guardato in tre modi: (1) solo se questa installazione e' il server / e'
+ * indipendente (host locale) - su un client `$db` e' il DB del server e il
+ * segreto locale sarebbe quello sbagliato; (2) una volta per processo PHP;
+ * (3) scrive solo se manca o e' diverso. install.ps1 scrivera' la riga
+ * direttamente (punto 5): questo copre gli install esistenti e lo sviluppo.
+ */
+function seedServerMercureSecret(mysqli $db): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    $env = loadPosEnvVars();
+    $isLocal = in_array($env['host'], ['', '127.0.0.1', 'localhost', '::1'], true);
+    if (!$isLocal || $env['mercure_jwt_secret'] === '') {
+        return;
+    }
+    if (getAppConfig($db, 'MERCURE_JWT_SECRET') !== $env['mercure_jwt_secret']) {
+        setAppConfig($db, 'MERCURE_JWT_SECRET', $env['mercure_jwt_secret']);
+    }
+}
+
 function publishProductsChanged(mysqli $db): void
 {
+    seedServerMercureSecret($db);
+
     $res = $db->query(
         'SELECT COALESCE(UNIX_TIMESTAMP(MAX(updated_at)), 0) AS version, COUNT(*) AS count FROM stock WHERE is_active = 1'
     );
