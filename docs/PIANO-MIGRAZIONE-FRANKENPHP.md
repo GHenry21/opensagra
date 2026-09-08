@@ -15,7 +15,7 @@
 | **Packaging / distribuzione** | **Nessun binario embed.** Lo script d'installazione **copia i file** di opensagra nelle cartelle di destinazione. Il codice sorgente resta aperto e ispezionabile (progetto open source). `vendor/` incluso nel pacchetto di release (niente `composer install` sul target). |
 | **Cosa varia in base alle risposte** | Il codice di opensagra è **sempre spedito completo e identico**. Il wizard automatizza solo due passi oggi manuali: (1) generare `config/variabili.env` dalle risposte, (2) creare DB/tabelle/utente. Vedi **Fase 3a**. |
 | **HTTPS** | **Aggiornato dopo i test reali (2026-09-06): HTTP e HTTPS coesistono stabilmente, non è un aut-aut.** Il problema di mixed-content su Firefox/WebKit riguarda **solo** il metodo di stampa `bridge_qz` (un QZ Tray condiviso raggiunto via IP di LAN); la stampa diretta (`WIN_USB`/`LINUX_USB`/`RETE`, gestita interamente dal server PHP senza WebSocket lato browser) **funziona identica su HTTPS**, verificato con test reale. Regola pratica per la Fase 3: cassa con stampante diretta → HTTPS ok; cassa che usa un bridge QZ condiviso → HTTP. Il bridge condiviso è il caso meno comune, quindi un avviso mirato nella guida/wizard basta, senza sacrificare HTTP/2/3 e il lucchetto per tutti gli altri. Dettagli in **Appendice C**. |
-| **Realtime (Mercure/SSE)** | Rimandato. L'hub è già dentro il binario FrankenPHP: si attiva quando/se serve (Fase 4). |
+| **Realtime (Mercure/SSE)** | **Attivo (2026-09-08, Fase 4).** Hub nel binario FrankenPHP, topic `products`, `EventSource` in `billing.php` con fallback al polling. Cross-macchina in modalità rete via `bin/opensagra-realtime-relay.php` (verificato con la VM). Resta il wiring in `install.ps1`/`conf_rete` (segreto condiviso via DB, servizio WinSW del relay). |
 | **Worker mode** | Ottimizzazione futura opzionale. Scope e stima in Appendice B. |
 | **QZ Tray** | Stampa da stampanti USB via browser. La procedura certificati/firma attuale (openssl + override + `sign-message.php`) **resta invariata** in questa migrazione. Con Caddy/HTTPS vanno però verificati alcuni punti di mixed-content: vedi **Appendice C**. Nessuna modifica al codice QZ ora. |
 | **Wizard d'installazione** | Lo script pone domande in linguaggio semplice (architettura, QZ, HTTPS) e configura di conseguenza: vedi **Fase 3a**. ⚠️ Le domande attuali sono solo una bozza, da riformulare al momento della Fase 3. |
@@ -557,9 +557,32 @@ Passo intermedio sviluppato e verificato prima di scrivere l'installer vero e pr
 
 ### 3g. Servizi
 
-- [x] Windows: WinSW — `Register-FrankenPHPService` in `install.ps1`. **Bug reale trovato testando su VM pulita**: `frankenphp-service.exe` (= WinSW rinominato) non veniva mai scaricato automaticamente, andava installato a mano in Fase 2 — aggiunta `Install-WinSW`, scarica l'ultima release da GitHub (`winsw/winsw`).
-- [ ] macOS/Linux: non applicabile (Windows-only).
-- [ ] **Soluzione B (da valutare, non urgente)**: account a bassi privilegi invece di LocalSystem — non necessario ora, il bug ACL è chiuso lato codice (Soluzione A). Dettagli in Appendice A.
+> ### ⚠️ Revisione del modello servizi (2026-09-08) — wrapper/tray al posto dei servizi per FrankenPHP e i processi per-client
+>
+> **Contesto:** deciso con l'utente che il target reale è **PC normali che qualcuno usa anche per altro** (non kiosk dedicati sempre accesi). Su quel target i servizi Windows a boot-start sono più un peso che un pregio: l'utente non esperto non sa che esistono, l'uninstall lascia "servizi fantasma", e il service account LocalSystem è la causa-radice del bug ACL upload (Appendice A / memoria).
+>
+> **Nuovo modello:**
+> - **MariaDB resta un servizio, sempre.** È lo stato condiviso; se la macchina fa da server, N casse dipendono dal suo DB — non si può legarne la vita a "c'è una finestra aperta". E l'MSI lo installa come servizio in modo pulito; toglierlo sarebbe lavoro in più e più fragile (shutdown graceful, data dir).
+> - **FrankenPHP + relay realtime + (futuro) bridge di stampa nativo + QZ Tray → gestiti da un wrapper/tray-app** (Start/Stop/stato/log, tipo pannello XAMPP). Su un client in modalità rete relay e bridge diventano semplici **processi figli** del wrapper — niente WinSW, niente ACL, niente wiring di servizi in `install.ps1` per questi.
+> - Nel wrapper una spunta **"avvia anche all'accensione"** (Task Scheduler at-logon; o, se spuntata, registra FrankenPHP come servizio) per chi *ha* un PC-server dedicato.
+>
+> **Comportamento della finestra (deciso 2026-09-08):**
+> - **X = vai in tray**, non chiude (come qBittorrent su Windows). Evita che l'operatore uccida il server locale per sbaglio pensando di riordinare il desktop.
+> - **Uscita reale = tasto destro sull'icona in tray → Esci → conferma "sei sicuro?"**. Azione deliberata.
+> - **Extra:** se questa macchina è il server e ha **connessioni client attive** (rileva con lo stesso `SHOW PROCESSLIST` già usato da `conf_rete`), l'uscita mostra un avviso rinforzato *"N casse collegate perderanno il DB"*.
+> - **Linux/macOS:** su Linux se il DE non supporta la tray (StatusNotifierItem) → la X chiude (con la stessa conferma). Su macOS la X chiude solo la finestra, l'app resta nella barra dei menù (NSStatusItem), Esci dalla barra con conferma — comportamento nativo mac.
+>
+> **Tecnologia del wrapper (deciso 2026-09-08): binario Go**, non PowerShell/WPF. Motivo: a parità di sforzo (~3–4 gg per la versione Windows) il risultato è più robusto proprio dove serve — kill pulito dell'albero di processi figli (Job Object Windows: niente `frankenphp.exe` orfani), restart-su-crash, istanza singola, `.exe` firmabile senza lo stigma "script avvolto in exe" di `ps2exe` verso SmartScreen, e cross-OS reale (stesso codice → tray Windows / barra menù macOS / StatusNotifierItem Linux). Stack: `fyne.io/systray` per la tray, `webview` (WebView2, presente su Win11) per la finestra di stato/log, `os/exec` + Job Object per i figli, `go-sql-driver/mysql` per il check `SHOW PROCESSLIST` all'uscita. **L'installer resta WPF/PowerShell/`ps2exe`** (gira una volta, quasi fatto in Fase 3 — non si riscrive): due strumenti, ciascuno adatto al suo ciclo di vita.
+>
+> **Quando:** **schedulato al punto 5** (insieme alla rifinitura di `install.ps1`), non prima — a quel punto si sa esattamente cosa deve supervisionare (frankenphp + relay + bridge di stampa + eventualmente QZ finché non è rimosso) e lo si scrive bene in un colpo solo. Fino ad allora i servizi restano come sono; relay e bridge, in dev, si avviano a mano.
+>
+> **Impatto sul resto del piano:** le voci sotto e in Fase 4 che dicono "servizio WinSW del relay / del bridge" vanno lette come "processo figlio del wrapper Go". `install.ps1` perde `Install-WinSW`/`Register-FrankenPHPService` (resta solo per MariaDB, che comunque la fa l'MSI).
+
+- [x] ~~Windows: WinSW — `Register-FrankenPHPService`~~ **superato dalla revisione sopra** per FrankenPHP; il codice `Install-WinSW`/`Register-FrankenPHPService` già scritto e testato resta utile come riferimento e per l'opzione "avvia all'accensione". **Bug reale trovato testando su VM pulita** (storico): `frankenphp-service.exe` (= WinSW rinominato) non veniva scaricato automaticamente — `Install-WinSW` prende l'ultima release da GitHub (`winsw/winsw`).
+- [x] MariaDB: resta servizio (installato dall'MSI).
+- [ ] **Wrapper/tray-app in Go** — da costruire al punto 5. Supervisore processi figli (Job Object) + tray + finestra stato/log (webview) + "avvia all'accensione" + X→tray + Esci con conferma (+ avviso "N casse collegate" se server). MVP possibile a ~2 gg senza finestra custom.
+- [ ] macOS/Linux: il wrapper Go è cross-OS per costruzione; su Windows prima.
+- [ ] ~~Soluzione B (account a bassi privilegi invece di LocalSystem)~~ — **non serve più**: col wrapper FrankenPHP gira come utente loggato, il problema LocalSystem non si pone. Resta rilevante solo per il servizio MariaDB (che però non scrive nella webroot).
 
 ### 3h. HTTPS / certificati
 
@@ -583,7 +606,9 @@ Non un ramo condizionato da una domanda (il nucleo è a zero domande, vedi 3a): 
 
 **Nota legale (chiesta esplicitamente, verificata 2026-09-07)**: QZ Tray è LGPL 2.1. `install.ps1` scarica l'installer ufficiale non modificato dalle release GitHub e comunica con QZ Tray solo via WebSocket (nessun codice QZ incorporato/linkato) — è "mere aggregation"/IPC secondo le stesse FAQ della FSF sulla LGPL, non genera un'opera derivata, nessun obbligo di rilasciare il codice di opensagra. Il meccanismo di firma/override per sopprimere il popup è una funzionalità ufficiale di QZ, non un aggiramento. Attenzione solo se in futuro si volesse *rebrandizzare* QZ Tray (nome/icona propri): lì servirebbe una licenza commerciale di white-labeling — non il caso qui.
 
-**Esperimento futuro, da valutare (annotato su richiesta esplicita, non pianificato) — bridge di stampa nativo via Mercure**
+**~~Esperimento futuro, da valutare~~ → PROMOSSO (2026-09-08): bridge di stampa nativo via Mercure — roadmap collegata Fase 4, punto 2, IN CORSO**
+
+> **Deciso 2026-09-08:** si fa, ed è il **punto 2** della "Roadmap collegata" di Fase 4 (dopo il relay, già fatto). Riusa lo stesso sottoscrittore Mercure residente del relay. **Obiettivo esplicito: una volta verificato funzionante, QZ Tray si rimuove del tutto** — niente coesistenza permanente `BRIDGE_NATIVE`/`BRIDGE`(QZ). Fino alla verifica, QZ resta in `install.ps1` come rete di sicurezza; poi via lui e via `Install-QZTray`/`installa_certificati_qz.php`/`api/sign-message.php`/`qz-helper.js` e la coppia chiave/cert bundlata.
 
 Discusso il 2026-09-07, affinato in una seconda conversazione dopo aver osservato che la Fase 4 (Mercure) userebbe comunque FrankenPHP come trasporto push: invece di reimplementare da zero l'accesso USB come fa QZ Tray, l'idea è **riusare il codice di stampa diretta già scritto e testato** (`config/get_printer.php`, casi `WIN_USB`/`LINUX_USB`, libreria `escpos-php`) spostandolo su un piccolo processo residente sul PC collegato alla stampante, invece che sul server centrale:
 
@@ -598,14 +623,31 @@ PC col bridge   → un piccolo script PHP si iscrive al topic (SSE, come EventSo
 **Risolve da solo il problema HTTPS/mixed-content di Appendice C**: oggi Firefox/WebKit bloccano `ws://` verso QZ non-loopback da una pagina `https://` perché il *browser* apre quella connessione, e il mixed-content è una policy del browser. Nel nuovo schema il browser non partecipa più allo step di stampa — è un processo PHP in CLI a parlare con Mercure via HTTP(S), e un client da riga di comando non ha un'origine da proteggere: nessuna policy di mixed-content si applica. Si potrebbe usare HTTPS ovunque senza il compromesso attuale (tenere HTTP in parallelo apposta per QZ).
 
 **I due pezzi realmente nuovi da scrivere** (il resto è riuso):
-- **Script sottoscrittore**: processo persistente sul PC bridge, connessione streaming verso `https://server/.well-known/mercure?topic=print/cassa/{id}` (token JWT nell'header `Authorization`), parsing riga-per-riga del flusso `text/event-stream` (nessuna libreria necessaria, `curl` con `CURLOPT_WRITEFUNCTION` o `fopen()`/`stream_get_line()`), riconnessione automatica (Mercure supporta `Last-Event-ID` per non perdere eventi). Da far girare come servizio persistente — riusabile lo stesso meccanismo WinSW già costruito e testato in Fase 3 per `frankenphp`.
+- **Script sottoscrittore**: processo persistente sul PC bridge, connessione streaming verso `https://server/.well-known/mercure?topic=print/cassa/{id}` (token JWT nell'header `Authorization`), parsing riga-per-riga del flusso `text/event-stream` (nessuna libreria necessaria, `curl` con `CURLOPT_WRITEFUNCTION` o `fopen()`/`stream_get_line()`), riconnessione automatica (Mercure supporta `Last-Event-ID` per non perdere eventi). **Nota 2026-09-08: è lo stesso `bin/opensagra-realtime-relay.php` già scritto per il relay** — il parsing SSE, la riconnessione con `Last-Event-ID`, l'idle-exit, il log su STDERR sono già lì; il bridge aggiunge un topic (`print/cassa/{id}`) e, alla ricezione, chiama `WindowsPrintConnector` invece di ripubblicare. Gestito dal wrapper Go (vedi revisione 3g), non da WinSW.
 - **Autorizzazione JWT per topic**: Mercure richiede un JWT firmato sia per pubblicare che per sottoscrivere, con claim che elencano esplicitamente i topic permessi (non un token generico). Il server centrale userebbe un JWT "publisher" (`{"mercure":{"publish":["print/cassa/*"]}}`), ogni PC bridge un JWT "subscriber" **scoped alla sola sua cassa** (`{"mercure":{"subscribe":["print/cassa/henry"]}}`) — stessa logica di isolamento di oggi (un bridge non deve poter vedere gli scontrini di un'altra cassa). Si aggancerebbe bene allo schema esistente: una colonna tipo `bridge_token` in `casse_stampanti`, generata quando si configura una cassa con un nuovo tipo (es. `BRIDGE_NATIVE`), analogo a come oggi si configurano `qz_host`/`nome_indirizzo` per il tipo `BRIDGE`.
 
 **Vantaggi**: elimina del tutto QZ Tray (un componente di terze parti in meno da installare/scaricare/tenere aggiornato — oggi causa di 3 dei bug reali trovati in Fase 3: URL di download morto, cartella override mai creata, chiave di firma mai posizionata), nessun popup/certificato di override da gestire, risolve l'HTTPS su tutti i browser per costruzione, non solo Chromium.
 
 **Pacchetto sul PC bridge**: solo `vendor/mike42/escpos-php`, `config/get_printer.php` e il nuovo script sottoscrittore — **non l'app intera**: niente MariaDB inutilizzato sempre acceso, niente regola firewall per una porta 3306 che nessuno userà lì, niente superficie in più su un PC che deve solo stampare.
 
-**Costi/rischi non stimati** (nessuna stima di tempo fatta finora, da fare se/quando si decide di affrontarlo davvero): lo script sottoscrittore e lo schema di autorizzazione JWT sono comunque codice nuovo da scrivere e testare, anche se il pezzo difficile (parlare con l'hardware) è già pronto. Andrebbe anche rifatto lato server l'instradamento in `routingStampa()` (nuovo caso `BRIDGE_NATIVE` accanto a `BRIDGE`/QZ, non necessariamente in sostituzione — potrebbero coesistere). Non prioritario: QZ Tray funziona (verificato in Fase 3), questa resta un'idea per il futuro.
+**Lavoro (2026-09-08, punto 2 in corso):** (1) topic `print/cassa/{id}` e claim JWT scoped alla singola cassa (colonna `bridge_token` in `casse_stampanti`, tipo cassa `BRIDGE_NATIVE`); (2) lato server, `routingStampa()`: nuovo caso `BRIDGE_NATIVE` che, invece di restituire i byte al browser (come `BRIDGE`/QZ), li **pubblica** su `print/cassa/{id}` con `publishMercureUpdate()`; (3) nel sottoscrittore, handler del topic di stampa → `escpos-php` `WindowsPrintConnector`/`FilePrintConnector`; (4) test con stampante reale su VM; (5) **verificato → rimozione di QZ** (vedi box sopra). `BRIDGE_NATIVE` **sostituisce** `BRIDGE`(QZ), non ci coesiste in modo permanente.
+
+**Nota d'uso — servizio al tavolo con cassa bridge in cucina (già possibile oggi, senza vista ordini condivisa)**
+
+Annotato il 2026-09-08 su richiesta esplicita dell'utente, come esempio da tenere nella guida. Il modello base di OpenSagra è per sagre semplici: *il cliente ordina alla cassa → paga → riceve lo scontrino stampato → va allo stand e scambia lo scontrino con il cibo*. Non c'è servizio al tavolo nel senso della ristorazione, e **una "vista ordini condivisa" tra casse è stata esplicitamente scartata** (nessuna schermata cucina con stati "in preparazione/pronto", nessuna bacheca).
+
+La stampa via bridge (cassa di tipo `BRIDGE`/QZ con la stampante fisica **in cucina**) copre però già, in forma minima, lo scenario del servizio al tavolo — senza codice nuovo, senza stati, senza una pagina KDS:
+
+- il cameriere con tablet/telefono va al tavolo, prende l'ordine su `billing.php` come una cassa qualunque e fa pagare;
+- il checkout stampa lo scontrino **sulla stampante in cucina** (la cassa del cameriere è configurata con il bridge che punta lì);
+- la cucina prepara quello che legge sullo scontrino; il cameriere passa a ritirare quello che gli serve. L'unico "stato" è *stampato = da fare*, nessuno marca pronto/in lavorazione.
+
+Due modi di stampare a seconda della dimensione dell'ordine, con il flag `cut_each_item` in `receipt_config` (già esistente):
+
+- **ordine piccolo**: `cut_each_item = 0` → un unico scontrino con il recap finale, basta quello;
+- **ordine grosso**: `cut_each_item = 1` → un tagliandino per riga (taglio per articolo), così il tavolo consegna al cameriere i tagliandini man mano, decidendo cosa e quando mangiare.
+
+Limiti onesti di questo schema: è una comanda "sola andata" — la cucina non ha modo di segnalare ritardi o esauriti al cameriere se non a voce, e non c'è storico "questo tavolo ha già ricevuto X". Per una sagra semplice va bene; oltre quella scala servirebbe la vista ordini condivisa vera, che resta un progetto a sé e fuori dallo scopo della Fase 4. Il bridge di stampa nativo via Mercure (sopra) migliorerebbe solo il *trasporto* di questo scenario (niente QZ Tray, HTTPS ovunque), non il modello d'uso.
 
 ### 3j. Pulizia
 
@@ -621,13 +663,17 @@ PC col bridge   → un piccolo script PHP si iscrive al topic (SSE, come EventSo
 
 Da fare **solo se** cresce il numero di casse o si vuole il realtime anche sugli ordini. Nessun componente nuovo da installare: l'hub è nel binario FrankenPHP.
 
-- [ ] Abilitare l'hub Mercure nel `Caddyfile` (route `/.well-known/mercure`, chiavi JWT publisher/subscriber).
-- [ ] Su ogni mutazione rilevante (`update_product.php`, `insert_product.php`, `soft_delete_product.php`, `update_category.php`, checkout, storni): `POST` di un update all'hub con topic `products` / `orders`.
-- [ ] `billing.php`: sottoscrizione `EventSource` sul topic `products`; su messaggio → `loadProducts()` (o applica il delta dal payload).
-- [ ] **Mantenere la Strategia A come fallback** se `EventSource` non è disponibile / la connessione cade.
-- [ ] Estendere ad `orders` per far comparire nuovi ordini sulle casse senza refresh.
+- [x] Abilitare l'hub Mercure nel `Caddyfile` (route `/.well-known/mercure`, chiavi JWT publisher/subscriber). *(fondamenta 2026-09-08)*
+- [x] Su ogni mutazione rilevante (`update_product.php`, `insert_product.php`, `soft_delete_product.php`, `update_category.php`, checkout, storni): `POST` di un update all'hub con topic `products`. *(2026-09-08, vedi "Implementazione completa" sotto)*
+- [x] `billing.php`: sottoscrizione `EventSource` sul topic `products`; su messaggio → `loadProducts()` (full reload, niente delta - scelta esplicita).
+- [x] **Mantenere la Strategia A come fallback** se `EventSource` non è disponibile / la connessione cade.
+- [ ] ~~Estendere ad `orders`~~ — **scartato** (2026-09-08): niente vista ordini condivisa per sagre semplici, vedi 3i.
+- [x] **Relay cross-hub** (2026-09-08) — `bin/opensagra-realtime-relay.php` + `mercureHubUrl()` in `config/mercure.php`. Porta la modalità rete a <1s cross-macchina. Verificato con la VM (host↔VM, 3 browser incl. Edge nella VM: edge/VM 953 ms). Dettaglio in "Roadmap collegata" punto 1.
+- [ ] `install.ps1` + `conf_rete` + wrapper: generare `mercure{}` (con `cookie_name`+`cors_origins`) e `MERCURE_JWT_SECRET` sempre; `conf_rete` sincronizza il segreto via DB al passaggio a client; il **wrapper/tray-app** avvia il relay come processo figlio quando `DB_POS_HOST` è remoto (non più servizio WinSW — vedi revisione 3g). Dopo un giro di test su VM pulita.
+- [ ] **Scalino 0 + Scalino 1** (recovery DB-down, indipendenti, da fare comunque): UI di fallimento esplicita + retry client-side ~10-20 s; `idempotency_key` (UUID) con `UNIQUE` sullo scontrino. Dettaglio in "Sotto-punti di sicurezza".
+- [ ] **Fallback locale una-via + push a chiusura cassa** (roadmap collegata punto 4, **dopo relay e bridge di stampa nativo**): A) trigger + swap una-via su `127.0.0.1`; B) snapshot locale nel processo sottoscrittore — base periodica ~2-5 min + refresh anticipato su evento `products`, mutuamente esclusivo con lo stato di fallback; C) push a `chiusura cassa` (UUIDv7/id-per-nodo + `idempotency_key`, FK rimappate) con bottone "N vendite da sincronizzare" persistente se il centrale è ancora giù; D) replay decrementi stock; E) test 4 scenari. Design completo in "Design concreto — Fallback locale una-via + push a chiusura cassa" (+ sottosezione "Punto B — meccanismo dello snapshot"). Stima ~2-4 gg.
 
-**Accettazione:** una modifica prodotto si riflette sulle altre casse in < 1 s senza polling; staccando l'hub, l'app continua a funzionare col polling condizionale.
+**Accettazione:** una modifica prodotto si riflette sulle altre casse in < 1 s senza polling; staccando l'hub, l'app continua a funzionare col polling condizionale. **Verificato** (2026-09-08): intra-macchina con `e2e/mercure-realtime.spec.js` su Chromium/Firefox/WebKit (push ~80-100 ms senza poll; hub bloccato → polling ~2,4 s); **cross-macchina** con la VM `opensagra-test` come client reale + relay (host↔VM entrambe le direzioni; 3 browser incl. Edge nella VM, comparsa edge/VM 953 ms).
 
 ### Fondamenta poste (2026-09-08), su richiesta esplicita — non la funzionalità completa
 
@@ -641,10 +687,156 @@ La decisione "resta opzionale/futura, non promossa" (sotto) non è stata ribalta
 - [x] **Bug reale trovato testando, il più importante**: senza il campo `private` nella richiesta di pubblicazione, Mercure consegna l'update a **qualsiasi** subscriber con un JWT valido, indipendentemente dal suo claim `subscribe` — lo scoping per topic (già pensato per l'isolamento per-cassa del futuro bridge di stampa, vedi 3i) **non funzionava affatto** senza questo campo. Corretto e riverificato con un vero test di isolamento: un subscriber con lo scope giusto riceve l'update, uno con lo scope sbagliato (stesso topic richiesto, JWT diverso) non riceve nulla.
 - [x] `Caddyfile` tolto dal tracking git (path assoluti locali, e ora può contenere il segreto JWT in chiaro) — tracciato solo `Caddyfile.example` senza segreti, stesso trattamento di `variabili.env`/`variabili.env.example`.
 
-**Deliberatamente NON fatto** (resta il lavoro della vera Fase 4, se/quando promossa):
-- Nessuna chiamata a `publishMercureUpdate()` dai punti di mutazione reali (`update_product.php`, checkout, ecc.).
-- Nessun `EventSource` lato client in `billing.php`.
-- `install.ps1` **non genera** il blocco `mercure`/il segreto JWT per le installazioni reali — le fondamenta vivono solo nell'ambiente di sviluppo per ora, l'installer resta a "zero domande" e senza questo pezzo in più finché Fase 4 non viene davvero promossa.
+### Implementazione completa (2026-09-08) — topic `products`, full reload
+
+Promossa e completata su richiesta esplicita. Scope fissato con l'utente: **solo `products`** (niente `orders`), **full reload** sul messaggio (il payload porta solo `{version,count}`, il client richiama `loadProducts()` — nessun delta: eviterebbe qualche KB di banda ma introduce deriva dello stato e casi limite alla riconnessione che imporrebbero comunque un percorso di full reload di sicurezza).
+
+**Fatto:**
+- `config/mercure.php`: aggiunto `publishProductsChanged(mysqli $db)` — calcola `{version,count}` con la stessa query di `api/products_version.php` e chiama `publishMercureUpdate('products', …)`. Non lancia, ritorna in fretta se l'hub non c'è.
+- Agganciato dopo il successo in: `api/update_product.php` (solo se `affected_rows>0`), `api/insert_product.php`, `api/soft_delete_product.php`, `api/update_category.php`, `print/print_receipt.php` (**solo se** la vendita ha scalato scorte a quantità limitata — flag `$stockChanged` — dopo il `commit()`, prima della stampa), `api/storna_scontrino.php` (solo se `updatedCount>0`).
+- `api/mercure_subscribe_token.php` (nuovo): mint di un JWT con **solo** `subscribe:['products']`, consegnato nel cookie `mercure_authorization` (`path=/.well-known/mercure`, `Secure`, `HttpOnly`, `SameSite=Strict`, TTL 12h — una cassa resta aperta tutta la serata). Se `MERCURE_JWT_SECRET` manca risponde `503 {realtime:false}` e il client resta sul polling.
+- `pages/billing.php`: `initProductsRealtime()` in `mounted()` chiede il token e apre l'`EventSource`; `syncProductsFromVersion()` è il punto unico che confronta `{version,count}` e ricarica (condiviso con il polling). Quando l'SSE è sano il polling rallenta a 60s (`PRODUCTS_POLL_SLOW_MS`), torna a 6s se cade. `teardownProductsRealtime()` in `beforeUnmount()`.
+- `Caddyfile`/`Caddyfile.example`: aggiunti `cookie_name` e `cors_origins` ai blocchi `mercure` (vedi gotcha sotto).
+- `e2e/mercure-realtime.spec.js` (nuovo): due test (push senza polling / fallback con hub bloccato), verdi su Chromium+Firefox+WebKit.
+
+**Bug reale trovato testando #1 — il modulo Caddy `mercure` non applica un default a `cookie_name`.** Con solo `publisher_jwt`/`subscriber_jwt`, l'hub autentica **solo** dall'header `Authorization: Bearer` (curl/CLI) e risponde `401 Unauthorized` al cookie `mercure_authorization` — che è l'unico modo in cui `EventSource` nel browser può autenticarsi (non può impostare header). Il push sembrava rotto mentre il fallback polling mascherava il problema (il prodotto compariva lo stesso, dopo 6s). Fix: `cookie_name mercure_authorization` esplicito nel blocco `mercure`, più `cors_origins <hostname>` (l'hub valida l'Origin/Referer della richiesta col cookie contro quella lista). Dopo il fix: push in ~90 ms.
+
+**Bug reale trovato testando #2 — `EventSource.onerror` che affamava il polling.** Se l'hub è irraggiungibile ma il PHP è su (caso concreto: hub down, app viva), `EventSource` ritenta da solo ~ogni 3s e ogni retry fallito rifà scattare `onerror`. La prima versione dell'handler faceva `clearTimeout`+`scheduleProductsPoll(6000)` a ogni `onerror`: il timer del polling veniva azzerato ogni 3s e non arrivava **mai** a scadere → con hub giù la cassa smetteva di aggiornarsi del tutto. Fix: `onerror` non tocca più il timer del polling (quel loop si auto-ripianifica ed è già a cadenza normale quando `_productsSseHealthy` è false); accorcia l'attesa solo alla transizione sano→non-sano; dopo 5 errori nativi di fila o `readyState===CLOSED` fa teardown e passa a un backoff proprio (10s→5min) invece del martellamento nativo. Verificato dal secondo test dello spec.
+
+**Deliberatamente NON fatto:**
+- ~~Nessun relay cross-hub~~ → **FATTO 2026-09-08** (roadmap collegata punto 1, vedi sotto). Cross-macchina verificato con la VM.
+- `install.ps1` **non genera** ancora il blocco `mercure`/il segreto JWT/il servizio relay WinSW; `conf_rete` non sincronizza ancora `MERCURE_JWT_SECRET` via DB — resta il punto 5.
+- Topic `orders` / vista ordini condivisa — scartato, non rimandato (vedi 3i).
+
+### Roadmap collegata (deciso 2026-09-08) — relay + bridge di stampa nativo + avviso disconnessione
+
+Discutendo l'architettura è emerso che **più pezzi ancora da fare condividono la stessa identica base**: un **sottoscrittore Mercure residente sul client** (processo CLI persistente **gestito dal wrapper/tray-app**, vedi revisione 3g — non un servizio WinSW; attivo solo quando `DB_POS_HOST` è remoto, cioè in modalità rete). Si costruisce **una volta** e serve a tutti. **Ordine deciso: 1 → 2 → 4** (il 3 è quasi gratis una volta che c'è il sottoscrittore, si aggancia dove capita):
+
+1. **Relay realtime** — ✅ **FATTO e verificato 2026-09-08.** `bin/opensagra-realtime-relay.php`: processo CLI, si iscrive in streaming all'hub del **server** (header `Authorization: Bearer`, niente cookie/CORS: non è un browser), parsa l'SSE riga per riga e **ri-pubblica ogni evento sull'hub locale**; `billing.php` resta identico (parla sempre col suo hub locale). Riconnessione con `Last-Event-ID` + backoff; `Low-Speed-Time` 45s per accorgersi di uno stream morto; esce subito (idle) se `DB_POS_HOST` è locale; log su STDERR (WinSW lo cattura).
+   - `config/mercure.php`: nuova `mercureHubUrl()` — l'URL dell'hub in `publishMercureUpdate()` si ricava da `DB_POS_HOST` (locale → `https://localhost`; remoto → `https://<IP-server>`). Così il checkout di un client pubblica dritto sull'hub del server. Firma di `publishMercureUpdate()` cambiata: `$hubUrl` ora default `''` → `mercureHubUrl()`; il relay passa esplicitamente `https://localhost/...` per ripubblicare in locale.
+   - **Verifica (2026-09-08, host + VM Hyper-V `opensagra-test` come client reale, `DB_POS_HOST=192.168.88.224`, relay avviato sulla VM):**
+     - host inserisce un prodotto → hub host → **relay VM** → hub locale VM → subscriber locale VM riceve `data:{version,count}` (curl SSE sull'hub locale della VM).
+     - VM inserisce un prodotto → `mercureHubUrl()` ricava l'hub del server → subscriber sull'hub host riceve l'evento (direzione inversa OK).
+     - **Cross-test 3 browser**: chromium(host) + firefox(host) su `billing.php` dell'host + **Edge headless dentro la VM** (CDP via portproxy) su `billing.php` della VM. Mutazione dall'API host → comparsa: chromium/host **161 ms**, firefox/host **116 ms**, **edge/VM 953 ms** (l'hop in più del relay + latenza NAT; ben sotto il polling 6s e sotto la soglia <1s).
+     - Non-regressione intra-macchina: `e2e/mercure-realtime.spec.js` di nuovo verde su 3 motori dopo il cambio di `mercure.php`.
+   - **Resta (punto 5 / `conf_rete`):** `MERCURE_JWT_SECRET` **condiviso** server + client — il server lo scrive in una riga di config nel DB; `conf_rete`, al passaggio a client, lo legge dal DB (già remoto) e lo scrive nel `variabili.env` locale (stesso schema di `DB_POS_HOST`). E il servizio WinSW per il relay. Nella verifica sopra il segreto è stato copiato a mano sulla VM.
+   - `cors_origins` serve solo l'origine **locale** su ogni macchina (billing ↔ hub locale è sempre same-origin) → niente range di IP LAN da autorizzare. Confermato: la VM ha solo `cors_origins https://localhost` / `http://localhost`.
+2. **Bridge di stampa nativo** — ⏳ **plumbing FATTO e verificato (2026-09-08), manca test con stampante reale.**
+   - `bin/mercure_subscriber.php` (nuovo): estratto il loop SSE (connessione/parsing/riconnessione con `Last-Event-ID`/backoff/stale-detect) in `runMercureSubscriber($opts)`. Il relay è stato rifattorizzato per usarlo (non-regressione `e2e` verde).
+   - `bin/opensagra-print-bridge.php` (nuovo): si iscrive a `print/cassa/{id}` sull'hub del server con JWT **scoped a quel solo topic** (auto-firmato dal `MERCURE_JWT_SECRET` condiviso — nessuna colonna `bridge_token` necessaria, si è scelto il self-mint); alla ricezione fa `base64_decode` e scrive i byte con il connettore `escpos-php` della stampante locale (`getPrinterConnector()` estratto da `getPrinter()` in `config/get_printer.php`). Cassa da `--cassa=<id>` o `PRINT_BRIDGE_CASSE`. Hook di test `PRINT_BRIDGE_SINK_FILE` (scrive su file invece che sulla stampante).
+   - `print/print_receipt.php::routingStampa()`: nuovo caso `BRIDGE_NATIVE` — **non** restituisce i byte al browser, li **pubblica** su `print/cassa/{nome_indirizzo|cassa_id}` con `publishMercureUpdate()` e ritorna `['method'=>'bridge_native','topic'=>...,'published'=>bool]`. La vendita è già registrata: `published:false` → il frontend avvisa e si ristampa dallo storico. Vale anche per le ristampe (`print_last_receipt.php` usa `routingStampa`).
+   - `pages/billing.php`: casi `bridge_native` nel checkout e nella ristampa (nessuna azione del browser; solo avviso se `published:false`).
+   - **Verifica (host)**: checkout su cassa `BRIDGE_NATIVE` → vendita registrata + ~11 KB di ESC/POS validi (`1b40`, center, testo, `1d5641` cut) pubblicati sul topic → bridge con JWT scoped li riceve e li scrive intatti. Isolamento: stesso meccanismo `private=on` + subscribe-scoped già verificato per `products`.
+   - **Verifica stampante REALE (2026-09-08)** ✅ — USB "POS-80C" condivisa sull'host. Confronto: stampa diretta `WIN_USB` (scontrino 146) vs `BRIDGE_NATIVE` via bridge (scontrino 147) → **identici in prodotto e impaginazione** (confermato dall'utente su carta). `WindowsPrintConnector` scrive senza errori. **È il gate che l'utente aveva posto per rimuovere QZ: passato.**
+   - **UI `conf_casse.php` (2026-09-08)** ✅ — tipo `BRIDGE_NATIVE` nel select; campo "Cassa con la stampante" = `<select>` delle casse con stampante diretta (`WIN_USB`/`LINUX_USB`/`RETE`), esclusa se stessa; QZ host e Porta nascosti; `formatTipoStampante` += "BRIDGE NATIVO"; `test_print_bridge_native.php` (nuovo) per il bottone "Test stampa" (pubblica uno slip di prova sul topic). `api/stampanti.php` non ha whitelist sul tipo → nessuna modifica. Browser-verificato: dropdown popolato (poop/rpi/vm test), salvataggio riga OK.
+   - **`print/print_stat_receipt.php` (2026-09-08)** ✅ — nuovo ramo `BRIDGE_NATIVE` accanto a quello `BRIDGE`(QZ): pubblica il report ESC/POS su `print/cassa/{target}`, ritorna `method=bridge_native, published`. `pages/stat_vendite.php` gestisce `published:false`. Smoke: report → 379 byte ESC/POS validi ricevuti dal bridge.
+   - **Discovery remota stampanti (2026-09-08)** ⛔ SCARTATA — era stata costruita (proxy HTTP server-to-server `remotePrinterList()` in `api/stampanti.php` + campo "cerca su un altro PC" per WIN_USB/LINUX_USB + toast fisso con un bottone per stampante). Rimossa su richiesta utente: attaccava il risultato (nome-stampante) a `modalData.nome_indirizzo`, che per `BRIDGE_NATIVE` è invece il **cassa_id** della cassa-ponte (topic `print/cassa/{id}`) — i due meccanismi scrivono valori incompatibili nello stesso campo. Il `<select>` `bridgeNativeTargets` (casse con stampante diretta ≠ questa) è sufficiente e coerente col routing Mercure. Contestualmente tolta dal menù "Tipo Stampante" l'opzione `BRIDGE` (QZ Tray): resta solo `BRIDGE_NATIVE` (label "BRIDGE NATIVO"); i rami `=== 'BRIDGE'` nel modal restano dead-UI, cadranno con la rimozione QZ completa (box in 3i). Tenuto solo `toast.js` `options.actions` (elenco di bottoni, retrocompat con `options.action`, auto-dismiss al click salvo `keepOpen`) + CSS `.toast-actions` — estensione generica utile per il banner del punto 3.
+   - **Manca**: test cross-macchina sulla VM (cassa client pubblica → bridge su altra macchina stampa). Poi rimozione QZ (box in 3i).
+3. **Avviso "il server sta per fermarsi"** (idea rimandata, vedi sezione sotto) — con il sottoscrittore già in piedi diventa quasi gratis: un topic in più (`cluster/announce`), il client mostra un banner.
+4. **Fallback locale una-via + push a chiusura cassa** (deciso 2026-09-08 — **da fare dopo 1 e 2**) — mitigazione del buco prolungato del DB centrale in modalità rete. Non usa il sottoscrittore residente, ma dipende dai punti 1-2: il **relay** (1) è ciò che tiene il client agganciato agli eventi `products` da cui lo snapshot locale si aggiorna reattivamente, e il **bridge di stampa nativo** (2) è ciò che permette di stampare durante il fallback senza un `print_only.php` dedicato. Design completo, tabella A-E, spigoli e stima (~2-4 gg) nella sezione **"Design concreto — Fallback locale una-via + push a chiusura cassa"** più sotto. Prerequisiti indipendenti già decisi e da fare comunque: **Scalino 0 + Scalino 1** (vedi "Sotto-punti di sicurezza").
+
+**Sotto-punti di sicurezza (da valutare quando ci si arriva, non ora):**
+- **Disabilitare lo "switch back" sui client una volta connessi via rete.** Misura di sicurezza: un client agganciato a un server **non** può sganciarsi da solo dalla pagina Rete — **solo il server** decide se e quando sganciare un client (→ da lì l'avviso di disconnessione al punto 3). Ha senso come principio (evita che una postazione si stacchi per errore durante il servizio e perda il DB condiviso); il *come* e il *se* farlo davvero si vedono quando si implementa.
+- **Mitigazione server-down: dati salvati comunque in locale e ripristinati alla riapparsa del servizio.** Se il server DB cade durante il servizio, il client oggi non può fare checkout (`new mysqli()` verso `DB_POS_HOST` fallisce e `print/print_receipt.php` muore prima di fare qualsiasi cosa — l'operatore resta col cerchio che gira e non sa se la vendita è passata). Approccio a scalini, analizzato 2026-09-08:
+
+  **Scalino 0 — rendere il fallimento visibile e non distruttivo (deciso: da fare, poco costoso, indipendente dal resto della roadmap).**
+  - Checkout fallito per DB/rete irraggiungibile → stato UI esplicito: *"Server non raggiungibile — vendita NON registrata. Riprova."* Oggi è un 500 grezzo / spinner appeso.
+  - Retry client-side della **stessa** richiesta per una finestra breve (~10-20 s, backoff). La stragrande maggioranza dei "DB down" a una sagra LAN è un blip WiFi o un riavvio di MariaDB da pochi secondi — il retry lo copre senza coda né Service Worker.
+  - Nessun cambiamento server-side oltre a quanto serve allo Scalino 1.
+
+  **Scalino 1 — chiave di idempotenza sul checkout (deciso: da fare comunque, prerequisito di qualunque coda futura).**
+  - Il client genera un UUID per ogni tentativo di checkout e lo manda nel payload.
+  - Server: colonna `idempotency_key` con indice `UNIQUE` sullo scontrino; se la chiave esiste già la seconda POST è un no-op che ritorna lo scontrino esistente invece di duplicare.
+  - Rende sicuro **ogni** retry — quello automatico dello Scalino 0 e anche il "riprovo a premere" manuale che l'operatore fa già oggi quando non è sicuro che sia passata. Risolve il rischio *doppio invio*.
+
+  **Scalino 2 — hold locale limitato + replay guidato dall'operatore (SUPERSEDED — vedi "Design concreto — Fallback locale una-via + push a chiusura cassa" più sotto, che è l'approccio scelto per il buco prolungato. Questo resta documentato come alternativa valutata, più leggera in un aspetto — nessuno swap di connessione — ma bloccata sul bridge di stampa nativo e col problema della riconvergenza live).**
+  - Scaduto il retry, la vendita va in `IndexedDB` (una lista "vendite in sospeso" visibile in cassa). **Niente replay automatico silenzioso.**
+  - Al ritorno del server: *"N vendite in sospeso, invia ora"* → conferma dell'operatore → ogni replay ri-esegue la validazione stock completa lato server; i fallimenti (stock ormai esaurito da un'altra cassa) si mostrano all'operatore per risoluzione manuale.
+  - Umano nel loop esattamente per i casi che non si risolvono da soli: **conflitto stock** (`SELECT ... FOR UPDATE` è tutto il punto della transazione — una vendita accodata e replayata dopo può non essere più valida) e **numerazione scontrino** (numero assegnato al replay → scontrini fuori ordine rispetto al wall-clock; numero client-side → serve un blocco di numeri per-cassa).
+
+  **Perché un Service Worker NON è lo strumento giusto qui:**
+  - **Il SW non stampa.** Finché non esiste il bridge di stampa nativo (punto 2), una vendita accodata offline = **nessuno scontrino** = la cucina non riceve la comanda. Problema operativo più grave del write ritardato. La coda vendite ha senso solo *dopo* il bridge di stampa.
+  - Le casse col bridge QZ sono su **HTTP** (Appendice C): il SW richiede HTTPS, lì non parte.
+  - La cassa è un **tab unico e persistente** (FullyKiosk tutta la serata): il vantaggio vero del SW (Background Sync, sopravvivere alla chiusura del tab) qui non serve. Una coda `IndexedDB` in-page fa lo stesso lavoro con meno complessità e senza il footgun del SW stale che serve un `billing.php` vecchio.
+  - Un guasto catastrofico (server morto: niente prodotti, niente vendite delle altre casse, niente stampa) non lo risolve comunque una coda locale.
+
+  **Interazione col punto precedente (switch-back disabilitato):** lo switch-back manuale dalla pagina Rete resta disabilitato in esercizio normale; la via d'uscita al server-down è il **fallback una-via automatico** del "Design concreto" più sotto (scatta il client, non l'operatore, e non torna indietro fino a chiusura).
+
+  **Cluster di DB peer / replica invece di un master unico:** valutato e scartato — vedi "DB distribuito / replicato" subito sotto; la parte utilizzabile di quell'idea è confluita nel "Design concreto — Fallback locale una-via".
+
+### DB distribuito / replicato invece di master unico — analisi 2026-09-08
+
+Domanda posta: abbiamo N installazioni ognuna con il suo DB (schema identico). Invece del master unico, non si possono collegare tra loro — o come replica del centrale, o "scrivo sul mio locale e quando il centrale torna copio su" — sfruttando il realtime già in piedi?
+
+**Perché è un problema di sistemi distribuiti, non di "copiare righe".** Le tabelle si dividono in due classi con proprietà opposte:
+- **Append-only / partizionabili per cassa** (`scontrini`, `righe_scontrino`, `fondo_cassa`): una vendita "appartiene" a una sola cassa, nessun'altra la modifica. Merge banale *a patto* di risolvere PK e numerazione (vedi sotto).
+- **Contatori mutabili condivisi** (`stock.quantity_available`): è **un solo pool** per tutta la sagra. Se il nodo A e il nodo B hanno entrambi una copia locale e vendono entrambi le ultime 3 porzioni, al merge ne hai vendute 6 — e le hai già date a dei clienti. **Nessun merge automatico è corretto.** Il design attuale (un solo DB, `SELECT ... FOR UPDATE` in transazione dentro `print/print_receipt.php`) questo lo gestisce *correttamente*; passare a DB locali replicati è un passo **indietro** sulla correttezza dello stock, non avanti.
+
+**Le opzioni concrete, e perché nessuna regge:**
+
+| Approccio | Cosa fa | Perché non va per questo caso |
+|---|---|---|
+| **Galera (multi-master sincrono)** | Ogni write richiede quorum | Su partizione di rete (il nostro guasto tipico: WiFi ballerino) la parte in minoranza **smette di accettare write** — l'opposto di quello che vogliamo. Pesante: 3+ nodi, rete curata, non gira su laptop da sagra su WiFi. |
+| **Replica async (1 master, N replica read-only)** | Le replica servono le *letture* durante un buco del master | Le replica **non accettano write** → il checkout fallisce lo stesso. Promuovere una replica a master è manuale e pericoloso; il rientro del vecchio master è split-brain. |
+| **"Scrivo locale, copio su al ritorno"** | Ogni nodo scrive sul proprio MariaDB, un processo sincronizza col centrale | È lo **Scalino 2** della coda, ma nel layer DB invece che app. Stessi identici problemi (oversell stock nella finestra, collisioni PK). In più tiene vive le *letture* locali durante il buco — vantaggio reale ma modesto — al costo di un motore di sync sempre attivo con gestione conflitti. |
+| **Mercure come trasporto di replica** | Ogni mutazione pubblica il delta di riga; ogni nodo lo applica in locale (event-sourcing) | Mercure è **fire-and-forget, nessuna durabilità**: un nodo offline al momento della pubblicazione **perde** l'evento (il transport in-memory attuale non persiste nulla). Servirebbe transport durevole sull'hub + ogni nodo che traccia il `Last-Event-ID` + un percorso di full-resync per "gap rilevato" — che è la parte difficile. E **non elimina il conflitto stock**: riduce la finestra a ~100 ms, due casse a 50 ms di distanza vendono comunque entrambe l'ultima porzione. Mercure non garantisce nemmeno l'ordine globale tra topic → servirebbero vector clock o un punto di serializzazione unico, che è... un DB centrale. Cerchio chiuso. |
+
+**Conclusione.** L'architettura attuale (un DB centrale + client "grassi" con PHP proprio solo per la stampante USB) **resta la scelta giusta**. La replica completa del DB: non rende lo stock corretto (lo peggiora), trasforma le partizioni da "degradato" a "rischio split-brain", moltiplica la complessità dell'installer (che teniamo a "una domanda"), e l'unico beneficio vero (letture locali durante il buco) è piccolo.
+
+**La versione pragmatica dell'idea, quella che vale la pena.** Nel fallback standalone, ogni cassa che vende sul proprio DB locale **è già** "N installazioni con il proprio DB" — e i dati creati durante il buco sono *solo righe di vendita append-only della cassa stessa*. Reintegrarle è trattabile.
+
+Una prima ipotesi (switch-back automatico bidirezionale + utility di merge separata) è stata scartata come troppo cara da sviluppare/debuggare (snapshot continuo, swap di connessione a servizio in corso, riconvergenza live, casi limite multi-client). Poi, tagliando gli spigoli con decisioni esplicite, si è arrivati al design concreto qui sotto — **questo sostituisce sia lo "Scalino 2" sopra sia l'ipotesi bidirezionale**.
+
+#### Design concreto — Fallback locale una-via + push a chiusura cassa (deciso 2026-09-08)
+
+**Idea:** alla caduta prolungata del centrale la cassa passa al proprio MariaDB locale e **ci resta fino a chiusura**. Niente ri-aggancio a servizio in corso, niente riconvergenza live. A `chiusura cassa` (bottone già esistente, scrive già data/ora nel DB) le vendite fatte in locale vengono spinte al centrale. È il "best of both worlds": lo stock condiviso della modalità rete in esercizio normale, l'autonomia dello standalone quando il centrale non c'è.
+
+| | Pezzo | Peso |
+|---|---|---|
+| **A** | **Trigger + swap una-via**: "centrale irraggiungibile da > N s" (N generoso, 2-3 min — oltre qualsiasi reboot; lo Scalino 0 copre già i secondi) → riscrive `variabili.env` su `127.0.0.1`, soft reload di `billing.php` (il carrello è già in `localStorage`, sopravvive). **Una sola direzione**: nessun ritorno automatico alla rete durante la serata. | piccolo-medio |
+| **B** | **Snapshot locale "abbastanza fresco"** — *il vero lavoro rimasto*. Vedi **"Punto B — meccanismo dello snapshot"** subito sotto la tabella per il dettaglio deciso (base periodica ~2-5 min + refresh anticipato su evento `products`, tutto nel processo sottoscrittore). | medio |
+| **C** | **Push una-tantum a `chiusura cassa`**: se la cassa ha girato in fallback stasera, le sue vendite salgono al centrale con **UUIDv7** (o id-per-nodo `node_id * 10_000_000 + local`) + `idempotency_key` per rendere sicuro un push interrotto e ripreso; FK `righe_scontrino → scontrino` rimappate con lo stesso schema. A chiusura il sistema controlla se il centrale risponde: **sì** → push, tutto da UI; **no** → non fa nulla, i dati restano nel MariaDB locale (copia sempre presente) e compare un bottone **persistente** *"N vendite da sincronizzare"* che lancia lo stesso push quando l'operatore lo preme (a centrale tornato) — **sempre da UI, mai script a mano**. Centrale morto per giorni = caso estremo, riconciliazione a mano. | medio |
+| **D** | **Replay dei decrementi stock** sul centrale durante il push (decremento semplice, **senza** `FOR UPDATE`, negativi ammessi → un valore negativo è il segnale visibile dell'oversell, lo **storno** — funzione già esistente — lo sistema). | piccolo |
+| **E** | **Test 4 scenari**: rete normale / fallback attivato / fallback + push a chiusura / fallback con centrale ancora morto a chiusura. | medio |
+
+#### Punto B — meccanismo dello snapshot (deciso 2026-09-08)
+
+**Dataset:** minuscolo. Le tabelle che servono al nodo per operare in fallback: `stock` (~30-200 righe), categorie, `casse_stampanti`, `receipt_config`, eventuale tabella auth. **Non** le vendite delle altre casse. Totale qualche centinaio di KB → "copia tutto ogni volta" è economico con qualsiasi meccanismo; il costo è nel codice e nei componenti, non nel trasferimento.
+
+**Dove gira:** dentro il **processo sottoscrittore residente** che esiste già per il relay (roadmap punto 1). **Zero nuovi servizi.**
+
+**Due trigger, stessa logica di upsert:**
+
+1. **Base periodica — ~2-5 min (il meccanismo portante).**
+   ```
+   connetti al centrale (DB_POS_HOST)
+   per ogni tabella di riferimento:
+       rows = SELECT * FROM <t>
+       transazione locale: DELETE + INSERT rows   (o upsert per PK)
+   on error (centrale irraggiungibile): logga, tieni la copia precedente, riprova al tick dopo
+   ```
+   Fault-tolerant per costruzione; idempotente per costruzione (replace intero). Nessuna modifica lato centrale. È anche la **rete di sicurezza** che rende inutili le parti care (transport persistente sull'hub, publisher su ogni endpoint admin, logica di "eventi persi"): entro un tick la base ricuce qualunque cosa il refresh su evento abbia mancato.
+
+2. **Refresh anticipato su evento `products` (ottimizzazione, costo marginale basso).**
+   Il sottoscrittore riceve **già** gli eventi `products` per il relay → all'evento lancia lo stesso upsert, ma solo per `stock`/prodotti/categorie. Aggiunge: aggancio all'handler (poche righe), **debounce/coalesce** (5 edit in 2 s → 1 refresh), **lock in-process** (timer ed evento non fanno `DELETE+INSERT` insieme). Porta la staleness di stock da ~2-5 min a ~1 s.
+   **`casse_stampanti` / `receipt_config` restano solo-periodici** — nessun publisher, non cambiano praticamente mai a servizio in corso.
+
+**Staleness residua accettata:** con la sola base, stock locale al più ~2-5 min indietro → un po' più di oversell nel raro buco, già messo in conto. Il refresh su evento è difendibile a questo costo ma non indispensabile: aggiungerlo o meno è una scelta, la base da sola è già sufficiente.
+
+**Mutua esclusione con lo stato di fallback (critico):** il loop di snapshot gira **solo** mentre `DB_POS_HOST` è remoto **e** il nodo **non** è in fallback. Appena il nodo switcha (punto A), lo snapshot si ferma — altrimenti, al ritorno del centrale, sovrascriverebbe i decrementi stock delle vendite fatte in fallback prima che il push (punto C) li carichi su. Dopo il fallback col centrale parla **solo** il push, non lo snapshot.
+
+**Spigoli, con la decisione presa:**
+- **Oversell tra casse durante il buco**: *accettato*. È un caso limite, e lo storno esiste già. Lo snapshot non deve essere preciso proprio per questo.
+- **Numerazione scontrino**: durante il fallback la cassa numera dalla sua sequenza locale; al push quei numeri possono non essere globalmente unici quella sera. Cosmetico per un POS da sagra (lo scontrino è una comanda) — al più si prefissa col numero cassa.
+- **Cassa in fallback = invisibile alla rete tutta la sera**: i totali live sul centrale sotto-contano finché quella cassa non chiude. Accettabile per un guasto raro, da dire all'organizzatore.
+
+**Stima:** ~2-4 giorni (non l'affare aperto della prima ipotesi — ogni edge ha un "accettato/manuale").
+
+**Interazione con "switch-back disabilitato" (punto a sopra):** coerente — lo switch-back manuale dalla pagina Rete resta disabilitato in esercizio normale; il fallback una-via del punto A **è** la via d'uscita, automatica e a senso unico, non una scelta libera dell'operatore.
+
+**Quando farlo (deciso):** è il **punto 4 della "Roadmap collegata"**, da fare **dopo relay (1) e bridge di stampa nativo (2)** — il relay è ciò che alimenta lo snapshot reattivo (B), il bridge di stampa è ciò che permette di stampare durante il fallback senza un `print_only.php` a parte. Gli **Scalini 0/1** invece sono indipendenti e vanno fatti comunque prima (coprono già il 99% dei casi: buchi di secondi/minuti). Anticipabile solo se un organizzatore ha un vincolo reale di continuità che lo standalone puro non soddisfa.
+
+**Cosa resta comunque scartato:** replica DB vera (Galera / async / Mercure-come-replica, tabella sopra) e qualunque merge *bidirezionale* o *live*. Il push è una-via, una-tantum, agganciato a un evento umano già esistente.
 
 ### Pro e contro (valutazione 2026-09-07, prima di decidere se promuoverla)
 
@@ -661,7 +853,7 @@ Analisi fatta passando in rassegna il codice reale (non solo in teoria) per capi
 
 **Contro / motivi per NON farla ora:**
 - **Non è un problema di correttezza dei dati, solo di percezione**: verificato in `print/print_receipt.php` — il checkout rivalida sempre lo stock a livello DB dentro una transazione (`SELECT ... FOR UPDATE`) prima di scalare la quantità. Due casse che vedono per 6s lo stesso prodotto "disponibile" non possono mai generare una vendita doppia di un articolo esaurito: la seconda riceve un errore pulito al checkout, non un dato corrotto. Mercure chiuderebbe un gap percepito (il pulsante si disabilita prima), non un bug reale.
-- **"Realtime sugli ordini" non ha oggi nessuna funzione che lo consumerebbe** — non esiste una bacheca ordini condivisa tra casse. Sarebbe una funzionalità totalmente nuova da progettare, non un potenziamento di qualcosa che già esiste.
+- **"Realtime sugli ordini" non ha oggi nessuna funzione che lo consumerebbe** — non esiste una bacheca ordini condivisa tra casse, ed è stata **esplicitamente scartata** (2026-09-08): per una sagra semplice il modello "scontrino = comanda" basta, e lo scenario del servizio al tavolo è già coperto dalla stampa via bridge in cucina (vedi *"Nota d'uso — servizio al tavolo con cassa bridge in cucina"* in 3i). Una bacheca vera sarebbe una funzionalità totalmente nuova da progettare, non un potenziamento di qualcosa che già esiste.
 - **Complessità permanente aggiunta all'installer di Fase 3**: andrebbe generata/gestita la chiave JWT e la route dell'hub nel wizard — un pezzo in più in uno script che abbiamo tenuto deliberatamente semplice (una sola domanda).
 - **Terreno nuovo per questo progetto**: a differenza di QZ/MariaDB/firewall (ormai ben conosciuti, insidie mappate), Mercure/JWT/`EventSource` non sono mai stati toccati qui — rischio concreto di sorprese scoperte solo testando, come già successo più volte in questa migrazione (firewall, HTTPS, porte).
 - **Stima se la facessi (Claude) io stesso, implementazione + test**: 6-10 ore di lavoro effettivo, con margine di incertezza reale per il punto sopra. Scomposizione: 1-2h config hub+JWT nel Caddyfile, 1-2h pubblicazione dai 5-6 endpoint di mutazione (senza mai rallentare/bloccare il checkout se l'hub è giù), 1-2h `EventSource` + fallback in `billing.php`, 1-2h test multi-browser del realtime (fattibile in autonomia, senza bisogno di hardware dell'utente), ~1h non-regressione sugli endpoint toccati, 1-3h di margine imprevisti.
@@ -677,6 +869,8 @@ Analisi fatta passando in rassegna il codice reale (non solo in teoria) per capi
 ### Idea rimandata: avviso "il server sta per fermarsi" alle altre postazioni
 
 Emersa discutendo la pagina Configurazione Rete (2026-09-07): oggi non esiste alcun canale da un'installazione opensagra alle altre — ognuna fa solo polling verso il DB condiviso, nessuno "spinge" nulla (nessun push instantaneo possibile senza l'hub Mercure di questa fase). Un avviso reale è comunque realizzabile **senza** aspettare la Fase 4, riusando quello che già c'è: questo PC scrive un "avviso" in una riga condivisa nel DB; le altre postazioni (che già fanno polling periodico, stesso pattern di `products_version.php`) lo notano entro pochi secondi e mostrano un banner "Il server sta per fermarsi, salva il lavoro in corso". Non implementata ora su richiesta esplicita dell'utente ("non ora, rimandiamo") — da riprendere se/quando serve davvero, eventualmente insieme o al posto della Fase 4.
+
+> **Aggiornamento 2026-09-08:** promossa dentro la **"Roadmap collegata"** di Fase 4 (sopra) come punto 3. Con il sottoscrittore Mercure residente sul client (costruito per il relay) l'avviso via topic dedicato diventa quasi gratis e istantaneo, non serve più ripiegare sulla riga-nel-DB + polling. Vedi lì anche i due sotto-punti di sicurezza collegati (switch-back disabilitato sui client; coda locale + ripristino se il server cade).
 
 ---
 
@@ -1008,6 +1202,6 @@ Diagnosticato mettendo un log lato server (`var_export($_POST, ...)` su file) de
 - [x] **Fase 2** ✅ — FrankenPHP classic sul PC dev: estensioni + gate, `Caddyfile` (HTTP+HTTPS in parallelo), smoke test 2d (incluso test di stampa reale su 3 browser), servizio WinSW (HTTP e HTTPS via servizio entrambi verificati — HTTPS richiedeva l'import della CA di LocalSystem nello store Macchina locale, vedi 2e).
 - [x] **Cutover + verifica finale** ✅ (2026-09-07) — XAMPP fermo, MariaDB nativa in produzione, porte standard 80/443, phpMyAdmin servito da Caddy. Suite Playwright completa ripetuta sulla configurazione reale (vendite e stampe reali): smoke test, stampa diretta HTTPS, stampa bridge QZ HTTP sui 3 motori, export PDF — tutto ✅. Trovato e corretto un bug reale preesistente (non introdotto dalla migrazione): PDF statistiche vuoto per un `echo` di troppo dopo `dompdf->stream()`, vedi Appendice F.
 - [~] **Fase 3** *(in corso)* — script d'installazione per-OS (solo Windows per ora) che **copia i file** (niente binario). Il nucleo dell'installazione è a **zero domande** (indipendente/server erano la stessa identica installazione, la domanda è stata tolta — vedi 3a): `install.ps1` installa sempre la stessa base funzionante, l'architettura (diventare client di un altro server) si decide dopo, in qualsiasi momento, dalla pagina Configurazione Rete. QZ Tray incluso nello stesso script e installato **sempre**, nessuna domanda (chi non ne ha bisogno lo disinstalla); HTTPS sempre in parallelo di default, nessuna domanda. Percorso d'installazione fisso di default (`C:\opensagra`). Aspetto grafico deciso: **WPF via PowerShell**, compilato in `.exe` con `ps2exe` per nascondere la console (vedi sotto) — nessuna domanda da porre nemmeno lì, essendo un'installazione automatica end-to-end. Fatto finora: pulizia repo (`docker/` rimossa, `variabili.env` fuori da git, `DB_POS_SID` residuo rimosso), `crea_dbtable_and_user.php` eseguibile da CLI con exit code corretto (incluso privilegio `PROCESS` per il rafforzamento in Rete), pagina "Configurazione Rete" in-app per cambiare `DB_POS_HOST` senza toccare file, con avviso basato su connessioni reali (testata con Playwright, da riconfermare con una macchina Linux vera). **`install.ps1` — prima bozza scritta e in parte verificata (2026-09-07, commit `c85d760`)**: tutti i passi presenti (FrankenPHP+MariaDB, estensioni+gate, migrazioni, `Caddyfile`, le due regole firewall esplicite dell'Insidia #6, servizi, QZ sempre incluso, finestra WPF in thread separato). Verificato isolando le funzioni (senza eseguire l'orchestrazione sulla macchina di produzione): meccanismo GUI a thread separato con aggiornamento reale nel tempo (screenshot autentici), generazione `Caddyfile`/`variabili.env` corretta e idempotente, riconoscimento di installazioni/servizi già presenti, regole firewall idempotenti (confermato in sessione elevata: una sola regola, non duplicata). **Non verificabile in questa sessione** (nessuna macchina pulita/VM disponibile): il ramo di installazione "da zero" di FrankenPHP/MariaDB/WinSW/QZ Tray — da ritestare per intero su una macchina davvero vergine prima del rilascio. Resta da fare: packaging con `ps2exe`, README.
-- [ ] **Fase 4** *(opzionale)* — hub Mercure nel `Caddyfile`, `POST` degli update su mutazioni, `EventSource` in `billing.php` con fallback al polling.
+- [~] **Fase 4** *(promossa 2026-09-08, parziale)* — hub Mercure nel `Caddyfile`, `publishProductsChanged()` dai 6 punti di mutazione, `EventSource` in `billing.php` con fallback al polling. Topic `products` soltanto, full reload. Verificata **intra-macchina** con `e2e/mercure-realtime.spec.js` su 3 motori. **Resta**: (1) il **relay cross-hub** — senza, in modalità rete il cross-cassa è ancora polling 6s; è la stessa base del bridge di stampa nativo e dell'avviso disconnessione (vedi "Roadmap collegata" in Fase 4); (2) il wiring in `install.ps1` (blocco `mercure{}` con `cookie_name`+`cors_origins`, `MERCURE_JWT_SECRET`, servizio relay), dopo un giro su VM pulita.
 - [ ] **QZ / HTTPS** *(Appendice C, solo test in Fase 2)* — verificare che i popup non riappaiano; mappare i casi mixed-content; nessuna modifica al codice QZ ora.
 - [ ] **Git** *(Appendice D)* — un commit per fase; il piano si committa man mano.
