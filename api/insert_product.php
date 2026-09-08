@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/store_uploaded_file.php';
 require_once __DIR__ . '/../includes/placeholder-product.php';
+require_once __DIR__ . '/../config/mercure.php';
 
 $category = isset($_POST['category']) ? trim((string) $_POST['category']) : '';
 $name = isset($_POST['name']) ? trim((string) $_POST['name']) : '';
@@ -87,6 +88,10 @@ $stmt->bind_param('ssdsii', $category, $name, $price, $imagePath, $itemSort, $qu
 
 if ($stmt->execute()) {
     echo 'Prodotto inserito con successo!';
+    $stmt->close();
+    publishProductsChanged($connectionDB);
+    $connectionDB->close();
+    exit;
 } else {
     echo 'Errore durante l\'inserimento nel database.';
 }

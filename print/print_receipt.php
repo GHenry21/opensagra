@@ -2,6 +2,7 @@
 date_default_timezone_set('Europe/Rome');
 require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/get_printer.php';
+require_once __DIR__ . '/../config/mercure.php';
 require __DIR__ . '/../vendor/autoload.php';
 
 use Mike42\Escpos\Printer;
@@ -598,6 +599,32 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
             'qz_data_base64' => base64_encode($rawReceipt)
         ];
     }
+        // CASO 1-bis: BRIDGE_NATIVE (sostituto di QZ Tray, Fase 4 punto 2).
+        // Il browser NON stampa: i byte ESC/POS vengono pubblicati su un topic
+        // Mercure `print/cassa/{id}` e un processo residente sul PC col cavo USB
+        // (bin/opensagra-print-bridge.php) li riceve e stampa. `nome_indirizzo`
+        // contiene la cassa-ponte che possiede la stampante fisica (di norma la
+        // cassa stessa; puo' essere un'altra cassa se la stampante e' condivisa).
+        if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
+            $targetCassa = trim((string) ($printerSettings['nome_indirizzo'] ?? '')) ?: $cassa_id;
+            $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
+            $topic = 'print/cassa/' . $targetCassa;
+            $published = publishMercureUpdate($topic, [
+                'id_vendita' => $id_vendita,
+                'cassa_id' => $cassa_id,
+                'data_base64' => base64_encode($rawReceipt),
+            ]);
+
+            return [
+                'method' => 'bridge_native',
+                'topic' => $topic,
+                // La vendita e' gia' registrata: se il ponte non ha ricevuto
+                // (hub o ponte giu') il frontend avvisa e offre la ristampa,
+                // come per un fallimento QZ - non si perde la vendita.
+                'published' => $published,
+            ];
+        }
+
         // CASO 2: BLUETOOTH (RawBT via Intent Android)
         if (($printerSettings['tipo_stampante'] ?? '') === 'BLUETOOTH') {
             $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
@@ -649,6 +676,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
         $connectionDB->begin_transaction();
         if ($pagato == 0) { $pagato = $totale; $resto = 0; }
 
+        // Diventa true solo se almeno un prodotto a scorta limitata viene
+        // scalato: solo allora ha senso avvisare le altre casse (Fase 4,
+        // topic 'products'). Una vendita di soli prodotti "illimitati"
+        // (quantity_available NULL) non cambia niente di visibile altrove.
+        $stockChanged = false;
+
         foreach ($items as $item) {
             $itemId = isset($item['id']) ? (int)$item['id'] : 0;
             $itemQty = (int)($item['quantity'] ?? 0);
@@ -685,6 +718,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
                     throw new RuntimeException('Impossibile aggiornare la disponibilità del prodotto.');
                 }
                 $stmtStock->close();
+                $stockChanged = true;
             }
         }
 
@@ -730,6 +764,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
         echo json_encode(['error' => $e->getMessage()]);
         $connectionDB->close();
         exit;
+    }
+
+    // Vendita registrata: se ha scalato scorte limitate, avvisa le altre
+    // casse cosi' il pulsante prodotto si disabilita quasi subito invece di
+    // aspettare il giro di polling. publishProductsChanged() non lancia mai
+    // e torna in fretta se l'hub non c'e': non blocca ne' la stampa qui sotto.
+    if ($stockChanged) {
+        publishProductsChanged($connectionDB);
     }
 
     try {

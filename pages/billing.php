@@ -428,6 +428,13 @@
         // Intervallo del polling condizionale prodotti a riposo (Fase 1 del piano di
         // migrazione): sale a backoff (5s/10s/20s/40s, cap 60s) solo sugli errori.
         const PRODUCTS_POLL_NORMAL_MS = 6000;
+        // Quando l'EventSource Mercure e' connesso e sano (Fase 4) il polling resta
+        // solo come rete di sicurezza: rallenta a un giro al minuto invece di uno
+        // ogni 6s. Se l'SSE cade si torna subito a PRODUCTS_POLL_NORMAL_MS.
+        const PRODUCTS_POLL_SLOW_MS = 60000;
+        // Endpoint dell'hub Mercure: path assoluto (non relativo a /pages/) perche'
+        // la route vive alla radice dell'origine, servita dallo stesso Caddy.
+        const MERCURE_HUB_PATH = '/.well-known/mercure';
         let qzScriptLoadPromise = null;
         let qzConnectionTarget = null;
         let qzLoadedFromHost = null;
@@ -658,6 +665,13 @@
                     _lastProductsVersion: null,
                     _lastProductsCount: null,
                     _productsPollBackoffMs: null,
+                    // Realtime prodotti via Mercure (Fase 4): l'EventSource spinge
+                    // gli aggiornamenti, il polling qui sopra resta come fallback.
+                    // Vedi initProductsRealtime/teardownProductsRealtime.
+                    _productsSse: null,
+                    _productsSseHealthy: false,
+                    _productsSseRetryTimer: null,
+                    _productsSseRetryMs: null,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1393,19 +1407,12 @@
                             dataType: 'json',
                             cache: false
                         });
-                        const version = Number(response && response.version);
-                        const count = Number(response && response.count);
-                        const changed = this._lastProductsVersion === null
-                            || version !== this._lastProductsVersion
-                            || count !== this._lastProductsCount;
-
-                        if (changed) {
-                            await this.loadProducts();
-                        }
-                        this._lastProductsVersion = version;
-                        this._lastProductsCount = count;
+                        await this.syncProductsFromVersion(
+                            Number(response && response.version),
+                            Number(response && response.count)
+                        );
                         this._productsPollBackoffMs = null;
-                        this.scheduleProductsPoll(PRODUCTS_POLL_NORMAL_MS);
+                        this.scheduleProductsPoll(this.productsPollIdleDelay());
                     } catch (err) {
                         console.warn('Poll prodotti fallito, riprovo con backoff:', err);
                         this._productsPollBackoffMs = this._productsPollBackoffMs
@@ -1441,7 +1448,139 @@
                         // comunque un loadProducts() (vedi "o al primo giro" in pollProductsVersion).
                         console.warn('Impossibile leggere la versione iniziale prodotti:', err);
                     }
-                    this.scheduleProductsPoll(PRODUCTS_POLL_NORMAL_MS);
+                    this.scheduleProductsPoll(this.productsPollIdleDelay());
+                },
+                // Ritardo del prossimo giro di polling "a riposo": lento se il
+                // realtime Mercure e' connesso e sano (fa lui il lavoro), normale
+                // altrimenti. Il backoff sugli errori resta gestito a parte.
+                productsPollIdleDelay() {
+                    return this._productsSseHealthy ? PRODUCTS_POLL_SLOW_MS : PRODUCTS_POLL_NORMAL_MS;
+                },
+                // Punto unico che confronta la versione/conteggio prodotti con
+                // l'ultima vista e ricarica la lista se e' cambiata. Usato sia dal
+                // polling sia dai messaggi Mercure: entrambi consegnano {version,count}.
+                async syncProductsFromVersion(version, count) {
+                    if (!Number.isFinite(version)) {
+                        return;
+                    }
+                    const changed = this._lastProductsVersion === null
+                        || version !== this._lastProductsVersion
+                        || count !== this._lastProductsCount;
+                    this._lastProductsVersion = version;
+                    this._lastProductsCount = count;
+                    if (changed) {
+                        await this.loadProducts();
+                    }
+                },
+                // Fase 4: prova ad aprire l'EventSource verso l'hub Mercure. Se
+                // l'hub non e' configurato (endpoint risponde realtime:false) o la
+                // pagina e' servita in HTTP (niente cookie Secure), non fa nulla e
+                // resta attivo il solo polling condizionale.
+                async initProductsRealtime() {
+                    if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
+                        return;
+                    }
+                    let info;
+                    try {
+                        info = await $.ajax({
+                            url: '../api/mercure_subscribe_token.php',
+                            method: 'GET',
+                            dataType: 'json',
+                            cache: false
+                        });
+                    } catch (err) {
+                        // 503 = hub non configurato su questa installazione: normale, si resta col polling.
+                        return;
+                    }
+                    if (!info || info.realtime !== true) {
+                        return;
+                    }
+
+                    this.teardownProductsRealtime();
+                    const url = MERCURE_HUB_PATH + '?topic=' + encodeURIComponent(info.topic || 'products');
+                    let es;
+                    try {
+                        es = new EventSource(url, { withCredentials: true });
+                    } catch (err) {
+                        console.warn('Mercure: impossibile aprire l\'EventSource, resto sul polling:', err);
+                        return;
+                    }
+                    this._productsSse = es;
+                    let consecutiveErrors = 0;
+
+                    es.onopen = () => {
+                        this._productsSseHealthy = true;
+                        this._productsSseRetryMs = null;
+                        consecutiveErrors = 0;
+                    };
+                    // Il primo giro di polling parte da initProductsPolling(); qui
+                    // ci limitiamo a NON accelerarlo finche' l'SSE non e' sano.
+                    // Non si tocca il timer del polling da dentro onerror (vedi sotto).
+                    es.onmessage = (event) => {
+                        this._productsSseHealthy = true;
+                        consecutiveErrors = 0;
+                        let payload = null;
+                        try {
+                            payload = JSON.parse(event.data);
+                        } catch (e) {
+                            payload = null;
+                        }
+                        if (payload) {
+                            this.syncProductsFromVersion(Number(payload.version), Number(payload.count));
+                        } else {
+                            // Messaggio non riconosciuto: ricarico comunque per sicurezza.
+                            this.loadProducts();
+                        }
+                    };
+                    es.onerror = () => {
+                        // onerror puo' scattare a raffica (l'EventSource ritenta da
+                        // solo ~ogni 3s se l'hub e' irraggiungibile). Qui si fa solo
+                        // il minimo e NIENTE che tocchi il timer del polling: quel
+                        // loop si auto-ripianifica da solo e, con _productsSseHealthy
+                        // tornato false, riparte da solo alla cadenza normale (6s).
+                        // Toccare il timer qui lo azzererebbe a ogni retry e il
+                        // polling non scatterebbe mai - il fallback resterebbe morto.
+                        const wasHealthy = this._productsSseHealthy;
+                        this._productsSseHealthy = false;
+
+                        // Solo alla transizione sano -> non sano: se il polling era
+                        // rallentato a 60s, accorcia l'attesa residua a una normale.
+                        if (wasHealthy && this._productsPollTimer) {
+                            clearTimeout(this._productsPollTimer);
+                            this._productsPollTimer = null;
+                            this.scheduleProductsPoll(PRODUCTS_POLL_NORMAL_MS);
+                        }
+
+                        consecutiveErrors += 1;
+                        // Chiudo e passo al mio backoff quando: (a) errore fatale
+                        // (readyState CLOSED, tipicamente token scaduto - l'ES non
+                        // ritenta da solo), oppure (b) troppi retry nativi a vuoto
+                        // di fila (~ogni 3s): l'hub e' giu' a lungo, meglio i miei
+                        // tentativi radi che il martellamento nativo.
+                        if (es.readyState === EventSource.CLOSED || consecutiveErrors >= 5) {
+                            this.teardownProductsRealtime();
+                            this._productsSseRetryMs = this._productsSseRetryMs
+                                ? Math.min(this._productsSseRetryMs * 2, 300000)
+                                : 10000;
+                            this._productsSseRetryTimer = setTimeout(() => {
+                                this.initProductsRealtime();
+                            }, this._productsSseRetryMs);
+                        }
+                    };
+                },
+                teardownProductsRealtime() {
+                    if (this._productsSseRetryTimer) {
+                        clearTimeout(this._productsSseRetryTimer);
+                        this._productsSseRetryTimer = null;
+                    }
+                    if (this._productsSse) {
+                        this._productsSse.onopen = null;
+                        this._productsSse.onmessage = null;
+                        this._productsSse.onerror = null;
+                        this._productsSse.close();
+                        this._productsSse = null;
+                    }
+                    this._productsSseHealthy = false;
                 },
                 async loadPaymentMethods() {
                     const cassaId = this.currentCassaId || localStorage.getItem('cassa_id') || 'ND';
@@ -1568,6 +1707,16 @@
                                 console.log("Scontrino inviato con successo dalla stampante di rete/USB del server.");
                                 break;
 
+                            case 'bridge_native':
+                                  // Sostituto di QZ: il server ha pubblicato i byte ESC/POS su un
+                                  // topic Mercure, un processo residente sul PC col cavo stampa.
+                                  // Il browser non fa nulla. Se il ponte non ha ricevuto, la
+                                  // vendita è comunque registrata: si ristampa dallo storico.
+                                if (response.published === false) {
+                                    this.showToast('Vendita registrata, ma lo scontrino NON è arrivato alla stampante (ponte non raggiungibile). Ristampalo dallo storico.', 'error', 8000);
+                                }
+                                break;
+
                             default:
                                 console.warn("Metodo di stampa sconosciuto:", response.method);
                                 break;
@@ -1688,6 +1837,8 @@
                                     } else {
                                         throw new Error('Dati stampa RawBT non disponibili');
                                     }
+                                } else if (response && response.method === 'bridge_native' && response.published === false) {
+                                    throw new Error('ponte di stampa non raggiungibile');
                                 }
 
                                 this.showToast('Ordine #' + order.id + ' ristampato. Metodo: ' + (response && response.method ? response.method : 'sconosciuto'), 'success');
@@ -1806,6 +1957,7 @@
                 };
                 document.addEventListener('visibilitychange', this._productsVisibilityHandler);
                 this.initProductsPolling();
+                this.initProductsRealtime();
                 // matchMedia reacts immediately to viewport/orientation changes, unlike resize + getComputedStyle
                 // which can race with layout. Must stay in sync with the CSS breakpoint that switches
                 // .billing-shell to a single column (see billing.css): a plain width check would misfire on
@@ -1846,6 +1998,7 @@
                 if (this._productsPollTimer) {
                     clearTimeout(this._productsPollTimer);
                 }
+                this.teardownProductsRealtime();
                 if (this._productsVisibilityHandler) {
                     document.removeEventListener('visibilitychange', this._productsVisibilityHandler);
                 }

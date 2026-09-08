@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/mercure.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -67,5 +68,6 @@ echo json_encode([
 ]);
 
 $stmt->close();
+publishProductsChanged($connectionDB);
 $connectionDB->close();
 ?>

@@ -26,6 +26,28 @@ function base64UrlEncode(string $data): string
 }
 
 /**
+ * URL dell'hub Mercure da usare per PUBBLICARE. Si ricava da DB_POS_HOST:
+ * l'hub "buono" e' quello del server che tiene il DB, cosi' in modalita' rete
+ * il checkout di un client pubblica dritto sull'hub del server (dove sono
+ * iscritte le casse del server e da cui il relay di ogni client ripesca).
+ *
+ * - host locale (127.0.0.1 / localhost / vuoto) -> 'https://localhost' (questa
+ *   macchina e' il server, o e' indipendente): l'hub e' qui.
+ * - host remoto (IP del server) -> 'https://<IP>': l'hub del server. Il
+ *   Caddyfile del server elenca il suo IP di LAN nel site address (Insidia #6),
+ *   quindi il certificato self-signed copre quel nome; publishMercureUpdate()
+ *   disabilita comunque la verifica peer/host (chiamata server-to-server).
+ */
+function mercureHubUrl(): string
+{
+    $host = loadPosEnvVars()['host'];
+    if ($host === '' || $host === '127.0.0.1' || $host === 'localhost' || $host === '::1') {
+        return 'https://localhost/.well-known/mercure';
+    }
+    return 'https://' . $host . '/.well-known/mercure';
+}
+
+/**
  * Firma un JWT HS256 con i claim mercure richiesti dall'hub.
  *
  * @param string[] $publish   topic che questo token puo' pubblicare (es. ['*'] o ['stock/1'])
@@ -62,17 +84,23 @@ function mintMercureJwt(array $publish = [], array $subscribe = [], int $ttlSeco
  *
  * @param string $topic  identificatore del topic (es. 'stock', 'orders/henry')
  * @param mixed  $data    dati da serializzare in JSON e inviare come payload dell'evento
- * @param string $hubUrl  URL dell'hub. Default 'localhost', NON '127.0.0.1':
- *                        bug reale trovato testando - il Caddyfile emette
- *                        certificati solo per gli hostname elencati nel site
- *                        address (localhost/IP-LAN/opensagra.local), non per
- *                        '127.0.0.1' - connettersi con quell'IP causa un
- *                        mismatch SNI e Caddy chiude il TLS con un alert
- *                        generico ("internal error"), non un errore HTTP.
+ * @param string $hubUrl  URL dell'hub. Vuoto (default) -> mercureHubUrl(), che
+ *                        lo ricava da DB_POS_HOST. Passare un URL esplicito solo
+ *                        per casi speciali (es. il relay che ripubblica
+ *                        sull'hub LOCALE, 'https://localhost/.well-known/mercure').
+ *                        Mai '127.0.0.1': il Caddyfile emette certificati solo
+ *                        per gli hostname elencati nel site address
+ *                        (localhost/IP-LAN/opensagra.local), non per il loopback
+ *                        - connettersi con quell'IP causa un mismatch SNI e Caddy
+ *                        chiude il TLS con un alert generico ("internal error").
  * @return bool true se l'hub ha accettato la pubblicazione (HTTP 200)
  */
-function publishMercureUpdate(string $topic, $data, string $hubUrl = 'https://localhost/.well-known/mercure'): bool
+function publishMercureUpdate(string $topic, $data, string $hubUrl = ''): bool
 {
+    if ($hubUrl === '') {
+        $hubUrl = mercureHubUrl();
+    }
+
     try {
         $jwt = mintMercureJwt([$topic]);
     } catch (Throwable $e) {
@@ -111,4 +139,29 @@ function publishMercureUpdate(string $topic, $data, string $hubUrl = 'https://lo
         return false;
     }
     return true;
+}
+
+/**
+ * Notifica alle casse che il catalogo prodotti e' cambiato (Fase 4, topic
+ * 'products'). Il payload porta solo version+count - la stessa forma di
+ * api/products_version.php - cosi' il client di billing.php aggiorna i suoi
+ * contatori e richiama loadProducts() (strategia "full reload", nessun delta).
+ *
+ * Da chiamare dopo il successo di ogni mutazione che tocca la tabella stock
+ * (aggiornamento/inserimento/nascondi/ripristino prodotto, rinomina categoria,
+ * decremento scorte al checkout, ripristino scorte allo storno). Non lancia
+ * mai: se l'hub e' giu' o non configurato, publishMercureUpdate() torna false
+ * in silenzio e la mutazione applicativa resta valida comunque.
+ */
+function publishProductsChanged(mysqli $db): void
+{
+    $res = $db->query(
+        'SELECT COALESCE(UNIX_TIMESTAMP(MAX(updated_at)), 0) AS version, COUNT(*) AS count FROM stock WHERE is_active = 1'
+    );
+    $row = $res ? $res->fetch_assoc() : null;
+
+    publishMercureUpdate('products', [
+        'version' => (int) ($row['version'] ?? 0),
+        'count' => (int) ($row['count'] ?? 0),
+    ]);
 }

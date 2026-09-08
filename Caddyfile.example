@@ -8,12 +8,18 @@ http://:80 {
 	encode zstd gzip
 	php_server
 
-	# Fondamenta Mercure (Fase 4, opzionale) - stesso segreto di
-	# config/variabili.env (MERCURE_JWT_SECRET), genera il tuo con:
-	#   openssl rand -base64 48
+	# Realtime Mercure (Fase 4) - stesso segreto di config/variabili.env
+	# (MERCURE_JWT_SECRET), genera il tuo con:  openssl rand -base64 48
+	# - cookie_name: OBBLIGATORIO, senza l'hub non legge il cookie e le
+	#   sottoscrizioni da browser (EventSource) prendono 401 - il modulo
+	#   Caddy non applica un default.
+	# - cors_origins: ogni hostname da cui e' servito billing.php; l'hub
+	#   valida l'Origin/Referer della richiesta col cookie contro questa lista.
 	# mercure {
 	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
 	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
+	# 	cookie_name mercure_authorization
+	# 	cors_origins http://localhost
 	# }
 }
 
@@ -26,5 +32,7 @@ https://localhost {
 	# mercure {
 	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
 	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
+	# 	cookie_name mercure_authorization
+	# 	cors_origins https://localhost
 	# }
 }

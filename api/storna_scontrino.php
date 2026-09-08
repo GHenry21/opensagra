@@ -1,6 +1,7 @@
 <?php
 header('Content-Type: application/json');
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/mercure.php';
 
 $idScontrRaw = $_POST['idScontr'] ?? '';
 $dat = $_POST['dat'] ?? '';
@@ -98,6 +99,11 @@ foreach ($ids as $idScontr) {
 $summary = count($ids) === 1
     ? ($updatedCount === 1 ? 'Scontrino stornato con successo' : 'Scontrino già stornato o non trovato')
     : ($updatedCount > 0 ? 'Scontrini stornati: ' . $updatedCount . '/' . count($ids) : 'Nessuno scontrino stornato');
+
+// Uno storno riscrive quantity_available: avvisa le casse (Fase 4, topic 'products')
+if ($updatedCount > 0) {
+    publishProductsChanged($connectionDB);
+}
 
 echo json_encode([
     'esito' => $summary,
