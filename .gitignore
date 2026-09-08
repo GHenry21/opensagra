@@ -29,6 +29,11 @@ Thumbs.db
 # ad ogni installazione dallo script di Fase 3)
 /cert/caddy-root-ca.crt
 
+# Claude Code: file per-utente/per-macchina (allowlist permessi, lock runtime).
+# Non condivisi - restano solo in locale.
+/.claude/settings.local.json
+/.claude/scheduled_tasks.lock
+
 # Caddyfile reale di questa macchina/installazione (path assoluti locali, e
 # dal 2026-09-07 puo' contenere il segreto JWT di Mercure in chiaro). Resta
 # solo in locale, come variabili.env - tracciato solo Caddyfile.example.
