@@ -1,0 +1,76 @@
+// Comando `wrapper`: tray-app che supervisiona i processi di OpenSagra su una
+// postazione (FrankenPHP + relay realtime + bridge di stampa nativo). MariaDB
+// resta un servizio a parte, non e' gestito qui.
+//
+// Modello deciso nel piano (docs/PIANO-MIGRAZIONE-FRANKENPHP.md, sezione 3g):
+//   - X sulla finestra = vai in tray, non chiude
+//   - Esci vero = menu tray -> Esci -> conferma
+//   - all'uscita, se questa macchina e' il server con casse collegate, avviso
+//     rinforzato + `bin/opensagra-announce.php --kind=shutdown`
+//
+// Build Windows senza console:
+//   go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"path/filepath"
+
+	"fyne.io/systray"
+)
+
+func main() {
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
+	if err := os.MkdirAll(cfg.LogDir, 0o755); err != nil {
+		log.Fatalf("logdir %s: %v", cfg.LogDir, err)
+	}
+	// Build -H=windowsgui non ha stdout/stderr: manda il log del wrapper su file.
+	if f, err := os.OpenFile(filepath.Join(cfg.LogDir, "wrapper.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+		log.SetOutput(f)
+	}
+	log.Printf("wrapper: root=%s frankenphp=%s casse-bridge=%v", cfg.AppRoot, cfg.Frankenphp, cfg.BridgeCasse)
+
+	release, ok := acquireSingleInstance("opensagra-wrapper")
+	if !ok {
+		log.Print("un'altra istanza del wrapper e' gia' in esecuzione, esco.")
+		return
+	}
+	defer release()
+
+	// Job object: quando il wrapper muore (anche crash), Windows termina tutto
+	// l'albero dei figli. Senza, un crash lascia frankenphp.exe orfano che
+	// tiene la porta 80.
+	job, err := newJobObject()
+	if err != nil {
+		log.Printf("job object non disponibile (%v): i figli potrebbero sopravvivere a un crash del wrapper", err)
+		job = nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	sup := newSupervisor(cfg.LogDir, job)
+	sup.Start(ctx, buildChildren(cfg))
+
+	// Sequenza di uscita pulita, invocata dal menu tray dopo conferma.
+	quit := func() {
+		log.Print("wrapper: uscita richiesta")
+		announceShutdown(cfg) // avvisa le casse PRIMA di fermare FrankenPHP
+		cancel()              // exec.CommandContext uccide i figli
+		sup.Wait()
+		sup.Close()
+		if job != nil {
+			job.close() // rete di sicurezza per eventuali superstiti
+		}
+		systray.Quit()
+	}
+
+	t := &tray{cfg: cfg, sup: sup, quit: quit}
+	systray.Run(t.onReady, t.onExit) // blocca finche' systray.Quit()
+}

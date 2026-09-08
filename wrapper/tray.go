@@ -1,0 +1,101 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"fyne.io/systray"
+)
+
+type tray struct {
+	cfg  *Config
+	sup  *Supervisor
+	quit func() // sequenza di uscita pulita (definita in main)
+}
+
+func (t *tray) onReady() {
+	if p := iconPath(t.cfg); p != "" {
+		if b, err := os.ReadFile(p); err == nil {
+			systray.SetIcon(b) // Windows: deve essere un .ico
+		}
+	}
+	systray.SetTitle("OpenSagra")
+	systray.SetTooltip("OpenSagra — server locale")
+
+	mOpen := systray.AddMenuItem("Apri OpenSagra", "Apri l'app nel browser")
+
+	systray.AddSeparator()
+	hdr := systray.AddMenuItem("Stato", "")
+	hdr.Disable()
+	statusItems := map[string]*systray.MenuItem{}
+	for _, name := range t.sup.names() {
+		it := systray.AddMenuItem("  "+name+": …", "")
+		it.Disable()
+		statusItems[name] = it
+	}
+
+	systray.AddSeparator()
+	mRestart := systray.AddMenuItem("Riavvia tutto", "Ferma e riavvia i processi")
+	mLogs := systray.AddMenuItem("Apri cartella log", t.cfg.LogDir)
+
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("Esci", "Ferma il server locale ed esci")
+
+	go func() {
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-mOpen.ClickedCh:
+				openURL("http://localhost/")
+			case <-mLogs.ClickedCh:
+				revealPath(t.cfg.LogDir)
+			case <-mRestart.ClickedCh:
+				t.sup.restartAll()
+			case <-mQuit.ClickedCh:
+				if t.confirmQuit() {
+					t.quit()
+					return
+				}
+			case <-tick.C:
+				for name, it := range statusItems {
+					st := t.sup.get(name)
+					label := fmt.Sprintf("  %s: %s", name, st.State)
+					if st.Detail != "" {
+						label += " — " + st.Detail
+					}
+					it.SetTitle(label)
+				}
+			}
+		}
+	}()
+}
+
+func (t *tray) onExit() {}
+
+func (t *tray) confirmQuit() bool {
+	body := "Vuoi davvero chiudere OpenSagra?\nIl server locale su questa macchina si fermerà."
+	if n := activeClientCount(t.cfg); n > 0 {
+		body = fmt.Sprintf(
+			"ATTENZIONE: %d cassa/e collegate perderanno il database quando questo PC si ferma.\n\n"+
+				"Chiudere comunque OpenSagra?", n)
+	}
+	return confirmQuit("OpenSagra", body)
+}
+
+// iconPath: .ico accanto all'eseguibile, o in <root>/wrapper/assets/. Assente
+// nello scaffold: la tray parte lo stesso, senza icona custom.
+func iconPath(cfg *Config) string {
+	exe, _ := os.Executable()
+	for _, c := range []string{
+		filepath.Join(filepath.Dir(exe), "opensagra.ico"),
+		filepath.Join(cfg.AppRoot, "wrapper", "assets", "opensagra.ico"),
+	} {
+		if fileExists(c) {
+			return c
+		}
+	}
+	return ""
+}
