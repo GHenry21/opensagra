@@ -471,6 +471,13 @@
          color: var(--mc-text-soft);
      }
 
+     .modal-field-hint {
+         margin: 0;
+         font-size: 12px;
+         line-height: 1.4;
+         color: var(--mc-text-soft);
+     }
+
      .modal-field input:not([type="checkbox"]),
      .modal-field select,
      .modal-field select option {

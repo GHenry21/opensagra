@@ -56,28 +56,6 @@
         messageEl.textContent = message;
         contentEl.appendChild(messageEl);
 
-        var action = options.action;
-        if (action && action.label) {
-            var actionsEl = document.createElement('div');
-            actionsEl.className = 'toast-actions';
-
-            var actionBtn = document.createElement(action.href ? 'a' : 'button');
-            actionBtn.className = 'toast-action-btn';
-            actionBtn.textContent = action.label;
-            if (action.href) {
-                actionBtn.href = action.href;
-            } else {
-                actionBtn.type = 'button';
-            }
-            if (typeof action.onClick === 'function') {
-                actionBtn.addEventListener('click', action.onClick);
-            }
-            actionsEl.appendChild(actionBtn);
-            contentEl.appendChild(actionsEl);
-        }
-
-        toastEl.appendChild(contentEl);
-
         function dismiss() {
             if (!toastEl.parentNode) {
                 return;
@@ -89,6 +67,42 @@
                 }
             }, OUT_ANIMATION_MS);
         }
+
+        // options.action = un solo bottone (retrocompat); options.actions = elenco.
+        // Ogni voce: { label, onClick(dismiss), href, keepOpen }. Di default il
+        // click chiude il toast dopo onClick (keepOpen:true per non chiuderlo).
+        var actionList = options.actions
+            ? options.actions
+            : (options.action && options.action.label ? [options.action] : []);
+        if (actionList.length) {
+            var actionsEl = document.createElement('div');
+            actionsEl.className = 'toast-actions';
+            actionList.forEach(function (a) {
+                if (!a || !a.label) {
+                    return;
+                }
+                var actionBtn = document.createElement(a.href ? 'a' : 'button');
+                actionBtn.className = 'toast-action-btn';
+                actionBtn.textContent = a.label;
+                if (a.href) {
+                    actionBtn.href = a.href;
+                } else {
+                    actionBtn.type = 'button';
+                }
+                actionBtn.addEventListener('click', function (ev) {
+                    if (typeof a.onClick === 'function') {
+                        a.onClick(ev, dismiss);
+                    }
+                    if (!a.keepOpen) {
+                        dismiss();
+                    }
+                });
+                actionsEl.appendChild(actionBtn);
+            });
+            contentEl.appendChild(actionsEl);
+        }
+
+        toastEl.appendChild(contentEl);
 
         if (duration > 0) {
             setTimeout(dismiss, duration);

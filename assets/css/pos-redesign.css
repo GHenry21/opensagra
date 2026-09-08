@@ -937,6 +937,11 @@ body.sidebar-page {
 
 #message .toast-actions {
   margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 #message .toast-action-btn {

@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 date_default_timezone_set('Europe/Rome');
 require __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../config/get_printer.php';
+require_once __DIR__ . '/../config/mercure.php';
 
 use Mike42\Escpos\Printer;
 use Mike42\Escpos\PrintConnectors\FilePrintConnector;
@@ -202,6 +203,24 @@ try {
             'qz_host' => $qzHost,
             'qz_port' => 8182,
             'qz_data_base64' => base64_encode($rawReceipt)
+        ]);
+        exit;
+    }
+
+    if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
+        $targetCassa = trim((string) ($printerSettings['nome_indirizzo'] ?? '')) ?: $cassa_id;
+        $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
+        $topic = 'print/cassa/' . $targetCassa;
+        $published = publishMercureUpdate($topic, [
+            'cassa_id' => $cassa_id,
+            'data_base64' => base64_encode($rawReceipt),
+        ]);
+
+        echo json_encode([
+            'success' => true,
+            'method' => 'bridge_native',
+            'topic' => $topic,
+            'published' => $published,
         ]);
         exit;
     }

@@ -79,7 +79,13 @@ function getPrinterSettings($connectionDB, $cassa_id)
     throw new Exception("Nessuna stampante trovata per {$cassa_id}, associare la stampante nella pagina Configurazione Stampanti");
 }
 
-function getPrinter($connectionDB, $cassa_id)
+/**
+ * Costruisce il PrintConnector escpos-php per la stampante fisica della cassa.
+ * Estratto da getPrinter() per essere riusato da bin/opensagra-print-bridge.php,
+ * che deve scrivere byte ESC/POS gia' pronti (write()/finalize()) senza passare
+ * dall'API Printer.
+ */
+function getPrinterConnector($connectionDB, $cassa_id)
 {
     // Se la cassa non ha una riga nel DB, getPrinterSettings lancia un'eccezione e blocca il flusso
     $printerSettings = getPrinterSettings($connectionDB, $cassa_id);
@@ -89,30 +95,35 @@ function getPrinter($connectionDB, $cassa_id)
         case 'RETE':
             $indirizzoIPStamp = $printerSettings['nome_indirizzo'];
             $portaStamp = (int) ($printerSettings['porta'] ?: 9100);
-            $connector = new NetworkPrintConnector($indirizzoIPStamp, $portaStamp); // Network
-            break;
+            return new NetworkPrintConnector($indirizzoIPStamp, $portaStamp); // Network
 
         case 'LINUX_USB':
             $nomeStamp = $printerSettings['nome_indirizzo'];
             // Device path (es. /dev/usb/lp0): scrittura diretta. Altrimenti e' una coda CUPS (es. da 'lpstat -p').
-            $connector = isLinuxDevicePath($nomeStamp)
+            return isLinuxDevicePath($nomeStamp)
                 ? new FilePrintConnector($nomeStamp)
                 : new CupsPrintConnector($nomeStamp);
-            break;
+
+        case 'WIN_USB':
+            $nomeStamp = $printerSettings['nome_indirizzo'];
+            return new WindowsPrintConnector(normalizeWindowsUsbTarget($nomeStamp)); // Windows USB
 
         case 'BRIDGE':
             throw new InvalidArgumentException('Il tipo stampante BRIDGE richiede il flusso di stampa QZ Tray dal browser.');
 
-        case 'WIN_USB':
-            $nomeStamp = $printerSettings['nome_indirizzo'];
-            $connector = new WindowsPrintConnector(normalizeWindowsUsbTarget($nomeStamp)); // Windows USB
-            break;
-
+        case 'BRIDGE_NATIVE':
+            // Il PC che stampa davvero (dove gira opensagra-print-bridge.php) ha
+            // la sua stampante configurata come tipo diretto (WIN_USB/RETE/...),
+            // non BRIDGE_NATIVE. Se si arriva qui, la cassa che pubblica e quella
+            // che stampa sono state configurate uguali per errore.
+            throw new InvalidArgumentException('BRIDGE_NATIVE non e\' una stampante fisica: e\' la cassa che pubblica su un topic di stampa. La cassa-ponte deve avere un tipo diretto.');
 
         default: // errore in caso di valore non tra quelli previsti sopra
             throw new Exception("Tipo stampante '{$tipoStamp}' sconosciuto.");
     }
+}
 
-    $printer = new Printer($connector);
-    return $printer;
+function getPrinter($connectionDB, $cassa_id)
+{
+    return new Printer(getPrinterConnector($connectionDB, $cassa_id));
 }

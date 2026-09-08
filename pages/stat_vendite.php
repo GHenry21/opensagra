@@ -756,6 +756,10 @@
                         if (response && response.method === 'bridge_qz') {
                             await this.printBridgeViaQz(response);
                         }
+                        if (response && response.method === 'bridge_native' && response.published === false) {
+                            window.showToast('Report non arrivato alla stampante: ponte non raggiungibile.', 'error');
+                            return;
+                        }
 
                         const method = response && response.method ? response.method : 'sconosciuto';
                         const printer = response && response.printer ? ' (' + response.printer + ')' : '';

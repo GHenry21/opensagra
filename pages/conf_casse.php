@@ -160,7 +160,7 @@
                             <option value="WIN_USB">WINDOWS USB</option>
                             <option value="LINUX_USB">LINUX USB</option>
                             <option value="RETE">RETE</option>
-                            <option value="BRIDGE">BRIDGE</option>
+                            <option value="BRIDGE_NATIVE">BRIDGE NATIVO</option>
                             <option value="BLUETOOTH">BLUETOOTH</option>
                         </select>
                     </div>
@@ -173,10 +173,26 @@
                                 placeholder="es. 192.168.1.50 o pc-cassa.local">
                         </div>
                     </div>
-   
+
+                    <!-- BRIDGE NATIVO: si stampa sulla stampante di un'altra cassa (quella
+                         col cavo). Il processo opensagra-print-bridge su quel PC riceve i
+                         byte via Mercure e stampa. Nessun QZ Tray. -->
+                    <div class="modal-field" v-if="modalData.tipo_stampante === 'BRIDGE_NATIVE'">
+                        <label for="modalBridgeNativeTarget">Cassa con la stampante *</label>
+                        <select id="modalBridgeNativeTarget" v-model="modalData.nome_indirizzo"
+                            :class="{ 'is-placeholder': !modalData.nome_indirizzo }">
+                            <option value="" disabled selected hidden>Scegli la cassa che ha la stampante fisica</option>
+                            <option v-for="c in bridgeNativeTargets" :key="c" :value="c">{{ c }}</option>
+                        </select>
+                        <p class="modal-field-hint" v-if="bridgeNativeTargets.length === 0">
+                            Nessuna cassa con stampante diretta (WINDOWS USB / LINUX USB / RETE) configurata:
+                            configurane prima una, poi punta qui questa cassa.
+                        </p>
+                    </div>
 
                     <!-- Button per refresh stampanti Bridge-->
-                    <div class="modal-field" v-if="modalData.tipo_stampante !== 'BLUETOOTH'">
+                    <div class="modal-field"
+                        v-if="modalData.tipo_stampante !== 'BLUETOOTH' && modalData.tipo_stampante !== 'BRIDGE_NATIVE'">
                         <label>{{ nomeIndirizzoLabel }} *</label>
                         <button v-if="modalData.tipo_stampante === 'BRIDGE'" type="button" id="refreshBridgePrintersBtn"
                             @click="refreshBridgePrinters" :disabled="loadingQzPrinters"
@@ -235,6 +251,7 @@
                                 :placeholder="nomeIndirizzoPlaceholder">
                         </div>
                     </div>
+
                     <!-- Mostra il campo Porta solo se il tipo RETE -->
                     <div class="modal-field"
                         v-if="modalData.tipo_stampante === 'RETE'">
@@ -497,6 +514,14 @@
                         return (this.bridgeSelectValue || '').trim();
                     }
                     return (this.modalData.nome_indirizzo || '').trim();
+                },
+                // Casse eleggibili come "cassa-ponte" per BRIDGE_NATIVE: quelle con una
+                // stampante diretta (il processo bridge sul loro PC sa stamparci sopra).
+                bridgeNativeTargets() {
+                    const direct = ['WIN_USB', 'LINUX_USB', 'RETE'];
+                    return this.stampantiData
+                        .filter((r) => direct.includes(r.tipo_stampante) && r.cassa_id !== this.modalData.cassa_id)
+                        .map((r) => r.cassa_id);
                 }
             },
             methods: {
@@ -617,7 +642,8 @@
                         'WIN_USB': 'WINDOWS USB',
                         'LINUX_USB': 'LINUX USB',
                         'RETE': 'RETE',
-                        'BRIDGE': 'BRIDGE',
+                        'BRIDGE_NATIVE': 'BRIDGE NATIVO',
+                        'BRIDGE': 'BRIDGE (QZ)',
                         'BLUETOOTH': 'BLUETOOTH'
                     };
                     return mappaTipi[tipo] || tipo || '-';
@@ -813,6 +839,9 @@
                     if (tipoStampante === 'BRIDGE') {
                         return '../print/test_print_bridge.php';
                     }
+                    if (tipoStampante === 'BRIDGE_NATIVE') {
+                        return '../print/test_print_bridge_native.php';
+                    }
                     if (tipoStampante === 'BLUETOOTH') {
                         return '../print/test_print_bluetooth.php';
                     }
@@ -892,6 +921,14 @@
                         this.modalData.porta = 9100;
                     } else {
                         this.modalData.porta = 0;
+                    }
+                    if (this.modalData.tipo_stampante === 'BRIDGE_NATIVE') {
+                        // Il campo diventa una select di casse-ponte: scarta un
+                        // eventuale valore ereditato da un tipo precedente (un IP, ecc.)
+                        // che non corrisponderebbe a nessuna opzione.
+                        if (!this.bridgeNativeTargets.includes(this.modalData.nome_indirizzo)) {
+                            this.modalData.nome_indirizzo = '';
+                        }
                     }
                     // Aggiorna i valori delle select in base al tipo di stampante selezionato
                     void this.caricaStampantiPerTipo(this.modalData.tipo_stampante);
