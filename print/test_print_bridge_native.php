@@ -9,6 +9,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../config/mercure.php';
+require_once __DIR__ . '/../config/printer_connectors.php';   // bridgeNativeRouting()
 
 use Mike42\Escpos\Printer;
 use Mike42\Escpos\PrintConnectors\FilePrintConnector;
@@ -54,20 +55,29 @@ function bnBuildTestRaw(string $cassaId, string $targetCassa): string
 try {
     $payload = bnInput();
     $cassaId = trim((string) ($payload['cassa_id'] ?? ''));
-    // Per BRIDGE_NATIVE, nome_indirizzo = la cassa-ponte (che ha la stampante).
-    $targetCassa = trim((string) ($payload['nome_indirizzo'] ?? '')) ?: $cassaId;
 
-    if ($targetCassa === '') {
-        throw new Exception('Manca la cassa-ponte (nome_indirizzo).');
+    // Stesso instradamento del checkout: modello "a una riga" (bridge_printer_type
+    // valorizzato -> stampante nel payload) o legacy "a due righe" (nome_indirizzo
+    // = cassa-ponte).
+    $routing = bridgeNativeRouting([
+        'nome_indirizzo' => (string) ($payload['nome_indirizzo'] ?? ''),
+        'porta' => $payload['porta'] ?? null,
+        'bridge_printer_type' => (string) ($payload['bridge_printer_type'] ?? ''),
+        'bridge_topic' => (string) ($payload['bridge_topic'] ?? ''),
+    ], $cassaId);
+
+    $topic = $routing['topic'];
+    $topicId = substr($topic, strlen('print/cassa/'));
+    if ($topicId === '') {
+        throw new Exception('Manca l\'id-topic del ponte (bridge_topic / cassa_id).');
     }
 
-    $raw = bnBuildTestRaw($cassaId, $targetCassa);
-    $topic = 'print/cassa/' . $targetCassa;
-    $published = publishMercureUpdate($topic, [
+    $raw = bnBuildTestRaw($cassaId, $topicId);
+    $published = publishMercureUpdate($topic, array_merge([
         'test' => true,
         'cassa_id' => $cassaId,
         'data_base64' => base64_encode($raw),
-    ]);
+    ], $routing['payload']));
 
     if (!$published) {
         http_response_code(502);
@@ -82,7 +92,7 @@ try {
         'success' => true,
         'method' => 'bridge_native',
         'topic' => $topic,
-        'message' => "Test inviato al ponte per la cassa '$targetCassa'. Se opensagra-print-bridge e' attivo su quel PC, esce lo scontrino.",
+        'message' => "Test inviato al ponte ($topic). Se opensagra-print-bridge e' attivo su quel PC, esce lo scontrino.",
     ]);
 } catch (Throwable $e) {
     http_response_code(500);

@@ -6,7 +6,7 @@
  */
 
 /**
- * @return array{host:string,user:string,pass:string,db:string,env_file:string}
+ * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,print_bridge_casse:string}
  */
 function loadPosEnvVars(): array
 {
@@ -47,5 +47,10 @@ function loadPosEnvVars(): array
         // config/mercure.php. Vuoto se l'hub non e' configurato su questa
         // installazione (Fase 4, opzionale).
         'mercure_jwt_secret' => $vars['MERCURE_JWT_SECRET'] ?? '',
+        // PC-ponte (modalita' client): id topic di stampa serviti da questo PC,
+        // lista separata da virgole. Letto da bin/opensagra-print-bridge.php
+        // (--cassa= lo sovrascrive) e da api/stampanti.php per riportare il
+        // bridge_id nella discovery.
+        'print_bridge_casse' => $vars['PRINT_BRIDGE_CASSE'] ?? '',
     ];
 }

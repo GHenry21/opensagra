@@ -124,8 +124,8 @@
                                                 </div>
                                             </td>
                                             <td data-label="Nome/IP">{{ item.record.nome_indirizzo || '-' }}</td>
-                                            <td data-label="QZ Host" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE' }">{{ item.record.qz_host || '-' }}</td>
-                                            <td class="printer-col-porta" data-label="Porta" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'RETE' }">{{ item.record.porta || '0' }}</td>
+                                            <td data-label="QZ Host / IP ponte" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'BRIDGE' && item.record.tipo_stampante !== 'BRIDGE_NATIVE' }">{{ item.record.qz_host || '-' }}</td>
+                                            <td class="printer-col-porta" data-label="Porta" :class="{ 'field-not-applicable': item.record.tipo_stampante !== 'RETE' && !(item.record.tipo_stampante === 'BRIDGE_NATIVE' && item.record.bridge_printer_type === 'RETE') }">{{ item.record.porta || '0' }}</td>
 
                                         </tr>
                                     </tbody>
@@ -173,21 +173,65 @@
                         </div>
                     </div>
 
-                    <!-- BRIDGE NATIVO: si stampa sulla stampante di un'altra cassa (quella
-                         col cavo). Il processo opensagra-print-bridge su quel PC riceve i
-                         byte via Mercure e stampa. Nessun QZ Tray. -->
-                    <div class="modal-field" v-if="modalData.tipo_stampante === 'BRIDGE_NATIVE'">
-                        <label for="modalBridgeNativeTarget">Cassa con la stampante *</label>
-                        <select id="modalBridgeNativeTarget" v-model="modalData.nome_indirizzo"
-                            :class="{ 'is-placeholder': !modalData.nome_indirizzo }">
-                            <option value="" disabled selected hidden>Scegli la cassa che ha la stampante fisica</option>
-                            <option v-for="c in bridgeNativeTargets" :key="c" :value="c">{{ c }}</option>
-                        </select>
-                        <p class="modal-field-hint" v-if="bridgeNativeTargets.length === 0">
-                            Nessuna cassa con stampante diretta (USB / RETE) configurata:
-                            configurane prima una, poi punta qui questa cassa.
-                        </p>
-                    </div>
+                    <!-- BRIDGE NATIVO: i byte ESC/POS vengono pubblicati su Mercure e il
+                         processo opensagra-print-bridge sul PC-ponte li stampa. Modello
+                         "a una riga": qui si configura direttamente la stampante del ponte
+                         (tipo + nome/IP) e l'ID-topic; la discovery interroga il ponte via
+                         proxy server-to-server (niente QZ Tray, niente IP a runtime). -->
+                    <template v-if="modalData.tipo_stampante === 'BRIDGE_NATIVE'">
+                        <div class="modal-field">
+                            <label for="modalBridgeTopic">ID ponte (topic) *</label>
+                            <input type="text" id="modalBridgeTopic" v-model.trim="modalData.bridge_topic"
+                                :placeholder="modalData.cassa_id || 'es. bridge_cucina'">
+                            <p class="modal-field-hint">
+                                Deve combaciare con <code>PRINT_BRIDGE_CASSE</code> / <code>--cassa=</code>
+                                sul PC-ponte. Vuoto = usa l'ID cassa.
+                            </p>
+                        </div>
+                        <div class="modal-field">
+                            <label for="modalBridgePrinterType">Stampante del ponte *</label>
+                            <select id="modalBridgePrinterType" v-model="modalData.bridge_printer_type"
+                                @change="onBridgePrinterTypeChange">
+                                <option value="USB">USB (locale sul ponte)</option>
+                                <option value="RETE">RETE (IP)</option>
+                            </select>
+                        </div>
+                        <div class="modal-field" v-if="modalData.bridge_printer_type !== 'RETE'">
+                            <label for="modalBridgeIp">IP del PC-ponte (per la ricerca)</label>
+                            <div class="win-printer-wrap">
+                                <input type="text" id="modalBridgeIp" v-model.trim="modalData.qz_host"
+                                    placeholder="es. 192.168.1.50">
+                                <button type="button" id="discoverBridgeNativeBtn"
+                                    @click="discoverBridgeNativePrinters" :disabled="loadingBridgeNativePrinters"
+                                    title="Cerca le stampanti sul PC-ponte">
+                                    <?= pos_icon('refresh-cw', ['class' => 'icon-refresh', ':class' => "{ 'spin-animation': loadingBridgeNativePrinters }"]) ?>
+                                    {{ loadingBridgeNativePrinters ? 'Ricerca in corso...' : 'Ricerca Stampanti' }}
+                                </button>
+                            </div>
+                            <p class="modal-field-hint">
+                                Basta che opensagra sia avviato sul PC-ponte. L'IP serve solo ora, non in stampa.
+                            </p>
+                        </div>
+                        <div class="modal-field">
+                            <label for="modalBridgePrinter">
+                                {{ modalData.bridge_printer_type === 'RETE' ? 'Indirizzo IP stampante *' : 'Nome stampante sul ponte *' }}
+                            </label>
+                            <div v-if="modalData.bridge_printer_type !== 'RETE'" class="win-printer-wrap">
+                                <select id="modalBridgePrinter" v-model="bridgeNativeSelectValue"
+                                    :class="{ 'is-placeholder': !bridgeNativeSelectValue }"
+                                    @change="onBridgeNativePrinterSelectChange">
+                                    <option value="" disabled hidden>Cerca o inserisci manualmente</option>
+                                    <option value="__manual__">Manuale...</option>
+                                    <option v-for="p in bridgeNativePrinters" :key="p" :value="p">{{ p }}</option>
+                                </select>
+                                <input type="text" id="modalBridgePrinterManual" ref="bridgeNativeManualInput"
+                                    v-model="modalData.nome_indirizzo" v-show="bridgeNativeSelectValue === '__manual__'"
+                                    placeholder="Nome stampante Windows / coda CUPS">
+                            </div>
+                            <input v-else type="text" id="modalBridgePrinterRete" v-model.trim="modalData.nome_indirizzo"
+                                placeholder="Indirizzo IP della stampante di rete">
+                        </div>
+                    </template>
 
                     <!-- Button per refresh stampanti Bridge-->
                     <div class="modal-field"
@@ -238,9 +282,9 @@
                         </div>
                     </div>
 
-                    <!-- Mostra il campo Porta solo se il tipo RETE -->
+                    <!-- Mostra il campo Porta per RETE (anche stampante RETE dietro un ponte). -->
                     <div class="modal-field"
-                        v-if="modalData.tipo_stampante === 'RETE'">
+                        v-if="modalData.tipo_stampante === 'RETE' || (modalData.tipo_stampante === 'BRIDGE_NATIVE' && modalData.bridge_printer_type === 'RETE')">
                         <label for="modalPorta">Porta *</label>
                         <input type="number" id="modalPorta" min="0" v-model.number="modalData.porta">
                     </div>
@@ -439,6 +483,9 @@
                     winPrinters: [],
                     linuxPrinters: [],
                     bridgePrinters: [],
+                    bridgeNativePrinters: [],
+                    bridgeNativeSelectValue: '',
+                    loadingBridgeNativePrinters: false,
                     bluetoothPrinters: [],
                     // OS dell'host che stampa: decide discovery e hint del tipo USB unificato.
                     serverOs: String(window.__OPENSAGRA_SERVER_OS__ || 'Windows'),
@@ -452,7 +499,7 @@
                     modalOpen: false,
                     isCreatingRecord: false,
                     currentEditIndex: null,
-                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
+                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
                     _windowsPrintersPromise: null,
                     _linuxPrintersPromise: null,
                     expandedRows: {}
@@ -805,6 +852,100 @@
                     }
                 },
 
+                // --- BRIDGE NATIVO: stampante del ponte (modello "a una riga") ---
+                onBridgePrinterTypeChange() {
+                    if (this.modalData.bridge_printer_type === 'RETE') {
+                        if (!this.modalData.porta) {
+                            this.modalData.porta = 9100;
+                        }
+                    } else {
+                        this.modalData.porta = 0;
+                    }
+                    this.modalData.nome_indirizzo = '';
+                    this.bridgeNativeSelectValue = '';
+                    this.bridgeNativePrinters = [];
+                },
+                onBridgeNativePrinterSelectChange() {
+                    if (this.bridgeNativeSelectValue && this.bridgeNativeSelectValue !== '__manual__') {
+                        this.modalData.nome_indirizzo = this.bridgeNativeSelectValue;
+                    } else if (this.bridgeNativeSelectValue === '__manual__') {
+                        this.$nextTick(() => {
+                            this.$refs.bridgeNativeManualInput && this.$refs.bridgeNativeManualInput.focus();
+                        });
+                    } else {
+                        this.modalData.nome_indirizzo = '';
+                    }
+                },
+                applyBridgeNativePrinter(name) {
+                    this.modalData.nome_indirizzo = name;
+                    this.bridgeNativeSelectValue = this.bridgeNativePrinters.includes(name) ? name : '__manual__';
+                },
+                // Discovery via proxy server-to-server: chiede al PC-ponte il suo
+                // elenco stampanti reali (prima Windows, poi Linux). Nessun QZ, nessun IP a runtime.
+                async discoverBridgeNativePrinters() {
+                    if (this.loadingBridgeNativePrinters) {
+                        return;
+                    }
+                    const host = (this.modalData.qz_host || '').trim();
+                    if (!host) {
+                        this.mostraMessaggio("Inserisci prima l'IP del PC-ponte.", 'error');
+                        return;
+                    }
+
+                    this.loadingBridgeNativePrinters = true;
+                    try {
+                        let result = null;
+                        for (const os of ['win', 'linux']) {
+                            const res = await $.ajax({
+                                url: '../api/stampanti.php',
+                                type: 'GET',
+                                dataType: 'json',
+                                data: { action: 'remote_list_printers', host: host, os: os }
+                            }).catch((xhr) => {
+                                let msg = '';
+                                try { msg = (JSON.parse(xhr.responseText) || {}).error || ''; } catch (e) { }
+                                return { error: msg || 'Richiesta al ponte fallita.' };
+                            });
+                            if (!result) {
+                                result = res;
+                            }
+                            if (res && Array.isArray(res.printers) && res.printers.length) {
+                                result = res;
+                                break;
+                            }
+                        }
+
+                        const printers = (result && Array.isArray(result.printers)) ? result.printers : [];
+                        this.bridgeNativePrinters = printers;
+
+                        if (result && result.bridge_id && !(this.modalData.bridge_topic || '').trim()) {
+                            this.modalData.bridge_topic = result.bridge_id;
+                        }
+
+                        if (!printers.length) {
+                            this.mostraMessaggio((result && result.error) ? result.error : 'Nessuna stampante reale trovata sul ponte.', 'error');
+                            return;
+                        }
+
+                        if (printers.length === 1) {
+                            this.applyBridgeNativePrinter(printers[0]);
+                            this.mostraMessaggio('Stampante del ponte: ' + printers[0], 'success');
+                            return;
+                        }
+
+                        window.showToast('Stampanti trovate su ' + host, 'info', {
+                            duration: 0,
+                            title: 'Scegli la stampante del ponte',
+                            actions: printers.map((p) => ({
+                                label: p,
+                                onClick: () => this.applyBridgeNativePrinter(p)
+                            }))
+                        });
+                    } finally {
+                        this.loadingBridgeNativePrinters = false;
+                    }
+                },
+
                 async caricaStampanti() {
                     try {
                         const data = await $.ajax({
@@ -871,7 +1012,9 @@
                                 nome_indirizzo: config.nome_indirizzo,
                                 porta: config.porta,
                                 cassa_id: config.cassa_id,
-                                qz_host: config.qz_host || ''
+                                qz_host: config.qz_host || '',
+                                bridge_printer_type: config.bridge_printer_type || '',
+                                bridge_topic: config.bridge_topic || ''
                             })
                         });
 
@@ -909,7 +1052,9 @@
                         tipo_stampante: this.modalData.tipo_stampante,
                         nome_indirizzo: this.resolvedNomeIndirizzo,
                         porta: Number(this.modalData.porta || 0),
-                        qz_host: (this.modalData.qz_host || '').trim()
+                        qz_host: (this.modalData.qz_host || '').trim(),
+                        bridge_printer_type: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
+                        bridge_topic: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? ((this.modalData.bridge_topic || '').trim() || (this.modalData.cassa_id || '').trim()) : ''
                     };
 
                     void this.testPrinterConfig(config);
@@ -921,12 +1066,19 @@
                         this.modalData.porta = 0;
                     }
                     if (this.modalData.tipo_stampante === 'BRIDGE_NATIVE') {
-                        // Il campo diventa una select di casse-ponte: scarta un
-                        // eventuale valore ereditato da un tipo precedente (un IP, ecc.)
-                        // che non corrisponderebbe a nessuna opzione.
-                        if (!this.bridgeNativeTargets.includes(this.modalData.nome_indirizzo)) {
-                            this.modalData.nome_indirizzo = '';
+                        // Modello "a una riga": si configura direttamente la stampante
+                        // del ponte. Default sensati e pulizia dei valori ereditati.
+                        if (!this.modalData.bridge_printer_type) {
+                            this.modalData.bridge_printer_type = 'USB';
                         }
+                        if (!this.modalData.bridge_topic) {
+                            this.modalData.bridge_topic = (this.modalData.cassa_id || '').trim();
+                        }
+                        if (this.modalData.bridge_printer_type === 'RETE' && !this.modalData.porta) {
+                            this.modalData.porta = 9100;
+                        }
+                        this.bridgeNativePrinters = [];
+                        this.bridgeNativeSelectValue = this.modalData.nome_indirizzo ? '__manual__' : '';
                     }
                     // Aggiorna i valori delle select in base al tipo di stampante selezionato
                     void this.caricaStampantiPerTipo(this.modalData.tipo_stampante);
@@ -941,7 +1093,7 @@
                     this.currentEditIndex = index;
 
                     this.modalData = this.isCreatingRecord
-                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
+                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, qz_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
                         : {
                             ...this.stampantiData[index],
                             abilita_contanti: Number(this.stampantiData[index].abilita_contanti) === 1,
@@ -966,6 +1118,17 @@
                     // Se stiamo modificando una stampante BRIDGE, carichiamo le sue stampanti
                     if (this.modalData.tipo_stampante === 'BRIDGE' && this.modalData.qz_host) {
                         this.fetchQzPrinters();
+                    }
+
+                    if (this.modalData.tipo_stampante === 'BRIDGE_NATIVE') {
+                        if (!this.modalData.bridge_printer_type) {
+                            this.modalData.bridge_printer_type = 'USB';
+                        }
+                        if (!this.modalData.bridge_topic) {
+                            this.modalData.bridge_topic = (this.modalData.cassa_id || '').trim();
+                        }
+                        this.bridgeNativePrinters = [];
+                        this.bridgeNativeSelectValue = this.modalData.nome_indirizzo ? '__manual__' : '';
                     }
                     // La discovery USB (Windows o Linux) parte da caricaStampantiPerTipo,
                     // che sceglie in base a serverIsWindows.
@@ -1005,6 +1168,11 @@
                         return;
                     }
 
+                    if (tipoStampante === 'BRIDGE_NATIVE' && !(this.modalData.bridge_topic || '').trim() && !cassaId) {
+                        this.mostraMessaggio("Indica l'ID ponte (topic) oppure l'ID cassa.", 'error');
+                        return;
+                    }
+
                     if (!this.modalData.abilita_contanti && !this.modalData.abilita_carta && !this.modalData.abilita_satispay) {
                         this.mostraMessaggio('Definire almeno un metodo di pagamento', 'error');
                         return;
@@ -1026,6 +1194,8 @@
                                 nome_indirizzo: nomeIndirizzo,
                                 porta: porta,
                                 qz_host: qzHost,
+                                bridge_printer_type: tipoStampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
+                                bridge_topic: tipoStampante === 'BRIDGE_NATIVE' ? ((this.modalData.bridge_topic || '').trim() || cassaId) : '',
                                 abilita_contanti: this.modalData.abilita_contanti ? 1 : 0,
                                 abilita_carta: this.modalData.abilita_carta ? 1 : 0,
                                 abilita_satispay: this.modalData.abilita_satispay ? 1 : 0,

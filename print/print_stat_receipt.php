@@ -208,18 +208,17 @@ try {
     }
 
     if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
-        $targetCassa = trim((string) ($printerSettings['nome_indirizzo'] ?? '')) ?: $cassa_id;
         $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
-        $topic = 'print/cassa/' . $targetCassa;
-        $published = publishMercureUpdate($topic, [
+        $routing = bridgeNativeRouting($printerSettings, $cassa_id);
+        $published = publishMercureUpdate($routing['topic'], array_merge([
             'cassa_id' => $cassa_id,
             'data_base64' => base64_encode($rawReceipt),
-        ]);
+        ], $routing['payload']));
 
         echo json_encode([
             'success' => true,
             'method' => 'bridge_native',
-            'topic' => $topic,
+            'topic' => $routing['topic'],
             'published' => $published,
         ]);
         exit;

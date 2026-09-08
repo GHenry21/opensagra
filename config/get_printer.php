@@ -1,81 +1,21 @@
 <?php
 require_once __DIR__ . '/get_db_connection.php';
+require_once __DIR__ . '/printer_connectors.php';
 
 use Mike42\Escpos\Printer;
-use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
-use Mike42\Escpos\PrintConnectors\NetworkPrintConnector;
-use Mike42\Escpos\PrintConnectors\FilePrintConnector;
-use Mike42\Escpos\PrintConnectors\CupsPrintConnector;
-
-// I nomi configurati tramite discovery sono code CUPS; solo un path assoluto e' un device raw.
-function isLinuxDevicePath($target)
-{
-    return str_starts_with((string) $target, '/');
-}
-
-/**
- * USB / stampante locale in modello wrapper: il tipo salvato e' 'USB' (OS-agnostico).
- * L'host che stampa davvero (dove gira il wrapper / opensagra-print-bridge) sa se e'
- * Windows o Linux: qui si risolve al volo il connector giusto, cosi' la stessa riga di
- * config e' portabile fra i due sistemi. I vecchi tipi WIN_USB / LINUX_USB restano
- * gestiti a parte come alias legacy che forzano il connector storico.
- */
-function usbConnectorForTarget($nomeStamp)
-{
-    if (PHP_OS_FAMILY === 'Windows') {
-        return new WindowsPrintConnector(normalizeWindowsUsbTarget($nomeStamp));
-    }
-
-    // Linux / macOS: un path assoluto (es. /dev/usb/lp0) e' scrittura raw, tutto il
-    // resto e' una coda CUPS (nome da 'lpstat -p').
-    return isLinuxDevicePath($nomeStamp)
-        ? new FilePrintConnector($nomeStamp)
-        : new CupsPrintConnector($nomeStamp);
-}
-
-function normalizeWindowsUsbTarget($target)
-{
-    $target = trim((string) $target);
-    $localHost = strtolower((string) (gethostname() ?: 'localhost'));
-    if ($target === '') {
-        return 'smb://127.0.0.1/POS-80C';
-    }
-
-    // Keep valid smb:// targets as-is, but remap local hostname to loopback.
-    if (stripos($target, 'smb://') === 0) {
-        $parts = parse_url($target);
-        $host = strtolower((string) ($parts['host'] ?? ''));
-        if ($host === 'localhost' || $host === $localHost) {
-            $path = $parts['path'] ?? '';
-            return 'smb://127.0.0.1' . $path;
-        }
-        return $target;
-    }
-
-    // Convert UNC format (\\HOST\SHARE) to smb://HOST/SHARE.
-    if (preg_match('/^\\\\\\\\([^\\\\]+)\\\\(.+)$/', $target, $matches)) {
-        $host = strtolower(trim($matches[1]));
-        if ($host === 'localhost' || $host === $localHost) {
-            $host = '127.0.0.1';
-        }
-        return 'smb://' . $host . '/' . $matches[2];
-    }
-
-    // Keep local ports untouched.
-    if (preg_match('/^(LPT\\d|COM\\d)$/i', $target)) {
-        return strtoupper($target);
-    }
-
-    // Plain printer names are treated as local shared printers via loopback.
-    return 'smb://127.0.0.1/' . $target;
-}
 
 function getPrinterSettings($connectionDB, $cassa_id)
 {
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS qz_host VARCHAR(255) NULL AFTER porta");
+    // Modello BRIDGE_NATIVE "a una riga": la stampante fisica del ponte e'
+    // descritta qui (bridge_printer_type + nome_indirizzo/porta) e il topic
+    // Mercure e' bridge_topic (default cassa_id). bridge_printer_type vuoto =
+    // vecchio modello "a due righe" (nome_indirizzo = cassa-ponte).
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER qz_host");
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_topic VARCHAR(50) NULL AFTER bridge_printer_type");
 
-    $query = "SELECT tipo_stampante, nome_indirizzo, porta, qz_host
-                FROM casse_stampanti 
+    $query = "SELECT tipo_stampante, nome_indirizzo, porta, qz_host, bridge_printer_type, bridge_topic
+                FROM casse_stampanti
                WHERE cassa_id = ? ";
     $stmt = $connectionDB->prepare($query);
     $stmt->bind_param("s", $cassa_id);
@@ -89,7 +29,9 @@ function getPrinterSettings($connectionDB, $cassa_id)
             'tipo_stampante' => $row['tipo_stampante'], /* ?: $defaultConfig['tipo_stampante'], */
             'nome_indirizzo' => $row['nome_indirizzo'],
             'porta' => $row['porta'],
-            'qz_host' => trim((string) ($row['qz_host'] ?? ''))
+            'qz_host' => trim((string) ($row['qz_host'] ?? '')),
+            'bridge_printer_type' => trim((string) ($row['bridge_printer_type'] ?? '')),
+            'bridge_topic' => trim((string) ($row['bridge_topic'] ?? '')),
         ];
     }
 
@@ -113,26 +55,14 @@ function getPrinterConnector($connectionDB, $cassa_id)
 
     switch ($tipoStamp) {
         case 'RETE':
-            $indirizzoIPStamp = $printerSettings['nome_indirizzo'];
-            $portaStamp = (int) ($printerSettings['porta'] ?: 9100);
-            return new NetworkPrintConnector($indirizzoIPStamp, $portaStamp); // Network
-
         case 'USB':
-            // Tipo unificato: il connector dipende dall'OS dell'host che stampa.
-            return usbConnectorForTarget($printerSettings['nome_indirizzo']);
-
         case 'LINUX_USB':
-            // Legacy (righe pre-fusione): forza il connector Linux storico.
-            $nomeStamp = $printerSettings['nome_indirizzo'];
-            // Device path (es. /dev/usb/lp0): scrittura diretta. Altrimenti e' una coda CUPS (es. da 'lpstat -p').
-            return isLinuxDevicePath($nomeStamp)
-                ? new FilePrintConnector($nomeStamp)
-                : new CupsPrintConnector($nomeStamp);
-
         case 'WIN_USB':
-            // Legacy (righe pre-fusione): forza WindowsPrintConnector storico.
-            $nomeStamp = $printerSettings['nome_indirizzo'];
-            return new WindowsPrintConnector(normalizeWindowsUsbTarget($nomeStamp)); // Windows USB
+            return getPrinterConnectorFromSpec(
+                $tipoStamp,
+                (string) $printerSettings['nome_indirizzo'],
+                $printerSettings['porta'] ?? null
+            );
 
         case 'BRIDGE':
             throw new InvalidArgumentException('Il tipo stampante BRIDGE richiede il flusso di stampa QZ Tray dal browser.');

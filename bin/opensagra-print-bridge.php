@@ -6,9 +6,18 @@
  * Gira sul PC a cui e' collegata (USB / rete / ...) la stampante di una cassa.
  * Si iscrive al topic Mercure `print/cassa/{id}` sull'hub del server e, alla
  * ricezione, scrive i byte ESC/POS gia' pronti direttamente sulla stampante
- * locale (stesso codice escpos-php del tipo USB diretto). Il browser non partecipa
- * piu' allo step di stampa: niente WebSocket, niente mixed-content, niente
- * popup/certificati di override.
+ * locale. Il browser non partecipa piu' allo step di stampa: niente WebSocket,
+ * niente mixed-content, niente popup/certificati di override.
+ *
+ * Stampante:
+ *  - modello "a una riga" (consigliato): la cassa e' configurata BRIDGE_NATIVE
+ *    con la stampante del ponte (tipo + nome/IP). Il server la mette nel payload
+ *    Mercure (`printer` / `printer_type` / `printer_port`) e questo processo
+ *    stampa SENZA toccare il DB -> funziona con MariaDB spento.
+ *  - modello legacy "a due righe": il payload non porta la stampante; questo
+ *    processo la risolve dalla riga `casse_stampanti` della cassa-ponte
+ *    (connessione al DB non fatale: se il DB non c'e' la singola stampa fallisce
+ *    e viene loggata, il processo resta vivo).
  *
  * Lanciato dal wrapper come processo figlio (vedi piano 3g), uno per cassa che
  * questo PC serve. La cassa e' data da:  --cassa=<id>  oppure  PRINT_BRIDGE_CASSE
@@ -22,8 +31,7 @@
 
 require_once __DIR__ . '/../config/env_reader.php';
 require_once __DIR__ . '/../config/mercure.php';
-require_once __DIR__ . '/../config/get_db_connection.php';   // $connectionDB (verso DB_POS_HOST)
-require_once __DIR__ . '/../config/get_printer.php';
+require_once __DIR__ . '/../config/printer_connectors.php';   // getPrinterConnectorFromSpec() - nessun DB
 require_once __DIR__ . '/mercure_subscriber.php';
 require __DIR__ . '/../vendor/autoload.php';
 
@@ -41,7 +49,10 @@ foreach ($argv as $a) {
 }
 if ($cassa === '') {
     $fromEnv = getenv('PRINT_BRIDGE_CASSE');
-    if ($fromEnv !== false && trim($fromEnv) !== '') {
+    if ($fromEnv === false || trim((string) $fromEnv) === '') {
+        $fromEnv = loadPosEnvVars()['print_bridge_casse'] ?? '';
+    }
+    if (trim((string) $fromEnv) !== '') {
         $cassa = trim(explode(',', $fromEnv)[0]);
     }
 }
@@ -60,21 +71,66 @@ $sinkFile = getenv('PRINT_BRIDGE_SINK_FILE') ?: '';
 $topic = 'print/cassa/' . $cassa;
 
 /**
- * Stampa i byte ESC/POS ricevuti. Riapre il connettore ad ogni scontrino:
- * le condivisioni Windows / i device USB non amano gli handle tenuti aperti a
+ * Connessione DB non fatale, solo per il fallback "modello a due righe": la
+ * cassa che pubblica non allega la stampante nel payload e va risolta dalla
+ * riga della cassa-ponte. Nel modello "a una riga" non viene mai chiamata.
+ */
+function bridgeConnectorFromDb(string $cassa)
+{
+    static $conn = false;
+
+    if ($conn === false) {
+        $env = loadPosEnvVars();
+        mysqli_report(MYSQLI_REPORT_OFF);
+        $c = @new mysqli($env['host'], $env['user'], $env['pass'], $env['db']);
+        $conn = $c->connect_error ? null : $c;
+        if ($conn === null) {
+            bridgeLog("print-bridge: DB non raggiungibile ({$c->connect_error}).");
+        }
+    }
+
+    if ($conn === null) {
+        throw new RuntimeException("stampante non nel payload e DB non raggiungibile per la cassa '$cassa'");
+    }
+
+    $stmt = $conn->prepare("SELECT tipo_stampante, nome_indirizzo, porta FROM casse_stampanti WHERE cassa_id = ?");
+    $stmt->bind_param('s', $cassa);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row) {
+        throw new RuntimeException("nessuna riga casse_stampanti per '$cassa'");
+    }
+    return getPrinterConnectorFromSpec((string) $row['tipo_stampante'], (string) $row['nome_indirizzo'], $row['porta'] ?? null);
+}
+
+/**
+ * Stampa i byte ESC/POS ricevuti. Riapre il connettore ad ogni scontrino: le
+ * condivisioni Windows / i device USB non amano gli handle tenuti aperti a
  * lungo, e uno scontrino ogni tanto non ha problemi di costo.
  */
-function printRaw(string $bytes, string $cassa, string $sinkFile): void
+function printRaw(string $bytes, string $cassa, string $sinkFile, array $data): void
 {
-    global $connectionDB;
-
     if ($sinkFile !== '') {
         file_put_contents($sinkFile, $bytes, FILE_APPEND | LOCK_EX);
         bridgeLog("print-bridge: " . strlen($bytes) . " byte scritti su $sinkFile (modalita' test).");
         return;
     }
 
-    $connector = getPrinterConnector($connectionDB, $cassa);
+    $printerType = trim((string) ($data['printer_type'] ?? ''));
+    if ($printerType !== '') {
+        // Modello "a una riga": stampante dal payload, nessun accesso al DB.
+        $connector = getPrinterConnectorFromSpec(
+            $printerType,
+            (string) ($data['printer'] ?? ''),
+            $data['printer_port'] ?? null
+        );
+    } else {
+        // Modello legacy "a due righe": risolvi dalla riga della cassa-ponte.
+        $connector = bridgeConnectorFromDb($cassa);
+    }
+
     $connector->write($bytes);
     $connector->finalize();
     bridgeLog("print-bridge: scontrino stampato (" . strlen($bytes) . " byte) su cassa '$cassa'.");
@@ -98,7 +154,7 @@ runMercureSubscriber([
             return;
         }
         try {
-            printRaw($bytes, $cassa, $sinkFile);
+            printRaw($bytes, $cassa, $sinkFile, $data);
         } catch (Throwable $e) {
             bridgeLog("print-bridge: STAMPA FALLITA (vendita " . ($data['id_vendita'] ?? '?') . "): " . $e->getMessage());
         }

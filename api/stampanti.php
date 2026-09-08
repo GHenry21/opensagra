@@ -1,64 +1,19 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/../config/printer_discovery.php';
+
+// Discovery stampanti (locale e proxy verso un altro PC della LAN): nessun DB,
+// gestita PRIMA di require get_db_connection.php cosi' gira anche su un PC-ponte
+// non ancora in modalita' client (MariaDB non raggiungibile).
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+    && in_array($_GET['action'] ?? '', ['list_win_printers', 'list_linux_printers', 'remote_list_printers'], true)) {
+    handlePrinterDiscovery((string) $_GET['action']);
+    exit;
+}
+
 // Include la connessione al database
-require_once __DIR__ . '/../config/get_db_connection.php'; 
-
-// ==========================================
-// FUNZIONI PER STAMPANTI DI SISTEMA
-// ==========================================
-function getWindowsPrinters() {
-    if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
-        return [];
-    }
-    // Esegue PowerShell per ottenere i nomi delle stampanti installate
-    $cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Printer | Select-Object -ExpandProperty Name | ConvertTo-Json"';
-    $output = shell_exec($cmd);
-    if (!$output) return [];
-
-    $data = json_decode($output, true);
-    if (is_string($data)) return [$data]; // Se c'è una sola stampante
-    if (is_array($data)) return array_values($data);
-    return [];
-}
-
-function getLinuxPrinters(&$debug = []) {
-    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-        return [];
-    }
-
-    if (!function_exists('shell_exec') || in_array('shell_exec', array_map('trim', explode(',', (string) ini_get('disable_functions'))), true)) {
-        $debug[] = 'shell_exec non disponibile (disabilitata in php.ini disable_functions).';
-        return [];
-    }
-
-    // Prova prima il binario risolto via PATH, poi i percorsi assoluti tipici (il processo PHP/Apache spesso ha un PATH ridotto).
-    $candidates = ['lpstat', '/usr/bin/lpstat', '/usr/sbin/lpstat', '/usr/bin/lpinfo'];
-    foreach ($candidates as $bin) {
-        $cmd = escapeshellarg($bin) . ' -p 2>&1';
-        $output = shell_exec($cmd);
-        $debug[] = "Comando: $cmd => " . trim((string) $output);
-
-        if ($output === null || $output === false || stripos($output, 'not found') !== false || stripos($output, 'no such file') !== false) {
-            continue;
-        }
-
-        $lines = [];
-        foreach (explode("\n", trim($output)) as $line) {
-            // Formato atteso: "printer NOME is idle..."
-            if (preg_match('/^printer\s+(\S+)/i', $line, $m)) {
-                $lines[] = $m[1];
-            }
-        }
-
-        if (!empty($lines)) {
-            return array_values(array_unique($lines));
-        }
-    }
-
-    $debug[] = 'Nessuna stampante CUPS rilevata con nessuno dei comandi provati. Verificare che il pacchetto cups-client sia installato e che l\'utente del web server possa eseguire lpstat.';
-    return [];
-}
+require_once __DIR__ . '/../config/get_db_connection.php';
 
 function ensurePaymentMethodColumns($connectionDB) {
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_contanti TINYINT(1) NOT NULL DEFAULT 1 AFTER qz_host");
@@ -69,6 +24,13 @@ function ensurePaymentMethodColumns($connectionDB) {
 function ensureFondoCassaColumn($connectionDB) {
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS fondo_cassa DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER abilita_satispay");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS ultima_chiusura DATETIME NULL DEFAULT NULL AFTER fondo_cassa");
+}
+
+function ensureBridgeNativeColumns($connectionDB) {
+    // Modello BRIDGE_NATIVE "a una riga": tipo stampante fisica del ponte +
+    // id-topic Mercure. Vuoti = vecchio modello "a due righe".
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER qz_host");
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_topic VARCHAR(50) NULL AFTER bridge_printer_type");
 }
 
 function normalizePaymentFlag($value, $default) {
@@ -88,6 +50,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 try {
     ensurePaymentMethodColumns($connectionDB);
     ensureFondoCassaColumn($connectionDB);
+    ensureBridgeNativeColumns($connectionDB);
 
     // ------------------------------------------
     // 1. RICHIESTE GET (Lettura)
@@ -96,15 +59,8 @@ try {
         $action = $_GET['action'] ?? 'list';
 
         switch ($action) {
-            case 'list_win_printers':
-                echo json_encode(['printers' => getWindowsPrinters()]);
-                break;
-
-            case 'list_linux_printers':
-                $linuxDebug = [];
-                $linuxPrinters = getLinuxPrinters($linuxDebug);
-                echo json_encode(['printers' => $linuxPrinters, 'debug' => $linuxDebug]);
-                break;
+            // list_win_printers / list_linux_printers / remote_list_printers:
+            // gestite prima del require del DB (vedi in cima al file).
 
             case 'payment_config':
                 $cassa_id = trim((string)($_GET['cassa_id'] ?? ''));
@@ -132,7 +88,7 @@ try {
 
             case 'list':
             default:
-                $result = $connectionDB->query("SELECT cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa, ultima_chiusura FROM casse_stampanti ORDER BY cassa_id ASC");
+                $result = $connectionDB->query("SELECT cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa, ultima_chiusura FROM casse_stampanti ORDER BY cassa_id ASC");
                 $stampanti = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
                 echo json_encode($stampanti);
                 break;
@@ -160,6 +116,14 @@ try {
             $nome_indirizzo = trim($input['nome_indirizzo'] ?? '');
             $porta          = isset($input['porta']) ? (int)$input['porta'] : 0;
             $qz_host        = trim($input['qz_host'] ?? '');
+            // Modello BRIDGE_NATIVE "a una riga": stampante fisica del ponte +
+            // id-topic Mercure. Solo per BRIDGE_NATIVE, altrimenti azzerati.
+            $bridge_printer_type = trim($input['bridge_printer_type'] ?? '');
+            $bridge_topic        = trim($input['bridge_topic'] ?? '');
+            if ($tipo_stampante !== 'BRIDGE_NATIVE') {
+                $bridge_printer_type = '';
+                $bridge_topic = '';
+            }
             $cassa_id_old   = trim($input['cassa_id_old'] ?? $cassa_id);
             $abilita_contanti = normalizePaymentFlag($input['abilita_contanti'] ?? null, 1);
             $abilita_carta = normalizePaymentFlag($input['abilita_carta'] ?? null, 0);
@@ -177,6 +141,12 @@ try {
 
             if ($tipo_stampante !== 'BLUETOOTH' && empty($nome_indirizzo)) {
                 echo json_encode(['error' => 'Il campo Nome Stampante / Indirizzo IP è obbligatorio.']);
+                exit;
+            }
+
+            if ($tipo_stampante === 'BRIDGE_NATIVE' && $bridge_printer_type !== ''
+                && !in_array($bridge_printer_type, ['USB', 'WIN_USB', 'LINUX_USB', 'RETE'], true)) {
+                echo json_encode(['error' => 'Tipo stampante del ponte non valido (attesi USB / WIN_USB / LINUX_USB / RETE).']);
                 exit;
             }
 
@@ -200,8 +170,8 @@ try {
                     exit;
                 }
 
-                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssisiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
+                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, qz_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("sssisssiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Stampante aggiunta con successo.']);
@@ -212,8 +182,8 @@ try {
                 break;
 
             case 'update':
-                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, qz_host = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
-                $stmt->bind_param("sssisiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
+                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, qz_host = ?, bridge_printer_type = ?, bridge_topic = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
+                $stmt->bind_param("sssisssiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $qz_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Configurazione aggiornata con successo.']);

@@ -601,23 +601,24 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
     }
         // CASO 1-bis: BRIDGE_NATIVE (sostituto di QZ Tray, Fase 4 punto 2).
         // Il browser NON stampa: i byte ESC/POS vengono pubblicati su un topic
-        // Mercure `print/cassa/{id}` e un processo residente sul PC col cavo USB
-        // (bin/opensagra-print-bridge.php) li riceve e stampa. `nome_indirizzo`
-        // contiene la cassa-ponte che possiede la stampante fisica (di norma la
-        // cassa stessa; puo' essere un'altra cassa se la stampante e' condivisa).
+        // Mercure `print/cassa/{id}` e il processo bin/opensagra-print-bridge.php
+        // sul PC col cavo li riceve e stampa.
+        //  - modello "a una riga" (bridge_printer_type valorizzato): la stampante
+        //    fisica del ponte viaggia nel payload, il ponte non tocca il DB;
+        //  - modello legacy "a due righe": nome_indirizzo = cassa-ponte, il ponte
+        //    risolve la stampante dal proprio DB.
         if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
-            $targetCassa = trim((string) ($printerSettings['nome_indirizzo'] ?? '')) ?: $cassa_id;
             $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
-            $topic = 'print/cassa/' . $targetCassa;
-            $published = publishMercureUpdate($topic, [
+            $routing = bridgeNativeRouting($printerSettings, $cassa_id);
+            $published = publishMercureUpdate($routing['topic'], array_merge([
                 'id_vendita' => $id_vendita,
                 'cassa_id' => $cassa_id,
                 'data_base64' => base64_encode($rawReceipt),
-            ]);
+            ], $routing['payload']));
 
             return [
                 'method' => 'bridge_native',
-                'topic' => $topic,
+                'topic' => $routing['topic'],
                 // La vendita e' gia' registrata: se il ponte non ha ricevuto
                 // (hub o ponte giu') il frontend avvisa e offre la ristampa,
                 // come per un fallimento QZ - non si perde la vendita.
