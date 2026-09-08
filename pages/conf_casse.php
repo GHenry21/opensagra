@@ -559,15 +559,6 @@
                         return (this.bridgeSelectValue || '').trim();
                     }
                     return (this.modalData.nome_indirizzo || '').trim();
-                },
-                // Casse eleggibili come "cassa-ponte" per BRIDGE_NATIVE: quelle con una
-                // stampante diretta (il processo bridge sul loro PC sa stamparci sopra).
-                // USB = tipo unificato; WIN_USB / LINUX_USB restano validi come legacy.
-                bridgeNativeTargets() {
-                    const direct = ['USB', 'WIN_USB', 'LINUX_USB', 'RETE'];
-                    return this.stampantiData
-                        .filter((r) => direct.includes(r.tipo_stampante) && r.cassa_id !== this.modalData.cassa_id)
-                        .map((r) => r.cassa_id);
                 }
             },
             methods: {
