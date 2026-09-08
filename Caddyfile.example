@@ -15,11 +15,15 @@ http://:80 {
 	#   Caddy non applica un default.
 	# - cors_origins: ogni hostname da cui e' servito billing.php; l'hub
 	#   valida l'Origin/Referer della richiesta col cookie contro questa lista.
+	# - heartbeat: senza, una connessione SSE ferma (nessun evento) viene
+	#   abortita e riaperta di continuo dai sottoscrittori CLI (relay/bridge,
+	#   soglia 45s) e fa flappare l'EventSource del browser. 20s la tiene viva.
 	# mercure {
 	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
 	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
 	# 	cookie_name mercure_authorization
 	# 	cors_origins http://localhost
+	# 	heartbeat 20s
 	# }
 }
 
@@ -34,5 +38,6 @@ https://localhost {
 	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
 	# 	cookie_name mercure_authorization
 	# 	cors_origins https://localhost
+	# 	heartbeat 20s
 	# }
 }

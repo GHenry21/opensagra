@@ -48,8 +48,18 @@ runMercureSubscriber([
     'label'    => 'relay',
     'mint_jwt' => static fn() => mintMercureJwt([], RELAY_TOPICS, MERCURE_SUB_JWT_TTL),
     'on_event' => static function ($data) {
+        // Difesa contro l'eco: se DB_POS_HOST fosse (per errore di config)
+        // l'IP di QUESTA macchina, l'hub del server e quello locale sarebbero
+        // lo stesso hub - ripubblicare qui rimanderebbe l'evento a noi stessi,
+        // all'infinito. Marchiamo cio' che ripubblichiamo e scartiamo gli
+        // eventi gia' marchiati. Il client ignora la chiave `_relay`.
+        if (is_array($data) && !empty($data['_relay'])) {
+            return;
+        }
+        $payload = is_array($data) ? $data + ['_relay' => 1] : $data;
+
         // Ri-pubblica sull'hub LOCALE, cosi' billing.php locale lo riceve.
-        if (!publishMercureUpdate('products', $data, RELAY_LOCAL_HUB)) {
+        if (!publishMercureUpdate('products', $payload, RELAY_LOCAL_HUB)) {
             relayLog("relay: ripubblicazione sull'hub locale fallita (hub locale giu'?).");
         }
     },

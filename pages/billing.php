@@ -672,6 +672,10 @@
                     _productsSseHealthy: false,
                     _productsSseRetryTimer: null,
                     _productsSseRetryMs: null,
+                    // Alzato in beforeUnmount: initProductsRealtime e' async e non
+                    // atteso, se il componente si smonta durante il fetch del token
+                    // la ripresa dopo l'await non deve aprire un EventSource orfano.
+                    _destroyed: false,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1463,11 +1467,15 @@
                     if (!Number.isFinite(version)) {
                         return;
                     }
+                    // Se un payload non porta 'count', non trasformarlo in NaN:
+                    // NaN !== NaN farebbe scattare un reload a ogni tick. Tieni
+                    // il valore noto e lascia decidere alla sola 'version'.
+                    const safeCount = Number.isFinite(count) ? count : this._lastProductsCount;
                     const changed = this._lastProductsVersion === null
                         || version !== this._lastProductsVersion
-                        || count !== this._lastProductsCount;
+                        || safeCount !== this._lastProductsCount;
                     this._lastProductsVersion = version;
-                    this._lastProductsCount = count;
+                    this._lastProductsCount = safeCount;
                     if (changed) {
                         await this.loadProducts();
                     }
@@ -1492,7 +1500,8 @@
                         // 503 = hub non configurato su questa installazione: normale, si resta col polling.
                         return;
                     }
-                    if (!info || info.realtime !== true) {
+                    // Il componente puo' essersi smontato durante l'await sopra.
+                    if (this._destroyed || !info || info.realtime !== true) {
                         return;
                     }
 
@@ -1988,6 +1997,7 @@
             },
 
             beforeUnmount() {
+                this._destroyed = true;
                 if (this._productPickerMql && this._productPickerMqlHandler) {
                     if (this._productPickerMql.removeEventListener) {
                         this._productPickerMql.removeEventListener('change', this._productPickerMqlHandler);
