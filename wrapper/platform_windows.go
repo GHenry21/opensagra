@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"syscall"
 	"unsafe"
@@ -121,4 +122,36 @@ func openURL(u string) {
 
 func revealPath(p string) {
 	_ = exec.Command("explorer", p).Start()
+}
+
+// --- "avvia all'accensione": Scheduled Task at-logon per l'utente corrente ---
+//
+// Via PowerShell (non schtasks): gestisce senza patemi i path con spazi, e un
+// task at-logon per l'utente corrente non richiede elevazione. Niente webview,
+// niente COM: giusto tre comandi.
+
+const _autostartTask = "OpenSagra"
+
+func psRun(script string) error {
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	hideWindow(cmd)
+	return cmd.Run()
+}
+
+func autostartEnabled() bool {
+	return psRun("Get-ScheduledTask -TaskName '"+_autostartTask+"' -ErrorAction Stop | Out-Null") == nil
+}
+
+func setAutostart(enable bool) error {
+	if !enable {
+		return psRun("Unregister-ScheduledTask -TaskName '" + _autostartTask + "' -Confirm:$false")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return psRun(
+		"$a = New-ScheduledTaskAction -Execute '" + exe + "'; " +
+			"$t = New-ScheduledTaskTrigger -AtLogOn; " +
+			"Register-ScheduledTask -TaskName '" + _autostartTask + "' -Action $a -Trigger $t -RunLevel Limited -Force | Out-Null")
 }

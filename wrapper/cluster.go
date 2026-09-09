@@ -78,19 +78,44 @@ func activeClientCount(cfg *Config) int {
 	return len(remotes)
 }
 
-// announceShutdown: riusa il CLI PHP gia' esistente invece di reimplementare
-// la firma JWT / il POST Mercure in Go. Sincrono, timeout corto: se l'hub e'
-// giu' pazienza, non blocchiamo l'uscita.
-func announceShutdown(cfg *Config) {
-	if !isThisMachineServer(cfg) {
-		return
-	}
+// runAnnounce: riusa il CLI PHP gia' esistente invece di reimplementare la
+// firma JWT / il POST Mercure in Go. Ritorna nil solo se l'hub ha accettato
+// (opensagra-announce.php esce 0 solo in quel caso).
+func runAnnounce(cfg *Config, kind string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, cfg.Frankenphp, "php-cli",
-		filepath.Join(cfg.AppRoot, "bin", "opensagra-announce.php"), "--kind=shutdown")
+		filepath.Join(cfg.AppRoot, "bin", "opensagra-announce.php"), "--kind="+kind)
 	cmd.Dir = cfg.AppRoot
 	hideWindow(cmd)
-	_ = cmd.Run()
+	return cmd.Run()
+}
+
+// announceShutdown: un colpo, best-effort, prima di fermare FrankenPHP. Se
+// l'hub e' gia' giu' pazienza, non blocchiamo l'uscita.
+func announceShutdown(cfg *Config) {
+	if isThisMachineServer(cfg) {
+		_ = runAnnounce(cfg, "shutdown")
+	}
+}
+
+// announceBack: all'avvio, quando FrankenPHP e' su, dice ai client di pulire il
+// banner "server giu'". L'hub puo' non essere pronto nell'istante esatto in cui
+// il processo parte: qualche tentativo. I client si ripuliscono comunque al
+// primo evento non-announce o dopo 10 min, quindi un fallimento non e' grave.
+func announceBack(ctx context.Context, cfg *Config) {
+	if !isThisMachineServer(cfg) {
+		return
+	}
+	for i := 0; i < 5; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+		if runAnnounce(cfg, "back") == nil {
+			return
+		}
+	}
 }

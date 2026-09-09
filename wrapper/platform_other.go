@@ -47,3 +47,9 @@ func openURL(u string) {
 }
 
 func revealPath(p string) { openURL(p) }
+
+func autostartEnabled() bool { return false }
+
+func setAutostart(enable bool) error {
+	return fmt.Errorf("avvio all'accensione: implementato solo su Windows") // TODO: systemd --user / LaunchAgent
+}

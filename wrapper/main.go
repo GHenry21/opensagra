@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"fyne.io/systray"
 )
@@ -57,6 +58,22 @@ func main() {
 
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
+
+	// Quando FrankenPHP e' su, pulisci il banner "server giu'" sui client
+	// (simmetrico all'announce shutdown fatto in quit()).
+	go func() {
+		for i := 0; i < 60; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+			if sup.get("frankenphp").State == stateRunning {
+				announceBack(ctx, cfg)
+				return
+			}
+		}
+	}()
 
 	// Sequenza di uscita pulita, invocata dal menu tray dopo conferma.
 	quit := func() {

@@ -51,7 +51,11 @@ wrapper un bridge in fallback è semplicemente "processo vivo". Nessun impatto.
   (`SHOW PROCESSLIST`, host non-locali) → avviso rinforzato *"N casse collegate
   perderanno il database"*.
 - All'uscita, se server: `bin/opensagra-announce.php --kind=shutdown` (riusa il
-  CLI PHP, niente firma JWT in Go) **prima** di fermare FrankenPHP.
+  CLI PHP, niente firma JWT in Go) **prima** di fermare FrankenPHP; all'avvio,
+  quando FrankenPHP è su, `--kind=back` (best-effort, qualche tentativo) per
+  pulire il banner "server giù" sui client.
+- **Avvia all'accensione**: voce di menu con spunta → Scheduled Task at-logon
+  per l'utente corrente (via PowerShell, nessuna elevazione richiesta).
 - **Job Object** con `KILL_ON_JOB_CLOSE`: un crash del wrapper non lascia
   `frankenphp.exe` orfano sulla porta 80.
 - **Istanza singola**: named mutex `Global\opensagra-wrapper`.
@@ -65,7 +69,7 @@ wrapper un bridge in fallback è semplicemente "processo vivo". Nessun impatto.
 | `supervisor.go` | `Child` + loop Start→Wait→backoff/idle-recheck, log per figlio |
 | `children.go` | definizione dei 3 tipi di figlio + policy di riavvio |
 | `tray.go` | menu, stato live (tick 1s), conferma uscita |
-| `cluster.go` | `SHOW PROCESSLIST` + `announce --kind=shutdown` |
+| `cluster.go` | `SHOW PROCESSLIST` + `announce --kind=shutdown`/`--kind=back` |
 | `platform_windows.go` | job object, mutex, `MessageBoxW`, hide-window, apri URL/cartella |
 | `platform_other.go` | stub Linux/macOS (compila e gira degradato per lo sviluppo) |
 | `util.go` | parsing `.env`, autorilevamento path, helper vari |
@@ -93,9 +97,9 @@ opensagra-wrapper.exe -root C:\opensagra -frankenphp C:\Users\me\.frankenphp\fra
 
 - [ ] Finestra di stato/log con `webview` — backend nativo per OS: WebView2
       (Edge/Chromium, già su Win11) / WebKitGTK su Linux / WKWebView su macOS
-- [ ] "Avvia all'accensione" (Task Scheduler at-logon), spunta nel menu
+- [x] "Avvia all'accensione" (Scheduled Task at-logon), spunta nel menu — Windows
 - [ ] Icona `.ico` (vedi `assets/README.md`) + `.syso` con manifest/versione
-- [ ] `--kind=back` alla ripartenza dopo un *Riavvia tutto*
+- [ ] `--kind=back` anche dopo un *Riavvia tutto* (ora solo all'avvio del wrapper)
 - [ ] Rotazione dei log dei figli (ora append infinito)
 - [ ] Firma dell'`.exe` (SmartScreen)
 - [ ] macOS: `NSStatusItem` / Linux: fallback X-chiude se manca `StatusNotifierItem`

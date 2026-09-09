@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -39,6 +40,7 @@ func (t *tray) onReady() {
 	systray.AddSeparator()
 	mRestart := systray.AddMenuItem("Riavvia tutto", "Ferma e riavvia i processi")
 	mLogs := systray.AddMenuItem("Apri cartella log", t.cfg.LogDir)
+	mAutostart := systray.AddMenuItemCheckbox("Avvia all'accensione", "Avvia OpenSagra al login di Windows", autostartEnabled())
 
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Esci", "Ferma il server locale ed esci")
@@ -54,6 +56,15 @@ func (t *tray) onReady() {
 				revealPath(t.cfg.LogDir)
 			case <-mRestart.ClickedCh:
 				t.sup.restartAll()
+			case <-mAutostart.ClickedCh:
+				want := !mAutostart.Checked()
+				if err := setAutostart(want); err != nil {
+					log.Printf("avvio all'accensione: %v", err)
+				} else if want {
+					mAutostart.Check()
+				} else {
+					mAutostart.Uncheck()
+				}
 			case <-mQuit.ClickedCh:
 				if t.confirmQuit() {
 					t.quit()
