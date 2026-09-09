@@ -463,10 +463,13 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
         // (POST api/enter_local_fallback.php + reload). Silenzioso: l'operatore
         // continua a battere ordini. Override da localStorage['fallback_after_ms']
         // solo per i test (valori bassi). Gli Scalini 0/1 coprono gia' i buchi
-        // brevi, qui si mira ai buchi prolungati -> soglia oltre un riavvio del
-        // servizio MariaDB (~15s) e la gran parte dei blip WiFi, ma senza tenere
-        // l'operatore fermo piu' del necessario se il centrale e' giu' davvero.
-        const FALLBACK_AFTER_MS_DEFAULT = 90000;
+        // brevi, qui si mira ai buchi prolungati. 45s: sta sopra un riavvio del
+        // servizio MariaDB (~15-20s) e un blip WiFi, ma nel caso reale (PC
+        // server spento/crashato, che non torna da solo) l'operatore riparte in
+        // locale in ~45s invece di 1-2 min. Con l'heartbeat DB (dbHeartbeat)
+        // il cronometro parte entro ~10s dalla caduta, non fino a un giro di
+        // polling dopo. Override: localStorage['fallback_after_ms'] (test).
+        const FALLBACK_AFTER_MS_DEFAULT = 45000;
 
         // Host DB al caricamento della pagina (Fase 4). Se qui eravamo un client
         // di rete (host remoto) e piu' tardi variabili.env risulta locale,
@@ -589,6 +592,10 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     // Countdown "passaggio al DB locale tra Ns" nella pillola di
                     // rete in sidebar, attivo mentre il centrale non risponde.
                     _netPillEtaTimer: null,
+                    // Heartbeat leggero verso il DB centrale (db_status.php),
+                    // indipendente dal polling prodotti: fa partire il cronometro
+                    // del fallback entro ~10s dalla caduta anche a cassa ferma.
+                    _dbHeartbeatTimer: null,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1465,6 +1472,40 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                         this._fallbackArming = false;
                     }
                 },
+                // Heartbeat DB: ogni ~10s chiede a db_status.php se il centrale
+                // risponde. Serve a far partire il cronometro del fallback anche
+                // quando nessuno sta vendendo e il polling prodotti e' rallentato
+                // a 60s perche' l'SSE e' sano (l'hub Mercure puo' restare su
+                // mentre il DB e' giu'). Solo sui client di rete.
+                startDbHeartbeat() {
+                    if (this._dbHeartbeatTimer || !bootedAsNetworkClient()) {
+                        return;
+                    }
+                    this._dbHeartbeatTimer = setInterval(() => this.dbHeartbeat(), 10000);
+                },
+                async dbHeartbeat() {
+                    if (this._reloadingForNetMode || this._fallbackArming) {
+                        return;
+                    }
+                    try {
+                        const res = await $.ajax({
+                            url: '../api/db_status.php',
+                            method: 'GET',
+                            dataType: 'json',
+                            cache: false,
+                            timeout: 5000
+                        });
+                        if (res && res.online) {
+                            this.noteServerReachable();
+                        } else {
+                            this.noteServerUnreachable();
+                            this.maybeArmLocalFallback();
+                        }
+                    } catch (err) {
+                        // db_status.php stesso non risponde = FrankenPHP locale in
+                        // difficolta', non il DB centrale: non concludo nulla.
+                    }
+                },
                 scheduleProductsPoll(delayMs) {
                     if (this._productsPollTimer) {
                         clearTimeout(this._productsPollTimer);
@@ -2220,6 +2261,7 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                 document.addEventListener('visibilitychange', this._productsVisibilityHandler);
                 this.initProductsPolling();
                 this.initProductsRealtime();
+                this.startDbHeartbeat();
                 // Fase 4 punto 4: hook di test (usati da e2e/local-fallback.spec.js).
                 // Il polling a timer non e' pilotabile in modo affidabile sotto
                 // browser headless (throttling dei setTimeout), quindi il test
@@ -2294,6 +2336,9 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                 }
                 if (this._netPillEtaTimer) {
                     clearInterval(this._netPillEtaTimer);
+                }
+                if (this._dbHeartbeatTimer) {
+                    clearInterval(this._dbHeartbeatTimer);
                 }
                 if (this._productPickerResizeFallbackHandler) {
                     window.removeEventListener('resize', this._productPickerResizeFallbackHandler);
