@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -124,57 +126,113 @@ func revealPath(p string) {
 	_ = exec.Command("explorer", p).Start()
 }
 
-// appWindowCmd: Edge o Chrome in modalita' app (finestra senza tab/barra
-// indirizzi) sulla pagina di stato. nil se nessuno dei due e' installato
-// (openWindow ripiega sul browser di default). Un `--user-data-dir` dedicato
-// isola dal profilo dell'utente e dà la single-instance: un secondo lancio
-// sullo stesso URL/profilo porta in primo piano la finestra gia' aperta.
+// appWindowCmd: un browser Chromium (Edge/Chrome/Brave/Vivaldi/…) in modalita'
+// app — finestra senza tab/barra indirizzi. nil se non ne trova nessuno
+// (openWindow ripiega sul browser di default, tab normale). Un `--user-data-dir`
+// dedicato isola dal profilo dell'utente e dà la single-instance: un secondo
+// lancio sullo stesso URL/profilo porta in primo piano la finestra gia' aperta.
 func appWindowCmd(url, profileDir string) *exec.Cmd {
-	for _, exe := range []string{
-		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
-		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
-	} {
-		if fileExists(exe) {
-			return exec.Command(exe,
-				"--app="+url,
-				"--user-data-dir="+profileDir,
-				"--window-size=470,660",
-				"--no-first-run", "--no-default-browser-check")
-		}
+	if exe := findChromium(); exe != "" {
+		return exec.Command(exe,
+			"--app="+url,
+			"--user-data-dir="+profileDir,
+			"--window-size=470,660",
+			"--no-first-run", "--no-default-browser-check")
 	}
 	return nil
 }
 
-// --- "avvia all'accensione": Scheduled Task at-logon per l'utente corrente ---
-//
-// Via PowerShell (non schtasks): gestisce senza patemi i path con spazi, e un
-// task at-logon per l'utente corrente non richiede elevazione. Niente webview,
-// niente COM: giusto tre comandi.
+func findChromium() string {
+	pf := os.Getenv("ProgramFiles")
+	pf86 := os.Getenv("ProgramFiles(x86)")
+	la := os.Getenv("LOCALAPPDATA")
 
-const _autostartTask = "OpenSagra"
-
-func psRun(script string) error {
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	hideWindow(cmd)
-	return cmd.Run()
+	var cands []string
+	for _, base := range []string{pf, pf86, la} {
+		if base == "" {
+			continue
+		}
+		cands = append(cands,
+			filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`),
+			filepath.Join(base, `Google\Chrome\Application\chrome.exe`),
+			filepath.Join(base, `BraveSoftware\Brave-Browser\Application\brave.exe`),
+			filepath.Join(base, `Vivaldi\Application\vivaldi.exe`),
+			filepath.Join(base, `Chromium\Application\chrome.exe`),
+		)
+	}
+	for _, p := range cands {
+		if fileExists(p) {
+			return p
+		}
+	}
+	// Registro: App Paths (copre installazioni in percorsi non standard).
+	for _, name := range []string{"msedge.exe", "chrome.exe", "brave.exe", "vivaldi.exe"} {
+		if p := appPathFromRegistry(name); p != "" && fileExists(p) {
+			return p
+		}
+	}
+	// Ultimo tentativo: PATH.
+	for _, name := range []string{"chrome", "msedge", "brave", "vivaldi", "chromium"} {
+		if p, err := exec.LookPath(name); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
+func appPathFromRegistry(exeName string) string {
+	sub := `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\` + exeName
+	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
+		if k, err := registry.OpenKey(root, sub, registry.QUERY_VALUE); err == nil {
+			v, _, err := k.GetStringValue("")
+			k.Close()
+			if err == nil {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// --- "avvia all'accensione": chiave di registro HKCU\...\Run ---
+//
+// Non un Scheduled Task: registrarne uno at-logon dà "Accesso negato" a un
+// utente non elevato (la cartella task radice non e' scrivibile). La chiave
+// HKCU Run e' sempre scrivibile dall'utente, nessuna elevazione, ed e' il modo
+// standard per l'autostart di un'app desktop.
+
+const (
+	_runKeyPath   = `Software\Microsoft\Windows\CurrentVersion\Run`
+	_runValueName = "OpenSagra"
+)
+
 func autostartEnabled() bool {
-	return psRun("Get-ScheduledTask -TaskName '"+_autostartTask+"' -ErrorAction Stop | Out-Null") == nil
+	k, err := registry.OpenKey(registry.CURRENT_USER, _runKeyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	_, _, err = k.GetStringValue(_runValueName)
+	return err == nil
 }
 
 func setAutostart(enable bool) error {
-	if !enable {
-		return psRun("Unregister-ScheduledTask -TaskName '" + _autostartTask + "' -Confirm:$false")
+	k, err := registry.OpenKey(registry.CURRENT_USER, _runKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return err
 	}
+	defer k.Close()
+
+	if !enable {
+		if err := k.DeleteValue(_runValueName); err != nil && err != registry.ErrNotExist {
+			return err
+		}
+		return nil
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return psRun(
-		"$a = New-ScheduledTaskAction -Execute '" + exe + "' -Argument '-autostarted'; " +
-			"$t = New-ScheduledTaskTrigger -AtLogOn; " +
-			"Register-ScheduledTask -TaskName '" + _autostartTask + "' -Action $a -Trigger $t -RunLevel Limited -Force | Out-Null")
+	return k.SetStringValue(_runValueName, `"`+exe+`" -autostarted`)
 }

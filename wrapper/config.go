@@ -12,12 +12,13 @@ import (
 // interessa solo PRINT_BRIDGE_CASSE (quante istanze del bridge avviare) e le
 // credenziali DB per il check "N casse collegate" all'uscita.
 type Config struct {
-	AppRoot     string   // cartella con Caddyfile, bin/, config/
-	Frankenphp  string   // path assoluto a frankenphp(.exe)
-	LogDir      string   // dove finiscono i log dei figli + wrapper.log
-	AppURL      string   // URL dell'app vera ("Apri OpenSagra")
-	Autostarted bool     // lanciato dal task at-logon (-autostarted): non aprire la finestra da solo
-	BridgeCasse []string // PRINT_BRIDGE_CASSE, split su virgola
+	AppRoot           string   // cartella con Caddyfile, bin/, config/
+	Frankenphp        string   // path assoluto a frankenphp(.exe)
+	LogDir            string   // dove finiscono i log dei figli + wrapper.log
+	AppURL            string   // URL dell'app vera ("Apri OpenSagra")
+	Autostarted       bool     // avviato dall'autostart (-autostarted): non aprire la finestra da solo
+	RegisterAutostart bool     // -register-autostart: scrivi la chiave Run e prosegui (usato dall'installer)
+	BridgeCasse       []string // PRINT_BRIDGE_CASSE, split su virgola
 
 	DBHost string // solo per activeClientCount() all'uscita
 	DBUser string
@@ -31,7 +32,8 @@ func loadConfig() (*Config, error) {
 		fpFlag   = flag.String("frankenphp", "", "path a frankenphp.exe (default: autorilevato)")
 		logFlag  = flag.String("logdir", "", "cartella dei log (default: <eseguibile>/logs)")
 		urlFlag  = flag.String("appurl", "", "URL dell'app per \"Apri OpenSagra\" (default: http://localhost/)")
-		autoFlag = flag.Bool("autostarted", false, "impostato dal task at-logon: non aprire la finestra di stato all'avvio")
+		autoFlag = flag.Bool("autostarted", false, "avviato dall'autostart: non aprire la finestra di stato all'avvio")
+		regFlag  = flag.Bool("register-autostart", false, "scrivi la chiave di autostart poi prosegui (usato dall'installer)")
 	)
 	flag.Parse()
 
@@ -57,15 +59,16 @@ func loadConfig() (*Config, error) {
 	env := readEnvFile(filepath.Join(root, "config", "variabili.env"))
 
 	return &Config{
-		AppRoot:     root,
-		Frankenphp:  fp,
-		LogDir:      firstNonEmpty(*logFlag, filepath.Join(exeDir, "logs")),
-		AppURL:      firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "http://localhost/"),
-		Autostarted: *autoFlag,
-		BridgeCasse: splitCsv(env["PRINT_BRIDGE_CASSE"]),
-		DBHost:      valueOr(env["DB_POS_HOST"], "127.0.0.1"),
-		DBUser:      env["DB_POS_USER"],
-		DBPass:      env["DB_POS_PASS"],
-		DBName:      "opensagra_pos", // non ancora parametrizzato lato app, vedi env_reader.php
+		AppRoot:           root,
+		Frankenphp:        fp,
+		LogDir:            firstNonEmpty(*logFlag, filepath.Join(exeDir, "logs")),
+		AppURL:            firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "http://localhost/"),
+		Autostarted:       *autoFlag,
+		RegisterAutostart: *regFlag,
+		BridgeCasse:       splitCsv(env["PRINT_BRIDGE_CASSE"]),
+		DBHost:            valueOr(env["DB_POS_HOST"], "127.0.0.1"),
+		DBUser:            env["DB_POS_USER"],
+		DBPass:            env["DB_POS_PASS"],
+		DBName:            "opensagra_pos", // non ancora parametrizzato lato app, vedi env_reader.php
 	}, nil
 }

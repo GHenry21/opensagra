@@ -39,6 +39,14 @@ func main() {
 	}
 	log.Printf("wrapper: root=%s frankenphp=%s casse-bridge=%v", cfg.AppRoot, cfg.Frankenphp, cfg.BridgeCasse)
 
+	if cfg.RegisterAutostart {
+		if err := setAutostart(true); err != nil {
+			log.Printf("register-autostart: %v", err)
+		} else {
+			log.Print("register-autostart: chiave di avvio scritta")
+		}
+	}
+
 	release, ok := acquireSingleInstance("opensagra-wrapper")
 	if !ok {
 		log.Print("un'altra istanza del wrapper e' gia' in esecuzione, esco.")

@@ -30,8 +30,9 @@
     davvero vergine prima del rilascio.
 
     2026-09-09: FrankenPHP non e' piu' un servizio WinSW. Lo avvia e sorveglia
-    il wrapper/tray-app (Install-Wrapper + Register-WrapperAutostart +
-    Start-Wrapper), che va COMPILATO e incluso nel pacchetto di release come
+    il wrapper/tray-app (Install-Wrapper copia l'exe, Start-Wrapper lo lancia
+    de-elevato: e' lui a scriversi l'autostart in HKCU\...\Run). Il wrapper va
+    COMPILATO e incluso nel pacchetto di release come
     wrapper\opensagra-wrapper.exe. MariaDB resta un servizio.
 #>
 
@@ -64,8 +65,8 @@ $Script:ExcludeFromCopy = @(
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
 # (`cd wrapper; go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...`).
+# L'autostart lo scrive il wrapper stesso (chiave HKCU\...\Run), non l'installer.
 $Script:WrapperExeName = 'opensagra-wrapper.exe'
-$Script:AutostartTaskName = 'OpenSagra'
 
 # ============================================================================
 # Interfaccia grafica (WPF in un runspace separato, aggiornata dal thread
@@ -584,31 +585,33 @@ function Install-Wrapper {
     Add-InstallChecklistItem 'Wrapper/tray-app copiato'
 }
 
-function Register-WrapperAutostart {
-    # Attivita' pianificata at-logon per l'utente corrente, RunLevel Limited:
-    # nessuna elevazione, FrankenPHP gira come utente loggato (fine del
-    # problema ACL upload di LocalSystem). Stesso nome/forma del task che il
-    # wrapper crea dal suo menu "Avvia all'accensione", cosi' la spunta lo
-    # riflette. Idempotente: -Force sovrascrive.
-    $exe = Join-Path $Script:InstallPath $Script:WrapperExeName
-    $action = New-ScheduledTaskAction -Execute $exe -Argument '-autostarted'
-    $trigger = New-ScheduledTaskTrigger -AtLogOn
-    Register-ScheduledTask -TaskName $Script:AutostartTaskName -Action $action -Trigger $trigger `
-        -RunLevel Limited -Force | Out-Null
-    Add-InstallChecklistItem 'Wrapper: avvio all''accensione registrato'
-}
-
 function Start-Wrapper {
-    # Lancia il wrapper SUBITO, ma NON con Start-Process (l'installer gira
-    # elevato -> erediterebbe il token admin, che e' proprio cio' che vogliamo
-    # evitare). Start-ScheduledTask esegue il task appena registrato nel
-    # contesto normale dell'utente. -autostarted = niente finestra di stato
-    # automatica durante l'installazione.
+    # Avvia il wrapper SUBITO e nel contesto NON elevato dell'utente
+    # interattivo (l'installer gira elevato: Start-Process erediterebbe il
+    # token admin, e con quello FrankenPHP tornerebbe ad avere il problema ACL
+    # di LocalSystem; inoltre l'autostart va scritto nell'HKCU giusto).
+    #
+    # Meccanismo: un task pianificato una-tantum con principal INTERACTIVE
+    # (S-1-5-4), RunLevel Limited. Register-ScheduledTask qui riesce perche'
+    # l'installer E' elevato. Il wrapper, lanciato dal task, gira come utente
+    # normale e:
+    #   -autostarted        -> non apre la finestra di stato durante l'install
+    #   -register-autostart -> scrive da se' la chiave HKCU\...\Run (il modo in
+    #                          cui gestisce l'autostart: un task at-logon non
+    #                          elevato darebbe "Accesso negato")
+    $exe = Join-Path $Script:InstallPath $Script:WrapperExeName
+    $firstRun = 'OpenSagra-FirstRun'
     try {
-        Start-ScheduledTask -TaskName $Script:AutostartTaskName -ErrorAction Stop
-        Add-InstallChecklistItem 'Wrapper avviato'
+        $action = New-ScheduledTaskAction -Execute $exe -Argument '-autostarted -register-autostart'
+        $principal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-4' -RunLevel Limited
+        Register-ScheduledTask -TaskName $firstRun -Action $action -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $firstRun
+        Start-Sleep -Seconds 3
+        Unregister-ScheduledTask -TaskName $firstRun -Confirm:$false -ErrorAction SilentlyContinue
+        Add-InstallChecklistItem 'OpenSagra avviato'
     } catch {
-        Add-InstallChecklistItem 'Wrapper: si avviera'' al prossimo accesso' 'error'
+        Unregister-ScheduledTask -TaskName $firstRun -Confirm:$false -ErrorAction SilentlyContinue
+        Add-InstallChecklistItem 'OpenSagra: avvialo dal menu Start' 'error'
     }
 }
 
@@ -672,7 +675,6 @@ try {
 
     Set-InstallProgress -Percent 75 -Status 'Installazione del pannello OpenSagra...'
     Install-Wrapper
-    Register-WrapperAutostart
 
     Set-InstallProgress -Percent 90 -Status 'Configurazione delle regole di rete...'
     Set-FirewallRules
