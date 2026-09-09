@@ -10,9 +10,13 @@
  * a un database inutile.
  *
  * QUESTO PROCESSO: gira SOLO sui client (DB_POS_HOST remoto) e NON in fallback.
- * Ogni ~10s controlla se il catalogo del server e' cambiato e, in tal caso,
- * ricopia `stock` in locale; ogni ~3 min ricopia comunque tutte le tabelle di
- * riferimento (`stock`, `casse_stampanti`, `receipt_config`, `app_config`).
+ * Ogni ~10s controlla se sul server sono cambiati (a) il catalogo `stock`
+ * (MAX(updated_at)) o (b) `casse_stampanti`/`receipt_config` (CHECKSUM TABLE -
+ * `casse_stampanti` non ha updated_at) e ricopia SOLO le tabelle cambiate;
+ * ogni ~3 min ricopia comunque tutto come rete di sicurezza. Cosi' se
+ * riconfiguri la stampante di una cassa sul centrale, la copia locale del
+ * client si allinea in ~10s invece di aspettare fino a 3 min - importante
+ * perche' quella copia e' quella che si usa al fallback locale.
  * Ogni copia riuscita scrive app_config['snapshot_last_ok'] in locale: e' la
  * prova che enter_local_fallback.php pretende prima di autorizzare lo swap.
  *
@@ -43,9 +47,25 @@ const SNAP_RETRY_SECONDS = 15;      // pausa dopo un errore di connessione al se
 // piu' sotto).
 const SNAP_TABLES = ['stock', 'casse_stampanti', 'receipt_config'];
 
+// Tabelle di riferimento diverse da `stock`: non hanno una colonna di versione
+// affidabile (`casse_stampanti` non ha `updated_at`), quindi per capire se
+// sono cambiate sul server usiamo CHECKSUM TABLE - costo trascurabile, sono
+// tabelle da poche righe.
+const SNAP_REF_TABLES = ['casse_stampanti', 'receipt_config'];
+
 function snapLog(string $msg): void
 {
     fwrite(STDERR, '[' . date('Y-m-d H:i:s') . '] snapshot: ' . $msg . "\n");
+}
+
+function refTablesFingerprint(mysqli $server): string
+{
+    $parts = [];
+    foreach (SNAP_REF_TABLES as $t) {
+        $row = $server->query("CHECKSUM TABLE `$t`");
+        $parts[] = $row ? (string) (($row->fetch_assoc()['Checksum'] ?? '')) : '';
+    }
+    return implode(':', $parts);
 }
 
 /**
@@ -148,6 +168,7 @@ snapLog('avviato.');
 
 $lastFullAt = 0;
 $lastStockVersion = null;
+$lastRefFingerprint = null;
 
 while (true) {
     $env = loadPosEnvVars();
@@ -189,17 +210,36 @@ while (true) {
         $doFull = ($now - $lastFullAt) >= SNAP_FULL_SECONDS;
         $stockChanged = $lastStockVersion === null || $stockVersion !== $lastStockVersion;
 
+        $refFingerprint = refTablesFingerprint($server);
+        $refChanged = $lastRefFingerprint === null || $refFingerprint !== $lastRefFingerprint;
+
         if ($doFull) {
             foreach (SNAP_TABLES as $t) {
                 snapshotTable($server, $local, $t);
             }
             $lastFullAt = $now;
             $lastStockVersion = $stockVersion;
+            $lastRefFingerprint = $refFingerprint;
             setAppConfig($local, 'snapshot_last_ok', (string) $now);
-        } elseif ($stockChanged) {
-            snapshotTable($server, $local, 'stock');
-            $lastStockVersion = $stockVersion;
-            setAppConfig($local, 'snapshot_last_ok', (string) $now);
+        } else {
+            $didAny = false;
+            if ($stockChanged) {
+                snapshotTable($server, $local, 'stock');
+                $lastStockVersion = $stockVersion;
+                $didAny = true;
+            }
+            if ($refChanged) {
+                // Config stampanti / scontrino cambiata sul centrale: riallinea
+                // subito la copia locale (e' quella usata al fallback).
+                foreach (SNAP_REF_TABLES as $t) {
+                    snapshotTable($server, $local, $t);
+                }
+                $lastRefFingerprint = $refFingerprint;
+                $didAny = true;
+            }
+            if ($didAny) {
+                setAppConfig($local, 'snapshot_last_ok', (string) $now);
+            }
         }
     } catch (Throwable $e) {
         snapLog('errore durante lo snapshot (tengo la copia precedente): ' . $e->getMessage());
