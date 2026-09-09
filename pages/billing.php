@@ -1,3 +1,10 @@
+<?php
+// Host del DB configurato al momento del rendering (Fase 4): serve al JS per
+// accorgersi se, a pagina aperta, la cassa viene switchata da "client" a
+// locale (pagina Rete o wrapper) e va quindi ricaricata.
+require_once __DIR__ . '/../config/env_reader.php';
+$__opensagraBootDbHost = loadPosEnvVars()['host'];
+?>
 <!DOCTYPE html>
 <html lang="it">
 
@@ -456,8 +463,22 @@
         // (POST api/enter_local_fallback.php + reload). Silenzioso: l'operatore
         // continua a battere ordini. Override da localStorage['fallback_after_ms']
         // solo per i test (valori bassi). Gli Scalini 0/1 coprono gia' i buchi
-        // brevi, qui si mira ai buchi prolungati -> soglia generosa (2,5 min).
-        const FALLBACK_AFTER_MS_DEFAULT = 150000;
+        // brevi, qui si mira ai buchi prolungati -> soglia oltre un riavvio del
+        // servizio MariaDB (~15s) e la gran parte dei blip WiFi, ma senza tenere
+        // l'operatore fermo piu' del necessario se il centrale e' giu' davvero.
+        const FALLBACK_AFTER_MS_DEFAULT = 90000;
+
+        // Host DB al caricamento della pagina (Fase 4). Se qui eravamo un client
+        // di rete (host remoto) e piu' tardi variabili.env risulta locale,
+        // qualcuno ha switchato la cassa a "indipendente" (pagina Rete) o il
+        // fallback e' scattato da un altro contesto: billing sta ancora parlando
+        // col vecchio host irraggiungibile -> checkNetworkModeSwitched() ricarica.
+        const OPENSAGRA_BOOT_DB_HOST = <?= json_encode($__opensagraBootDbHost) ?>;
+        function bootedAsNetworkClient() {
+            const h = String(OPENSAGRA_BOOT_DB_HOST || '').toLowerCase().trim();
+            return h !== '' && h !== '127.0.0.1' && h !== 'localhost' && h !== '::1';
+        }
+
         function fallbackAfterMs() {
             try {
                 const v = parseInt(localStorage.getItem('fallback_after_ms'), 10);
@@ -559,6 +580,12 @@
                     // mentre parte lo switch + reload.
                     _serverDownSince: null,
                     _fallbackArming: false,
+                    // checkNetworkModeSwitched(): probe throttlato a db_status.php
+                    // quando il centrale non risponde, per accorgersi di uno
+                    // switch a locale avvenuto altrove e ricaricare la pagina.
+                    _lastNetModeCheck: 0,
+                    _netModeCheckInFlight: false,
+                    _reloadingForNetMode: false,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1324,6 +1351,45 @@
                     if (this._serverDownSince === null) {
                         this._serverDownSince = Date.now();
                     }
+                    // Il centrale non risponde: potrebbe essere un blip, oppure
+                    // qualcuno ha gia' switchato questa cassa a locale e billing
+                    // sta parlando col vecchio host. Controllo opportunistico.
+                    this.checkNetworkModeSwitched();
+                },
+                // Se al boot eravamo un client di rete e ora variabili.env
+                // risulta locale (switch da conf_rete, o wrapper, o fallback
+                // scattato da un altro tab), questa pagina e' agganciata al
+                // vecchio host: ricaricala. Probe leggero e throttlato (10s),
+                // parte solo quando il centrale gia' non risponde.
+                async checkNetworkModeSwitched() {
+                    if (!bootedAsNetworkClient() || this._netModeCheckInFlight || this._reloadingForNetMode) {
+                        return;
+                    }
+                    const now = Date.now();
+                    if (now - this._lastNetModeCheck < 10000) {
+                        return;
+                    }
+                    this._lastNetModeCheck = now;
+                    this._netModeCheckInFlight = true;
+                    try {
+                        const res = await $.ajax({
+                            url: '../api/db_status.php',
+                            method: 'GET',
+                            dataType: 'json',
+                            cache: false,
+                            timeout: 5000
+                        });
+                        const h = String((res && res.host) || '').toLowerCase().trim();
+                        if (h === '127.0.0.1' || h === 'localhost' || h === '::1') {
+                            console.info('[opensagra] la cassa e\' passata al database locale: ricarico la pagina.');
+                            this._reloadingForNetMode = true;
+                            window.location.reload();
+                        }
+                    } catch (err) {
+                        // db_status.php non raggiungibile o lento: riprovo al giro dopo.
+                    } finally {
+                        this._netModeCheckInFlight = false;
+                    }
                 },
                 // Se il centrale e' irraggiungibile da piu' di fallbackAfterMs(),
                 // passa al MariaDB locale: POST api/enter_local_fallback.php (che
@@ -1623,6 +1689,66 @@
                         this.paymentMethod = enabledValues.length === 1 ? enabledValues[0] : '';
                     }
                 },
+                // --- Persistenza carrello (Fase 4) ---
+                // billing.php si ricarica in vari casi (swap al DB locale, F5,
+                // cambio modalita' rete): senza questo il carrello in corso
+                // andrebbe perso. Salvato per-cassa in localStorage a ogni
+                // modifica, ripristinato in mounted(); scartato dopo 12h
+                // (carrello abbandonato di una sessione vecchia).
+                cartStorageKey() {
+                    const cassa = this.currentCassaId || localStorage.getItem('cassa_id') || 'ND';
+                    return 'opensagra_cart::' + cassa;
+                },
+                persistCart() {
+                    try {
+                        if (!this.billItems.length) {
+                            localStorage.removeItem(this.cartStorageKey());
+                            return;
+                        }
+                        localStorage.setItem(this.cartStorageKey(), JSON.stringify({
+                            v: 1,
+                            ts: Date.now(),
+                            billItems: this.billItems,
+                            discount: this.discount,
+                            amountPaid: this.amountPaid,
+                            customer: this.customer
+                        }));
+                    } catch (e) {
+                        // quota piena / modalita' privata: il carrello semplicemente
+                        // non sopravvivera' a un reload, ma l'app continua.
+                    }
+                },
+                restoreCart() {
+                    try {
+                        const raw = localStorage.getItem(this.cartStorageKey());
+                        if (!raw) return;
+                        const saved = JSON.parse(raw);
+                        if (!saved || saved.v !== 1 || !Array.isArray(saved.billItems) || !saved.billItems.length) {
+                            return;
+                        }
+                        if (!saved.ts || Date.now() - saved.ts > 12 * 3600 * 1000) {
+                            localStorage.removeItem(this.cartStorageKey());
+                            return;
+                        }
+                        this.billItems = saved.billItems.map((it) => ({
+                            id: it.id,
+                            name: String(it.name || ''),
+                            price: parseFloat(it.price) || 0,
+                            qty: Math.max(1, parseInt(it.qty, 10) || 1),
+                            line_discount_percent: parseFloat(it.line_discount_percent) || 0,
+                            quantity_available: (it.quantity_available === null || it.quantity_available === undefined)
+                                ? null : Number(it.quantity_available)
+                        }));
+                        this.discount = parseFloat(saved.discount) || 0;
+                        this.amountPaid = parseFloat(saved.amountPaid) || 0;
+                        this.customer = String(saved.customer || '');
+                        this.billItems.forEach((it) => {
+                            this.qtyInputById[String(it.id)] = String(it.qty);
+                        });
+                    } catch (e) {
+                        // JSON rotto o localStorage non accessibile: si parte a carrello vuoto.
+                    }
+                },
                 // Scalino 1 (Fase 4): una chiave per ogni tentativo di checkout,
                 // riusata identica a tutti i retry dello stesso invio -> il server
                 // la vede due volte e non registra due vendite.
@@ -1773,12 +1899,26 @@
                 },
                 _afterCheckoutSuccess(response) {
                     // --- SMISTAMENTO METODO DI STAMPA ---
+                    // printIssue resta null se lo scontrino e' partito; valorizzato
+                    // se la vendita c'e' ma la stampa no. In quel caso NON e' un
+                    // errore (la vendita e' registrata): un solo toast, non rosso,
+                    // invece di "Errore" + "inviata alla stampa!" contraddittori.
+                    let printIssue = null;
+
+                    // Il server ha committato la vendita ma routingStampa ha
+                    // lanciato (stampante di rete giu', USB assente, ...): non e'
+                    // un errore di checkout, si avvisa e si offre la ristampa.
+                    if (response.method === 'print_failed' || response.print_error) {
+                        console.warn('Stampa fallita lato server:', response.print_error || '(dettaglio non disponibile)');
+                        printIssue = 'errore stampante';
+                    }
+
                     switch (response.method) {
                         case 'bluetooth_rawbt':
                             if (response.base64) {
                                 inviaBase64ARawBT(response.base64);
                             } else {
-                                this.showToast('Dati stampa RawBT non disponibili', 'error');
+                                printIssue = 'dati RawBT non disponibili';
                             }
                             break;
 
@@ -1793,8 +1933,12 @@
                             // Il browser non fa nulla. Se il ponte non ha ricevuto, la
                             // vendita è comunque registrata: si ristampa dallo storico.
                             if (response.published === false) {
-                                this.showToast('Vendita registrata, ma lo scontrino NON è arrivato alla stampante (ponte non raggiungibile). Ristampalo dallo storico.', 'error', 8000);
+                                printIssue = 'ponte di stampa non raggiungibile';
                             }
+                            break;
+
+                        case 'print_failed':
+                            // gia' gestito sopra (printIssue impostato)
                             break;
 
                         default:
@@ -1806,6 +1950,9 @@
                         // Il server ha riconosciuto un doppio invio: la vendita era
                         // gia' registrata, ha solo ristampato. Nessuna seconda vendita.
                         this.showToast('Vendita già registrata: scontrino ristampato.', 'info');
+                    } else if (printIssue) {
+                        // Vendita OK, scontrino no: un solo avviso, tono neutro.
+                        this.showToast('Vendita registrata. Scontrino NON stampato (' + printIssue + '): ristampalo dallo storico.', 'info', 8000);
                     } else {
                         this.showToast('Vendita registrata e inviata alla stampa!', 'success');
                     }
@@ -1992,6 +2139,15 @@
                 selectedCustomCategories() {
                     this.saveCategoryPreference();
                 },
+                // Persistenza carrello: ogni modifica (righe, sconto, pagato,
+                // cliente) viene rispecchiata subito in localStorage.
+                billItems: {
+                    handler() { this.persistCart(); },
+                    deep: true
+                },
+                discount() { this.persistCart(); },
+                amountPaid() { this.persistCart(); },
+                customer() { this.persistCart(); },
                 paymentMethod(method) {
                     // La riga "Importo pagato" e' rilevante solo per i contanti: cambiando metodo
                     // (dove la riga su desktop e' nascosta) azzeriamo l'importo per non lasciare
@@ -2004,6 +2160,9 @@
             },
             mounted() {
                 this.currentCassaId = localStorage.getItem('cassa_id') || 'ND';
+                // Ripristina un eventuale carrello lasciato in sospeso da un
+                // reload (swap al DB locale, F5, cambio modalita' rete).
+                this.restoreCart();
                 this.discountPresetPercents = this.loadDiscountPresetValues();
                 this._documentClickHandler = (event) => this.handleGlobalClick(event);
                 this._popoverRepositionHandler = () => this.repositionLineDiscountPopover();

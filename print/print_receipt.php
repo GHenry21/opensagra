@@ -351,8 +351,16 @@ function tryIdempotentReplay($connectionDB, $idempotencyKey) {
         );
         echo json_encode(array_merge(['success' => true, 'idempotent_replay' => true, 'id_vendita' => $id_vendita], $res));
     } catch (Throwable $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage(), 'idempotent_replay' => true]);
+        // La vendita esiste gia': un errore di stampa non e' un fallimento del
+        // checkout e NON va ritentato. 200 "vendita ok, stampa no".
+        error_log('routingStampa (replay) fallita per vendita ' . $id_vendita . ': ' . $e->getMessage());
+        echo json_encode([
+            'success' => true,
+            'idempotent_replay' => true,
+            'id_vendita' => $id_vendita,
+            'method' => 'print_failed',
+            'print_error' => $e->getMessage(),
+        ]);
     }
     return true;
 }
@@ -879,12 +887,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
     }
 
     try {
-        // Richiamiamo funzione di routing della stampa, che gestisce BRIDGE, BLUETOOTH e DIRECT
+        // Richiamiamo funzione di routing della stampa, che gestisce BRIDGE_NATIVE, BLUETOOTH e DIRECT
         $res = routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $sconto, $pagato, $resto);
-        echo json_encode(array_merge(['success' => true], $res));
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        echo json_encode(array_merge(['success' => true, 'id_vendita' => $id_vendita], $res));
+    } catch (Throwable $e) {
+        // La vendita e' GIA' committata: un errore di stampa (stampante di rete
+        // irraggiungibile, USB assente, connettore che non si inizializza, ...)
+        // NON e' un fallimento del checkout e NON va ritentato dal client.
+        // Si risponde 200 "vendita ok, stampa no": il frontend avvisa e offre
+        // la ristampa dallo storico, invece di far credere che la vendita sia
+        // andata persa (era: 500 -> Scalino 0 lo ritenta a vuoto).
+        error_log('routingStampa fallita per vendita ' . $id_vendita . ': ' . $e->getMessage());
+        echo json_encode([
+            'success' => true,
+            'id_vendita' => $id_vendita,
+            'method' => 'print_failed',
+            'print_error' => $e->getMessage(),
+        ]);
     }
 }
 ?>
