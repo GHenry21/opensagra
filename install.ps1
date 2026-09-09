@@ -365,21 +365,77 @@ function Copy-AppFiles {
     Add-InstallChecklistItem 'File dell''app copiati'
 }
 
-function New-EnvFile {
+function Get-OrNewMercureSecret {
+    # Riusa il segreto gia' in variabili.env se il file c'e' (rilancio
+    # idempotente: Caddyfile e riga app_config restano allineati a quello).
+    # Altrimenti ne genera uno nuovo - 256 bit esadecimali, cosi' non ha
+    # caratteri da quotare nel Caddyfile.
     $envPath = Join-Path $Script:InstallPath 'config\variabili.env'
     if (Test-Path $envPath) {
-        Add-InstallChecklistItem 'config/variabili.env gia'' presente, non sovrascritto'
-        return
+        $m = Select-String -Path $envPath -Pattern '^\s*MERCURE_JWT_SECRET\s*=\s*(\S+)' |
+            Select-Object -First 1
+        if ($m) { return $m.Matches[0].Groups[1].Value }
     }
-    @'
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+function New-EnvFile {
+    param([Parameter(Mandatory)][string]$MercureSecret)
+
+    $envPath = Join-Path $Script:InstallPath 'config\variabili.env'
+
+    if (-not (Test-Path $envPath)) {
+        @"
 DB_POS_HOST=127.0.0.1
 DB_POS_USER=pos_own
 DB_POS_PASS=pos_own1
-'@ | Out-File -FilePath $envPath -Encoding ascii -Force
-    Add-InstallChecklistItem 'config/variabili.env creato'
+
+# Realtime Mercure (Fase 4). Lo stesso valore va nel blocco mercure{} del
+# Caddyfile e nella riga app_config del DB - li allinea tutti l'installer.
+MERCURE_JWT_SECRET=$MercureSecret
+# Lo scrive la pagina Rete al passaggio a client (segreto dell'hub del
+# server). Vuoto su server / installazione indipendente.
+MERCURE_JWT_SECRET_REMOTE=
+# PC-ponte: id-topic di stampa serviti da questo PC, separati da virgola.
+PRINT_BRIDGE_CASSE=
+"@ | Out-File -FilePath $envPath -Encoding ascii -Force
+        Add-InstallChecklistItem 'config/variabili.env creato'
+        return
+    }
+
+    # File gia' presente: non si toccano le credenziali, ma si aggiungono le
+    # chiavi di Fase 4 mancanti (rilancio idempotente su installazione vecchia).
+    $lines = @(Get-Content $envPath)
+    $joined = $lines -join "`n"
+    $added = @()
+
+    if ($joined -notmatch '(?m)^\s*MERCURE_JWT_SECRET\s*=\s*\S') {
+        $lines = @($lines | Where-Object { $_ -notmatch '^\s*MERCURE_JWT_SECRET\s*=' })
+        $lines += "MERCURE_JWT_SECRET=$MercureSecret"
+        $added += 'MERCURE_JWT_SECRET'
+    }
+    if ($joined -notmatch '(?m)^\s*MERCURE_JWT_SECRET_REMOTE\s*=') {
+        $lines += 'MERCURE_JWT_SECRET_REMOTE='
+        $added += 'MERCURE_JWT_SECRET_REMOTE'
+    }
+    if ($joined -notmatch '(?m)^\s*PRINT_BRIDGE_CASSE\s*=') {
+        $lines += 'PRINT_BRIDGE_CASSE='
+        $added += 'PRINT_BRIDGE_CASSE'
+    }
+
+    if ($added.Count -gt 0) {
+        $lines | Out-File -FilePath $envPath -Encoding ascii -Force
+        Add-InstallChecklistItem ('config/variabili.env aggiornato (' + ($added -join ', ') + ')')
+    } else {
+        Add-InstallChecklistItem 'config/variabili.env gia'' completo, non toccato'
+    }
 }
 
 function New-CaddyConfig {
+    param([Parameter(Mandatory)][string]$MercureSecret)
+
     # Bug reale trovato in fase di doc-review (2026-09-07): il blocco HTTPS
     # elencava solo "https://localhost" - mai verificato con l'IP di rete
     # effettivo sull'installazione REALMENTE generata dall'installer (i test
@@ -393,10 +449,38 @@ function New-CaddyConfig {
     } catch {
         $lanIp = $null
     }
-    $httpsHosts = 'https://localhost'
-    if ($lanIp) {
-        $httpsHosts = "https://localhost, https://$lanIp"
-    }
+    $hostList = @('localhost')
+    if ($lanIp) { $hostList += $lanIp }
+
+    $httpsHosts = ($hostList | ForEach-Object { "https://$_" }) -join ', '
+    $httpCors = ($hostList | ForEach-Object { "http://$_" }) -join ' '
+    $httpsCors = ($hostList | ForEach-Object { "https://$_" }) -join ' '
+
+    # Hub Mercure (Fase 4) dentro ogni blocco di sito - NON a livello globale
+    # (Caddy: "must appear in a site block"). Stesso segreto di variabili.env.
+    # cookie_name: obbligatorio, senza l'hub rifiuta con 401 il cookie
+    # mercure_authorization, l'unico modo in cui EventSource nel browser
+    # autentica. cors_origins: ogni hostname da cui e' servito billing.php.
+    # heartbeat: tiene viva una connessione SSE ferma (i sottoscrittori CLI la
+    # abortiscono a 45s, l'EventSource del browser flappa).
+    $httpMercure = @"
+	mercure {
+		publisher_jwt $MercureSecret
+		subscriber_jwt $MercureSecret
+		cookie_name mercure_authorization
+		cors_origins $httpCors
+		heartbeat 20s
+	}
+"@
+    $httpsMercure = @"
+	mercure {
+		publisher_jwt $MercureSecret
+		subscriber_jwt $MercureSecret
+		cookie_name mercure_authorization
+		cors_origins $httpsCors
+		heartbeat 20s
+	}
+"@
 
     $caddyPath = Join-Path $Script:InstallPath 'Caddyfile'
     @"
@@ -409,6 +493,8 @@ http://:80 {
 	root * $Script:InstallPath
 	encode zstd gzip
 	php_server
+
+$httpMercure
 }
 
 $httpsHosts {
@@ -416,9 +502,11 @@ $httpsHosts {
 	encode zstd gzip
 	php_server
 	tls internal
+
+$httpsMercure
 }
 "@ | Out-File -FilePath $caddyPath -Encoding ascii -Force
-    Add-InstallChecklistItem 'Caddyfile generato'
+    Add-InstallChecklistItem 'Caddyfile generato (con hub Mercure)'
 }
 
 function Invoke-DatabaseProvisioning {
@@ -428,6 +516,41 @@ function Invoke-DatabaseProvisioning {
         throw 'Provisioning del database fallito (vedi output sopra).'
     }
     Add-InstallChecklistItem 'Database creato/verificato'
+}
+
+function Set-MercureSecretInDb {
+    # Scrive MERCURE_JWT_SECRET nella tabella app_config del DB. Evita il
+    # chicken-egg: un server nuovo altrimenti semina la riga solo alla prima
+    # modifica prodotti (seedServerMercureSecret) o al primo giro in conf_rete,
+    # e un client che si aggancia prima di allora non trova il segreto da
+    # sincronizzare. Da lanciare DOPO il provisioning (DB + utente pos_own +
+    # tabelle esistono; app_config si autocrea via ensureAppConfigTable).
+    param([Parameter(Mandatory)][string]$MercureSecret)
+
+    $seedScript = Join-Path $env:TEMP 'opensagra-seed-mercure.php'
+    @"
+<?php
+require '$($Script:InstallPath)\config\get_db_connection.php';   // -> `$connectionDB
+require '$($Script:InstallPath)\config\app_config.php';
+`$secret = getenv('OPENSAGRA_MERCURE_SECRET');
+if (!is_string(`$secret) || `$secret === '') { fwrite(STDERR, "segreto mancante nell'ambiente\n"); exit(1); }
+`$ok = setAppConfig(`$connectionDB, 'MERCURE_JWT_SECRET', `$secret);
+fwrite(`$ok ? STDOUT : STDERR, (`$ok ? 'app_config.MERCURE_JWT_SECRET scritto' : 'scrittura fallita') . "\n");
+exit(`$ok ? 0 : 1);
+"@ | Out-File -FilePath $seedScript -Encoding ascii -Force
+
+    $env:OPENSAGRA_MERCURE_SECRET = $MercureSecret
+    try {
+        & "$Script:FrankenDir\frankenphp.exe" php-cli $seedScript
+        $code = $LASTEXITCODE
+    } finally {
+        Remove-Item Env:\OPENSAGRA_MERCURE_SECRET -ErrorAction SilentlyContinue
+        Remove-Item $seedScript -Force -ErrorAction SilentlyContinue
+    }
+    if ($code -ne 0) {
+        throw 'Scrittura di MERCURE_JWT_SECRET in app_config fallita (vedi output sopra).'
+    }
+    Add-InstallChecklistItem 'Segreto Mercure salvato in app_config (per i client)'
 }
 
 function Invoke-Migrations {
@@ -529,12 +652,14 @@ try {
 
     Set-InstallProgress -Percent 45 -Status 'Copia dei file dell''app...'
     Copy-AppFiles
-    New-EnvFile
-    New-CaddyConfig
+    $mercureSecret = Get-OrNewMercureSecret
+    New-EnvFile -MercureSecret $mercureSecret
+    New-CaddyConfig -MercureSecret $mercureSecret
 
     Set-InstallProgress -Percent 60 -Status 'Configurazione del database...'
     Invoke-DatabaseProvisioning
     Invoke-Migrations
+    Set-MercureSecretInDb -MercureSecret $mercureSecret
 
     Set-InstallProgress -Percent 75 -Status 'Registrazione dei servizi...'
     Register-FrankenPHPService
