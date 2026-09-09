@@ -225,17 +225,35 @@ func (s *Supervisor) spawn(ctx context.Context, c *Child) (int, error) {
 
 var logNameSanitizer = strings.NewReplacer(":", "_", "/", "_", "\\", "_", " ", "_")
 
+// maxChildLogBytes: oltre questa soglia il log del figlio viene ruotato
+// (<name>.log -> <name>.log.1, un solo backup). Una sagra tiene i processi su
+// per giorni: senza rotazione i log dei riavvii crescono all'infinito.
+const maxChildLogBytes = 5 << 20 // 5 MiB
+
 // logWriter: un file di log in append per figlio, riusato tra i riavvii.
-// Nessuna rotazione qui (scaffold) - vedi README.
+// Il controllo di dimensione e la rotazione avvengono qui, cioe' a ogni
+// (ri)avvio del figlio - basta per il caso "crash loop che riempie il disco".
+// Un figlio sano e molto verboso che resta su per giorni non viene ruotato
+// finche' non riparte: per quello ci si affida al logging rotante del processo
+// stesso (es. blocco `log` nel Caddyfile di FrankenPHP).
 func (s *Supervisor) logWriter(name string) (*os.File, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	path := filepath.Join(s.logDir, logNameSanitizer.Replace(name)+".log")
+
 	if f, ok := s.logs[name]; ok {
-		return f, nil
+		if st, err := f.Stat(); err == nil && st.Size() < maxChildLogBytes {
+			return f, nil
+		}
+		// troppo grande: chiudi, ruota, riapri
+		f.Close()
+		delete(s.logs, name)
+		_ = os.Remove(path + ".1")
+		_ = os.Rename(path, path+".1")
 	}
-	f, err := os.OpenFile(
-		filepath.Join(s.logDir, logNameSanitizer.Replace(name)+".log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err
 	}

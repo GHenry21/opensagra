@@ -4,13 +4,16 @@ Tray-app che supervisiona i processi di OpenSagra su una postazione. Sostituisce
 i servizi Windows per FrankenPHP e i processi per-client (relay, bridge di
 stampa). Deciso nel piano di migrazione, **sezione 3g** (revisione 2026-09-08).
 
-> **Stato: compila e passa uno smoke test.** Go 1.27 + WinLibs mingw (per il
+> **Stato: compila e passa gli smoke test.** Go 1.27 + WinLibs mingw (per il
 > cgo futuro della webview) installati 2026-09-09; `go vet` + `go build
-> -ldflags "-H=windowsgui"` puliti. Smoke test con root fasullo verificato:
-> supervisore che parte, log per figlio, riavvio con backoff 1→2→…→30s sui
-> figli che falliscono l'avvio, Job Object + mutex istanza-singola ok, nessun
-> panic. **Non ancora provato** end-to-end con lo stack reale (frankenphp/relay/
-> bridge veri, menu tray, sequenza di uscita, announce, autostart).
+> -ldflags "-H=windowsgui"` puliti al primo colpo. Verificato con binari fittizi:
+> figlio che fallisce l'avvio → `[wrapper] avvio fallito` nel log + backoff
+> `1→2→4→…→30s cap`; figlio `AlwaysRestart` (frankenphp) che esce `0` → riavvio
+> a cadenza breve; figlio non-`AlwaysRestart` (relay/bridge) che esce `0` →
+> **niente riavvio**, un solo banner, ricontrollo a 60s (il contratto exit-code
+> chiave); Job Object + mutex istanza-singola ok, nessun panic.
+> **Non ancora provato** con lo stack reale: menu tray e click, sequenza di
+> uscita, `announce`, autostart, i tre processi veri in esecuzione.
 
 ## Cosa NON gestisce
 
@@ -106,6 +109,6 @@ opensagra-wrapper.exe -root C:\opensagra -frankenphp C:\Users\me\.frankenphp\fra
 - [x] "Avvia all'accensione" (Scheduled Task at-logon), spunta nel menu — Windows
 - [ ] Icona `.ico` (vedi `assets/README.md`) + `.syso` con manifest/versione
 - [ ] `--kind=back` anche dopo un *Riavvia tutto* (ora solo all'avvio del wrapper)
-- [ ] Rotazione dei log dei figli (ora append infinito)
+- [x] Rotazione dei log dei figli — `<name>.log` → `<name>.log.1` oltre 5 MiB, controllata a ogni (ri)avvio del figlio
 - [ ] Firma dell'`.exe` (SmartScreen)
 - [ ] macOS: `NSStatusItem` / Linux: fallback X-chiude se manca `StatusNotifierItem`
