@@ -51,7 +51,8 @@ function bridgeLog(string $msg): void
  * tenuto vivo per tutta la durata del processo (variabile in scope nel corpo
  * dello script): il lock si rilascia da solo alla chiusura del processo.
  *
- * @return resource l'handle del file di lock - NON farlo uscire di scope
+ * @return resource|null l'handle del file di lock (null se non apribile) -
+ *                       NON farlo uscire di scope finche' il processo vive
  */
 function bridgeAcquireLock(string $cassa)
 {
