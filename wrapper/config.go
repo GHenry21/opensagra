@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Config: tutto quello che serve al wrapper per lanciare i figli. Le chiavi
@@ -20,10 +21,42 @@ type Config struct {
 	RegisterAutostart bool     // -register-autostart: scrivi la chiave Run e prosegui (usato dall'installer)
 	BridgeCasse       []string // PRINT_BRIDGE_CASSE, split su virgola
 
-	DBHost string // solo per activeClientCount() all'uscita
 	DBUser string
 	DBPass string
 	DBName string
+
+	// dbHost: DB_POS_HOST corrente. conf_rete e il fallback locale lo
+	// cambiano MENTRE il wrapper gira, quindi va ri-letto a caldo
+	// (watchDbHost, in main) - altrimenti "questa macchina e' client / e' il
+	// server" resta congelato al valore d'avvio. Accesso via DbHost().
+	mu     sync.RWMutex
+	dbHost string
+}
+
+// DbHost: DB_POS_HOST corrente (thread-safe).
+func (c *Config) DbHost() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dbHost
+}
+
+// refreshDbHost: rilegge DB_POS_HOST da config/variabili.env. Ritorna true se
+// e' cambiato. Best effort: file assente/illeggibile o chiave mancante ->
+// lascia invariato il valore corrente.
+func (c *Config) refreshDbHost() bool {
+	env := readEnvFile(filepath.Join(c.AppRoot, "config", "variabili.env"))
+	raw, ok := env["DB_POS_HOST"]
+	if !ok {
+		return false
+	}
+	h := valueOr(raw, "127.0.0.1")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if h == c.dbHost {
+		return false
+	}
+	c.dbHost = h
+	return true
 }
 
 func loadConfig() (*Config, error) {
@@ -66,7 +99,7 @@ func loadConfig() (*Config, error) {
 		Autostarted:       *autoFlag,
 		RegisterAutostart: *regFlag,
 		BridgeCasse:       splitCsv(env["PRINT_BRIDGE_CASSE"]),
-		DBHost:            valueOr(env["DB_POS_HOST"], "127.0.0.1"),
+		dbHost:            valueOr(env["DB_POS_HOST"], "127.0.0.1"),
 		DBUser:            env["DB_POS_USER"],
 		DBPass:            env["DB_POS_PASS"],
 		DBName:            "opensagra_pos", // non ancora parametrizzato lato app, vedi env_reader.php

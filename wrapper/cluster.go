@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // (o e' indipendente). Se il DB e' remoto siamo un client: uscendo spegniamo
 // solo i nostri processi, nessuno dipende da noi.
 func isThisMachineServer(cfg *Config) bool {
-	switch strings.ToLower(strings.TrimSpace(cfg.DBHost)) {
+	switch strings.ToLower(strings.TrimSpace(cfg.DbHost())) {
 	case "", "127.0.0.1", "localhost", "::1":
 		return true
 	default:
@@ -151,6 +152,30 @@ func announceBackWhenUp(ctx context.Context, sup *Supervisor, cfg *Config) {
 		if sup.get("frankenphp").State == stateRunning {
 			announceBack(ctx, cfg)
 			return
+		}
+	}
+}
+
+// watchDbHost: conf_rete (switch manuale) e api/enter_local_fallback.php
+// riscrivono DB_POS_HOST in config/variabili.env mentre il wrapper gira. Senza
+// ri-leggerlo, la finestra di stato continuerebbe a dire "CLIENT" (o "SERVER")
+// col valore d'avvio, e l'avviso "N casse collegate" all'uscita userebbe il
+// ruolo sbagliato. Poll leggero: un file di poche righe ogni 15s.
+func watchDbHost(ctx context.Context, cfg *Config) {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if cfg.refreshDbHost() {
+				role := "CLIENT (DB remoto)"
+				if isThisMachineServer(cfg) {
+					role = "SERVER / indipendente (DB locale)"
+				}
+				log.Printf("wrapper: DB_POS_HOST cambiato -> %s | ruolo ora: %s", cfg.DbHost(), role)
+			}
 		}
 	}
 }
