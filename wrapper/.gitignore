@@ -9,5 +9,3 @@
 
 # asset binario da mettere a mano (vedi assets/README.md)
 /assets/opensagra.ico
-
-# NB: go.sum va committato — lo genera `go mod tidy` al primo build.

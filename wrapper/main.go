@@ -9,7 +9,8 @@
 //     rinforzato + `bin/opensagra-announce.php --kind=shutdown`
 //
 // Build Windows senza console:
-//   go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+//
+//	go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
 package main
 
 import (

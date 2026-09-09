@@ -199,6 +199,7 @@ func (s *Supervisor) spawn(ctx context.Context, c *Child) (int, error) {
 	hideWindow(cmd)
 
 	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(lw, "[wrapper] avvio fallito: %v\n", err)
 		return -1, err
 	}
 

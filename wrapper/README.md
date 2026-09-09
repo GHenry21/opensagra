@@ -4,9 +4,13 @@ Tray-app che supervisiona i processi di OpenSagra su una postazione. Sostituisce
 i servizi Windows per FrankenPHP e i processi per-client (relay, bridge di
 stampa). Deciso nel piano di migrazione, **sezione 3g** (revisione 2026-09-08).
 
-> **Stato: scaffold.** Scritto ma non ancora compilato (nessun toolchain Go
-> sulla macchina di sviluppo al momento). Serve `go mod tidy` + `go build` per
-> rifinire eventuali drift nelle firme di `golang.org/x/sys/windows`.
+> **Stato: compila e passa uno smoke test.** Go 1.27 + WinLibs mingw (per il
+> cgo futuro della webview) installati 2026-09-09; `go vet` + `go build
+> -ldflags "-H=windowsgui"` puliti. Smoke test con root fasullo verificato:
+> supervisore che parte, log per figlio, riavvio con backoff 1→2→…→30s sui
+> figli che falliscono l'avvio, Job Object + mutex istanza-singola ok, nessun
+> panic. **Non ancora provato** end-to-end con lo stack reale (frankenphp/relay/
+> bridge veri, menu tray, sequenza di uscita, announce, autostart).
 
 ## Cosa NON gestisce
 
@@ -78,9 +82,11 @@ wrapper un bridge in fallback è semplicemente "processo vivo". Nessun impatto.
 
 ```sh
 cd wrapper
-go mod tidy                 # genera go.sum (va committato)
 go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
 ```
+
+`go.mod`/`go.sum` sono già nel repo. La webview (quando arriva) userà cgo →
+serve un gcc sul PATH: `winget install BrechtSanders.WinLibs.POSIX.UCRT`.
 
 `-H=windowsgui` → nessuna console per il wrapper. I log finiscono in
 `<eseguibile>/logs/` (`wrapper.log` + un file per figlio).
