@@ -168,7 +168,8 @@ function publishMercureUpdate(string $topic, $data, string $hubUrl = ''): bool
     $result = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $curlError = curl_error($ch);
-    curl_close($ch);
+    // Niente curl_close(): no-op dal PHP 8.0, deprecata (warning nei log) dall'8.5.
+    // L'handle si libera da solo quando $ch esce di scope.
 
     if ($result === false || $httpCode !== 200) {
         error_log("publishMercureUpdate: pubblicazione su topic '$topic' fallita (HTTP $httpCode) $curlError");

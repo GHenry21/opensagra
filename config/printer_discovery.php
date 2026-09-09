@@ -192,7 +192,8 @@ function remoteListPrinters(string $host, string $os): array
         $body = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $lastErr = curl_error($ch) ?: ('HTTP ' . $code);
-        curl_close($ch);
+        // curl_close(): no-op dal PHP 8.0, deprecata dall'8.5.
+        unset($ch);
 
         if ($body === false || $code !== 200) {
             continue;

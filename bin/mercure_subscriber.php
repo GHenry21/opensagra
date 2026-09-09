@@ -133,7 +133,9 @@ function runMercureSubscriber(array $opts): void
         curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
-        curl_close($ch);
+        // curl_close() e' no-op dal PHP 8.0 e deprecata dall'8.5: l'handle si
+        // libera quando $ch esce di scope (fine iterazione del while).
+        unset($ch);
 
         $uptime = time() - $connectedAt;
 
