@@ -40,6 +40,40 @@ function bridgeLog(string $msg): void
     fwrite(STDERR, '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n");
 }
 
+/**
+ * Lock single-instance per (topic della) cassa. Due processi iscritti allo
+ * stesso `print/cassa/{id}` = ogni scontrino stampato due volte, in silenzio
+ * (osservato 2026-09-09). Il wrapper dovrebbe avviarne uno solo, ma un avvio
+ * manuale sovrapposto o un riavvio del wrapper prima che il vecchio figlio sia
+ * morto lo fanno succedere lo stesso.
+ *
+ * `flock(LOCK_EX|LOCK_NB)` funziona anche su Windows con PHP. L'handle va
+ * tenuto vivo per tutta la durata del processo (variabile in scope nel corpo
+ * dello script): il lock si rilascia da solo alla chiusura del processo.
+ *
+ * @return resource l'handle del file di lock - NON farlo uscire di scope
+ */
+function bridgeAcquireLock(string $cassa)
+{
+    $safe = preg_replace('/[^A-Za-z0-9_.-]+/', '_', $cassa);
+    $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'opensagra-print-bridge-' . $safe . '.lock';
+
+    $fh = fopen($path, 'c');
+    if ($fh === false) {
+        bridgeLog("print-bridge: impossibile aprire il lock file '$path' - proseguo senza guardia.");
+        return null;
+    }
+    if (!flock($fh, LOCK_EX | LOCK_NB)) {
+        bridgeLog("print-bridge: un altro processo serve gia' la cassa '$cassa' (lock '$path'). Esco.");
+        fclose($fh);
+        exit(0); // uscita pulita: il supervisore non deve trattarlo come crash
+    }
+    ftruncate($fh, 0);
+    fwrite($fh, (string) getmypid());
+    fflush($fh);
+    return $fh;
+}
+
 // --- quale cassa serve questo bridge ---
 $cassa = '';
 foreach ($argv as $a) {
@@ -60,6 +94,9 @@ if ($cassa === '') {
     bridgeLog("print-bridge: nessuna cassa configurata (--cassa=<id> o PRINT_BRIDGE_CASSE). Esco.");
     exit(0);
 }
+
+// Tenuto in scope per tutta la vita del processo: rilascia il lock all'uscita.
+$bridgeLock = bridgeAcquireLock($cassa);
 
 $env = loadPosEnvVars();
 
