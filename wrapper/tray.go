@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"time"
 
 	"fyne.io/systray"
@@ -18,10 +16,8 @@ type tray struct {
 }
 
 func (t *tray) onReady() {
-	if p := iconPath(t.cfg); p != "" {
-		if b, err := os.ReadFile(p); err == nil {
-			systray.SetIcon(b) // Windows: deve essere un .ico
-		}
+	if len(iconICO) > 0 {
+		systray.SetIcon(iconICO) // .ico multi-size incorporato
 	}
 	systray.SetTitle("OpenSagra")
 	systray.SetTooltip("OpenSagra — server locale")
@@ -100,19 +96,4 @@ func (t *tray) confirmQuit() bool {
 				"Chiudere comunque OpenSagra?", n)
 	}
 	return confirmQuit("OpenSagra", body)
-}
-
-// iconPath: .ico accanto all'eseguibile, o in <root>/wrapper/assets/. Assente
-// nello scaffold: la tray parte lo stesso, senza icona custom.
-func iconPath(cfg *Config) string {
-	exe, _ := os.Executable()
-	for _, c := range []string{
-		filepath.Join(filepath.Dir(exe), "opensagra.ico"),
-		filepath.Join(cfg.AppRoot, "wrapper", "assets", "opensagra.ico"),
-	} {
-		if fileExists(c) {
-			return c
-		}
-	}
-	return ""
 }

@@ -46,6 +46,15 @@ func (h *statusServer) start() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", h.handleIndex)
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		if len(iconICO) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(iconICO)
+	})
 	mux.HandleFunc("/api/status", h.handleStatus)
 	mux.HandleFunc("/api/logs/", h.handleLogs)
 	mux.HandleFunc("/api/action", h.handleAction)

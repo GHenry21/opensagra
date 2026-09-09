@@ -1,11 +1,10 @@
 # assets/
 
-Metti qui `opensagra.ico` (icona della tray su Windows — deve essere un vero
-`.ico`, non un PNG rinominato). È volutamente **fuori dal repo** (`.gitignore`):
-è un binario, va aggiunto in fase di packaging.
+`opensagra.ico` — icona dell'app, **incorporata nel binario** (`icon.go`,
+`go:embed`). La usa la tray (`systray.SetIcon`) e il `/favicon.ico` della
+finestra di stato.
 
-Senza il file la tray parte comunque, con l'icona di default del sistema.
-
-Percorsi cercati, in ordine:
-1. `opensagra.ico` accanto all'eseguibile
-2. `<root-app>/wrapper/assets/opensagra.ico`
+ICO multi-size (16, 24, 32, 48, 64, 128, 256 px; ogni entry PNG a 32 bit),
+generata da `assets/favicon/android-chrome-512x512.png`. Per rigenerarla serve
+solo Go (nessun ImageMagick): decodifica il PNG, ridimensiona con
+`golang.org/x/image/draw` (CatmullRom), riassembla l'ICO con entry PNG.
