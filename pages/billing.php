@@ -450,6 +450,24 @@
         // la route vive alla radice dell'origine, servita dallo stesso Caddy.
         const MERCURE_HUB_PATH = '/.well-known/mercure';
 
+        // Fase 4 punto 4 - "Fallback locale una-via". Dopo questo tempo di server
+        // centrale ininterrottamente irraggiungibile (polling prodotti + checkout
+        // che falliscono), la cassa passa da sola al proprio MariaDB locale
+        // (POST api/enter_local_fallback.php + reload). Silenzioso: l'operatore
+        // continua a battere ordini. Override da localStorage['fallback_after_ms']
+        // solo per i test (valori bassi). Gli Scalini 0/1 coprono gia' i buchi
+        // brevi, qui si mira ai buchi prolungati -> soglia generosa (2,5 min).
+        const FALLBACK_AFTER_MS_DEFAULT = 150000;
+        function fallbackAfterMs() {
+            try {
+                const v = parseInt(localStorage.getItem('fallback_after_ms'), 10);
+                if (Number.isFinite(v) && v >= 1000) {
+                    return v;
+                }
+            } catch (e) {}
+            return FALLBACK_AFTER_MS_DEFAULT;
+        }
+
         // Invia i byte ESC/POS in Base64 all'app RawBT tramite il suo URI scheme dedicato
         function inviaBase64ARawBT(base64Data) {
             window.location.href = 'rawbt:base64,' + base64Data;
@@ -533,6 +551,14 @@
                     // finestra di retry inclusa. Blocca un secondo invio (pulsante
                     // disabilitato + guardia in checkout()).
                     checkoutBusy: false,
+                    // Fase 4 punto 4 - "Fallback locale una-via". Timestamp (ms)
+                    // della prima volta che il server centrale e' risultato
+                    // irraggiungibile in una sequenza; azzerato a ogni successo.
+                    // Quando l'attesa supera fallbackAfterMs() la cassa passa da
+                    // sola al DB locale. _fallbackArming evita richieste multiple
+                    // mentre parte lo switch + reload.
+                    _serverDownSince: null,
+                    _fallbackArming: false,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1273,15 +1299,71 @@
                             Number(response && response.count)
                         );
                         this._productsPollBackoffMs = null;
+                        this.noteServerReachable();
                         this.scheduleProductsPoll(this.productsPollIdleDelay());
                     } catch (err) {
                         console.warn('Poll prodotti fallito, riprovo con backoff:', err);
                         this._productsPollBackoffMs = this._productsPollBackoffMs
                             ? Math.min(this._productsPollBackoffMs * 2, 60000)
                             : 5000;
+                        this.noteServerUnreachable();
+                        this.maybeArmLocalFallback();
                         this.scheduleProductsPoll(this._productsPollBackoffMs);
                     } finally {
                         this._pollInFlight = false;
+                    }
+                },
+                // --- Fase 4 punto 4: rilevamento server-down + swap al DB locale ---
+                // Segnata a ogni esito di rete verso il centrale (polling prodotti,
+                // checkout). Il primo errore di una sequenza fa partire il
+                // cronometro; qualunque successo lo azzera.
+                noteServerReachable() {
+                    this._serverDownSince = null;
+                },
+                noteServerUnreachable() {
+                    if (this._serverDownSince === null) {
+                        this._serverDownSince = Date.now();
+                    }
+                },
+                // Se il centrale e' irraggiungibile da piu' di fallbackAfterMs(),
+                // passa al MariaDB locale: POST api/enter_local_fallback.php (che
+                // riscrive variabili.env) e reload della pagina - il carrello e' in
+                // localStorage, sopravvive (come per lo Scalino 0). Silenzioso in
+                // produzione: solo un console.info. `force` bypassa la soglia
+                // (hook di test window.__opensagraForceLocalFallback).
+                async maybeArmLocalFallback(force) {
+                    if (this._fallbackArming) {
+                        return;
+                    }
+                    if (!force) {
+                        if (this._serverDownSince === null) {
+                            return;
+                        }
+                        if (Date.now() - this._serverDownSince < fallbackAfterMs()) {
+                            return;
+                        }
+                    }
+                    this._fallbackArming = true;
+                    try {
+                        const res = await $.ajax({
+                            url: '../api/enter_local_fallback.php',
+                            method: 'POST',
+                            dataType: 'json',
+                            timeout: 8000
+                        });
+                        if (res && res.success) {
+                            console.info('[opensagra] server centrale irraggiungibile: passo al database locale.');
+                            window.location.reload();
+                            return;
+                        }
+                        // Endpoint ha rifiutato (es. 422 DB locale non pronto):
+                        // resta sul centrale e ritenta al giro dopo.
+                        this._fallbackArming = false;
+                    } catch (err) {
+                        // enter_local_fallback risponde 409/422 con corpo JSON: non
+                        // e' un errore da segnalare all'operatore, si riprova.
+                        console.warn('[opensagra] fallback locale non attivato:', err && err.status);
+                        this._fallbackArming = false;
                     }
                 },
                 scheduleProductsPoll(delayMs) {
@@ -1658,6 +1740,7 @@
                         while (true) {
                             try {
                                 const response = await this._postCheckoutOnce(payload);
+                                this.noteServerReachable();
                                 this._afterCheckoutSuccess(response);
                                 return;
                             } catch (e) {
@@ -1670,6 +1753,13 @@
                                 if (Date.now() + delay >= deadline) {
                                     this.showToast('Server non raggiungibile — vendita NON registrata. Riprova.', 'error', 0);
                                     console.error('Checkout fallito dopo i retry:', msg);
+                                    // Fase 4 punto 4: un checkout andato in timeout
+                                    // sui retry e' il segnale piu' forte di centrale
+                                    // giu' - avvia il cronometro del fallback e prova
+                                    // subito ad armarlo (scatta solo se la soglia e'
+                                    // gia' superata da altri errori precedenti).
+                                    this.noteServerUnreachable();
+                                    this.maybeArmLocalFallback();
                                     return;
                                 }
                                 this.showToast('Server non raggiungibile, riprovo…', 'error', Math.min(delay, 3000));
@@ -1938,6 +2028,20 @@
                 document.addEventListener('visibilitychange', this._productsVisibilityHandler);
                 this.initProductsPolling();
                 this.initProductsRealtime();
+                // Fase 4 punto 4: hook di test (usati da e2e/local-fallback.spec.js).
+                // Il polling a timer non e' pilotabile in modo affidabile sotto
+                // browser headless (throttling dei setTimeout), quindi il test
+                // guida la stessa logica da qui.
+                if (typeof window !== 'undefined') {
+                    // Forza lo swap ignorando la soglia.
+                    window.__opensagraForceLocalFallback = () => this.maybeArmLocalFallback(true);
+                    // Simula "centrale giu' da <ms>" e lascia decidere alla soglia
+                    // reale (percorso non forzato): ritorna la promise dello swap.
+                    window.__opensagraTestSimulateServerDown = (ms) => {
+                        this._serverDownSince = Date.now() - (ms || 0);
+                        return this.maybeArmLocalFallback(false);
+                    };
+                }
                 // matchMedia reacts immediately to viewport/orientation changes, unlike resize + getComputedStyle
                 // which can race with layout. Must stay in sync with the CSS breakpoint that switches
                 // .billing-shell to a single column (see billing.css): a plain width check would misfire on

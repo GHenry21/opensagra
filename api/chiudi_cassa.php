@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/env_reader.php';
 
 // Stesse colonne auto-migrate anche in api/stampanti.php: qui si ripete la stessa
 // ALTER TABLE idempotente per non dipendere dall'ordine in cui le pagine vengono aperte.
@@ -57,6 +58,18 @@ try {
     $totale_contanti = (float)$totali['totale_contanti'];
     $totale_vendite = (float)$totali['totale_vendite'];
 
+    // Fase 4 punto 4: se la cassa sta girando in fallback locale, la sidebar
+    // usa questi campi per lanciare subito il push al centrale (api/push_local_sales.php)
+    // e, se il centrale e' ancora giu', mostrare il bottone persistente
+    // "N vendite da sincronizzare".
+    $env = loadPosEnvVars();
+    $fallback_active = $env['fallback_origin_host'] !== '';
+    $pending_sync = 0;
+    if ($fallback_active) {
+        $res = $connectionDB->query("SELECT COUNT(*) AS n FROM vendite WHERE da_sincronizzare = 1 AND pushed_at IS NULL");
+        $pending_sync = $res ? (int)($res->fetch_assoc()['n'] ?? 0) : 0;
+    }
+
     // casse_stampanti non ha un vincolo UNIQUE su cassa_id (la deduplica è gestita
     // lato applicativo in api/stampanti.php), quindi qui si sceglie esplicitamente
     // tra UPDATE e INSERT invece di usare "ON DUPLICATE KEY" per evitare righe doppie.
@@ -80,7 +93,9 @@ try {
         'totale_contanti' => $totale_contanti,
         'totale_vendite' => $totale_vendite,
         'totale_atteso' => $fondo_cassa + $totale_contanti,
-        'ultima_chiusura' => $ultima_chiusura
+        'ultima_chiusura' => $ultima_chiusura,
+        'fallback_active' => $fallback_active,
+        'pending_sync' => $pending_sync
     ]);
 
 } catch (Throwable $e) {

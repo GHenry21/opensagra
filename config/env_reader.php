@@ -6,7 +6,7 @@
  */
 
 /**
- * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,mercure_jwt_secret_remote:string,print_bridge_casse:string}
+ * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,mercure_jwt_secret_remote:string,print_bridge_casse:string,fallback_origin_host:string}
  */
 function loadPosEnvVars(): array
 {
@@ -60,5 +60,15 @@ function loadPosEnvVars(): array
         // (--cassa= lo sovrascrive) e da api/stampanti.php per riportare il
         // bridge_id nella discovery.
         'print_bridge_casse' => $vars['PRINT_BRIDGE_CASSE'] ?? '',
+        // Fallback locale una-via (Fase 4 punto 4). Vuoto in esercizio normale.
+        // Quando il centrale e' irraggiungibile a lungo, api/enter_local_fallback.php
+        // ci scrive l'IP del server (il vecchio DB_POS_HOST) e sposta DB_POS_HOST
+        // su 127.0.0.1: da quel momento la cassa lavora sul MariaDB locale. La sua
+        // presenza segnala "sto girando in fallback": lo snapshot (bin/opensagra-
+        // snapshot.php) si ferma, print/print_receipt.php marca le vendite
+        // da_sincronizzare=1, e api/push_local_sales.php sa dove ricaricarle a
+        // chiusura cassa. Lo azzerano il push riuscito e lo switch manuale da
+        // conf_rete. Mai impostare a mano.
+        'fallback_origin_host' => $vars['FALLBACK_ORIGIN_HOST'] ?? '',
     ];
 }

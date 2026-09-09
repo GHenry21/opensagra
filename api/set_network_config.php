@@ -74,6 +74,12 @@ if (!setEnvValue($env['env_file'], 'DB_POS_HOST', $targetHost)) {
     exit;
 }
 
+// Uno switch manuale dall'operatore chiude qualunque fallback locale automatico
+// pendente (Fase 4 punto 4): da qui in poi comanda la scelta esplicita. Va
+// fatto a servizio chiuso, dopo aver sincronizzato le eventuali vendite locali
+// da "Chiudi Cassa".
+setEnvValue($env['env_file'], 'FALLBACK_ORIGIN_HOST', '');
+
 // client -> scrive il segreto del server (anche vuoto: azzera un valore
 // stantio di una sessione precedente); indipendente -> azzera.
 setEnvValue($env['env_file'], 'MERCURE_JWT_SECRET_REMOTE', $mode === 'client' ? $remoteSecret : '');

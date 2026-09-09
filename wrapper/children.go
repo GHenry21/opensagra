@@ -36,6 +36,17 @@ func buildChildren(cfg *Config) []*Child {
 			Args:        phpCli("bin/opensagra-realtime-relay.php"),
 			IdleRecheck: 60 * time.Second, // exit(0) = non e' un client: ricontrolla di rado
 		},
+		{
+			// Fase 4 punto 4: tiene aggiornato il MariaDB locale del client
+			// (catalogo, casse, config) cosi' che il "Fallback locale una-via"
+			// abbia un DB pronto se il centrale cade. Non fa exit(0): resta in
+			// loop e va idle da solo quando non e' un client o e' in fallback.
+			Name:          "snapshot",
+			Dir:           cfg.AppRoot,
+			Bin:           cfg.Frankenphp,
+			Args:          phpCli("bin/opensagra-snapshot.php"),
+			AlwaysRestart: true,
+		},
 	}
 
 	for _, cassa := range cfg.BridgeCasse {

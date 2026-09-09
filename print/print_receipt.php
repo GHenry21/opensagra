@@ -280,6 +280,23 @@ function ensureVenditeIdempotencyColumn($connectionDB) {
 }
 
 /**
+ * Fase 4 punto 4 - fallback locale una-via. Una vendita registrata mentre la
+ * cassa gira sul proprio MariaDB locale (FALLBACK_ORIGIN_HOST valorizzato)
+ * nasce con da_sincronizzare=1; api/push_local_sales.php la ricarica sul
+ * centrale a "Chiudi Cassa" e poi valorizza pushed_at rimettendo il flag a 0.
+ * Vedi config/migrations/004_vendite_fallback_sync.php.
+ * Idempotente e non fatale (come le altre ensure* di questo file).
+ */
+function ensureVenditeFallbackSyncColumns($connectionDB) {
+    $connectionDB->query("ALTER TABLE vendite ADD COLUMN IF NOT EXISTS da_sincronizzare TINYINT(1) NOT NULL DEFAULT 0 AFTER idempotency_key");
+    $connectionDB->query("ALTER TABLE vendite ADD COLUMN IF NOT EXISTS pushed_at DATETIME NULL DEFAULT NULL AFTER da_sincronizzare");
+    $res = $connectionDB->query("SHOW INDEX FROM vendite WHERE Key_name = 'idx_vendite_da_sincronizzare'");
+    if ($res && $res->num_rows === 0) {
+        $connectionDB->query("ALTER TABLE vendite ADD INDEX idx_vendite_da_sincronizzare (da_sincronizzare)");
+    }
+}
+
+/**
  * Scalino 1 - se esiste gia' una vendita con questa idempotency_key, la
  * ristampa e restituisce true (richiesta gestita: il chiamante deve solo
  * chiudere la connessione e uscire). Nessuna nuova vendita, nessun decremento
@@ -726,6 +743,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
 
     ensureDettagliVenditaDiscountColumns($connectionDB);
     ensureVenditeIdempotencyColumn($connectionDB);
+    ensureVenditeFallbackSyncColumns($connectionDB);
+
+    // Fase 4 punto 4: se la cassa sta girando in fallback locale (il centrale e'
+    // irraggiungibile, api/enter_local_fallback.php ha spostato DB_POS_HOST su
+    // 127.0.0.1 e salvato l'IP del server in FALLBACK_ORIGIN_HOST) ogni vendita
+    // nasce con da_sincronizzare=1: verra' ricaricata sul centrale a chiusura
+    // cassa da api/push_local_sales.php.
+    $daSincronizzare = loadPosEnvVars()['fallback_origin_host'] !== '' ? 1 : 0;
 
     // Retry (Scalino 0) o doppio clic: la vendita con questa chiave esiste gia'
     // -> ristampa e basta, niente seconda registrazione.
@@ -788,13 +813,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
             }
         }
 
-        $sqlVendita = "INSERT INTO vendite (cassa_id, totale, importo_pagato, resto, sconto, metodo_pagamento, stornato, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, 0, ?)";
+        $sqlVendita = "INSERT INTO vendite (cassa_id, totale, importo_pagato, resto, sconto, metodo_pagamento, stornato, idempotency_key, da_sincronizzare) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)";
         $stmt = $connectionDB->prepare($sqlVendita);
         if (!$stmt) {
             throw new RuntimeException('Impossibile registrare la vendita.');
         }
         $idempotencyKeyForInsert = $idempotencyKey !== '' ? $idempotencyKey : null;
-        $stmt->bind_param("sddddss", $cassa_id, $totale, $pagato, $resto, $sconto, $metodoPag, $idempotencyKeyForInsert);
+        $stmt->bind_param("sddddssi", $cassa_id, $totale, $pagato, $resto, $sconto, $metodoPag, $idempotencyKeyForInsert, $daSincronizzare);
         if (!$stmt->execute()) {
             $stmt->close();
             throw new RuntimeException('Impossibile registrare la vendita.');

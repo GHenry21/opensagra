@@ -119,7 +119,9 @@ CREATE TABLE `vendite` (
   `sconto` decimal(10,2) DEFAULT NULL,
   `metodo_pagamento` varchar(50) DEFAULT NULL,
   `stornato` int(1) NOT NULL DEFAULT 0,
-  `idempotency_key` varchar(36) DEFAULT NULL
+  `idempotency_key` varchar(36) DEFAULT NULL,
+  `da_sincronizzare` tinyint(1) NOT NULL DEFAULT 0,
+  `pushed_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -151,7 +153,8 @@ ALTER TABLE `stock`
 --
 ALTER TABLE `vendite`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `uniq_vendite_idempotency_key` (`idempotency_key`);
+  ADD UNIQUE KEY `uniq_vendite_idempotency_key` (`idempotency_key`),
+  ADD KEY `idx_vendite_da_sincronizzare` (`da_sincronizzare`);
 
 --
 -- AUTO_INCREMENT per le tabelle scaricate

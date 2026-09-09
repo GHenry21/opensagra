@@ -92,7 +92,8 @@ $_hNavGroups = [
     <div class="pos-sidebar__divider"></div>
     <div class="pos-sidebar__footer">
         <button type="button" id="chiudiCassaBtn" class="pos-sidebar__link"
-            data-api-url="<?= $_hRoot ?>api/chiudi_cassa.php" data-stats-url="<?= $_hRoot ?>pages/stat_vendite.php">
+            data-api-url="<?= $_hRoot ?>api/chiudi_cassa.php" data-stats-url="<?= $_hRoot ?>pages/stat_vendite.php"
+            data-push-url="<?= $_hRoot ?>api/push_local_sales.php">
             <?= pos_icon('logout') ?>
             <span>Chiudi Cassa</span>
         </button>
@@ -189,6 +190,47 @@ $_hNavGroups = [
 
             var chiudiCassaBtn = document.getElementById('chiudiCassaBtn');
             if (chiudiCassaBtn) {
+                var pushUrl = chiudiCassaBtn.getAttribute('data-push-url');
+
+                // Fase 4 punto 4: se la cassa ha lavorato in fallback locale,
+                // spinge le vendite fatte in locale al server centrale. Chiamata
+                // dopo "Chiudi Cassa" e, in caso di centrale ancora giu' o push
+                // parziale, dal bottone "Sincronizza ora" del toast persistente.
+                function syncLocalSales(pendingHint) {
+                    fetch(pushUrl, { method: 'POST' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(res) {
+                            if (res && res.success) {
+                                showToast(
+                                    'Vendite locali sincronizzate col server centrale (' + (res.pushed || 0) + ').',
+                                    'info',
+                                    { duration: 0 }
+                                );
+                                return;
+                            }
+                            var n = (res && (res.remaining != null ? res.remaining : res.pending)) || pendingHint || 0;
+                            showToast(
+                                n + ' vendite ancora da sincronizzare col server centrale.',
+                                'error',
+                                {
+                                    duration: 0,
+                                    action: { label: 'Sincronizza ora', onClick: function() { syncLocalSales(n); } }
+                                }
+                            );
+                        })
+                        .catch(function(err) {
+                            console.error('Sync vendite locali fallita:', err);
+                            showToast(
+                                'Sincronizzazione col server centrale non riuscita.',
+                                'error',
+                                {
+                                    duration: 0,
+                                    action: { label: 'Riprova', onClick: function() { syncLocalSales(pendingHint); } }
+                                }
+                            );
+                        });
+                }
+
                 chiudiCassaBtn.addEventListener('click', function() {
                     var apiUrl = this.getAttribute('data-api-url');
                     var statsUrl = this.getAttribute('data-stats-url');
@@ -227,6 +269,12 @@ $_hNavGroups = [
                                 'info',
                                 { duration: 0, action: { label: 'Vai a statistiche', href: statsUrl } }
                             );
+
+                            // Fase 4 punto 4: cassa in fallback locale -> spingi
+                            // le vendite fatte in locale al server centrale.
+                            if (pushUrl && (data.fallback_active || data.pending_sync > 0)) {
+                                syncLocalSales(data.pending_sync || 0);
+                            }
                         })
                         .catch(function(error) {
                             console.error('Errore chiusura cassa:', error);
