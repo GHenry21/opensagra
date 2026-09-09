@@ -22,13 +22,17 @@
 
 .NOTES
     Bozza iniziale (2026-09-07): i passi Install-FrankenPHP, Install-
-    MariaDBEngine, Register-MariaDBService e Register-FrankenPHPService sono
-    scritti secondo i comandi gia' documentati e provati
-    in questo piano, ma su QUESTA macchina (gia' completamente configurata)
-    imboccano sempre il ramo "gia' presente, salto" - il ramo di
-    installazione da zero non e' verificabile end-to-end senza una macchina
-    pulita o una VM, che non e' disponibile in questa sessione. Vanno
-    ritestati per intero su una macchina davvero vergine prima del rilascio.
+    MariaDBEngine, Register-MariaDBService sono scritti secondo i comandi gia'
+    documentati e provati in questo piano, ma su QUESTA macchina (gia'
+    completamente configurata) imboccano sempre il ramo "gia' presente, salto"
+    - il ramo di installazione da zero non e' verificabile end-to-end senza una
+    macchina pulita o una VM. Vanno ritestati per intero su una macchina
+    davvero vergine prima del rilascio.
+
+    2026-09-09: FrankenPHP non e' piu' un servizio WinSW. Lo avvia e sorveglia
+    il wrapper/tray-app (Install-Wrapper + Register-WrapperAutostart +
+    Start-Wrapper), che va COMPILATO e incluso nel pacchetto di release come
+    wrapper\opensagra-wrapper.exe. MariaDB resta un servizio.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -51,9 +55,17 @@ $Script:ExcludeFromCopy = @(
     '.gitignore', '.gitattributes', 'archive', 'playwright-report',
     'test-results', 'package.json', 'package-lock.json', 'playwright.config.js',
     'bt.html', 'navbar example.html',
+    # Sorgente Go del wrapper: nella webroot non serve. L'eseguibile gia'
+    # compilato (wrapper\opensagra-wrapper.exe) lo copia Install-Wrapper.
+    'wrapper',
     # Materiale sensibile bundlato accanto a install.ps1: mai dentro la webroot.
     'private'
 )
+
+# Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
+# (`cd wrapper; go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...`).
+$Script:WrapperExeName = 'opensagra-wrapper.exe'
+$Script:AutostartTaskName = 'OpenSagra'
 
 # ============================================================================
 # Interfaccia grafica (WPF in un runspace separato, aggiornata dal thread
@@ -210,14 +222,19 @@ function Disable-LegacyXamppServices {
     # ha vinto la porta 80 su frankenphp.exe (Windows non impedisce il
     # doppio bind se nessuno chiede l'esclusiva, ma solo uno riceve il
     # traffico). Va disabilitato esplicitamente l'avvio, non solo fermato.
-    $legacyServices = @('Apache2.4', 'mysql')
+    #
+    # `frankenphp`: su un'installazione OpenSagra precedente era un servizio
+    # WinSW. Ora lo gestisce il wrapper; il servizio va fermato e disabilitato,
+    # altrimenti si contende con il figlio del wrapper la porta admin 2019
+    # (e 80/443) e il wrapper mostra FrankenPHP "in errore".
+    $legacyServices = @('Apache2.4', 'mysql', 'frankenphp')
     foreach ($name in $legacyServices) {
         $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
         if (-not $svc) { continue }
         if ($svc.Status -ne 'Stopped') { Stop-Service -Name $name -Force }
         if ($svc.StartType -ne 'Disabled') { Set-Service -Name $name -StartupType Disabled }
     }
-    Add-InstallChecklistItem 'Servizi XAMPP legacy verificati/disattivati'
+    Add-InstallChecklistItem 'Servizi legacy (XAMPP / servizio FrankenPHP) verificati/disattivati'
 }
 
 function Install-VCRedist {
@@ -255,24 +272,12 @@ function Install-FrankenPHP {
     Add-InstallChecklistItem 'FrankenPHP installato'
 }
 
-function Install-WinSW {
-    # frankenphp-service.exe non e' un eseguibile di FrankenPHP: e' WinSW
-    # (Windows Service Wrapper) scaricato a parte e rinominato, cosi' come
-    # fatto a mano in Fase 2 - non arriva con l'installer ufficiale di
-    # FrankenPHP, quindi va scaricato qui esplicitamente (bug reale trovato
-    # testando su VM pulita, 2026-09-07: il pacchetto di release non lo
-    # includeva e Register-FrankenPHPService falliva).
-    $winswExe = "$Script:FrankenDir\frankenphp-service.exe"
-    if (Test-Path $winswExe) {
-        Add-InstallChecklistItem 'WinSW (frankenphp-service.exe) gia'' presente'
-        return
-    }
-    Invoke-WebRequest -Uri 'https://github.com/winsw/winsw/releases/latest/download/WinSW-x64.exe' -OutFile $winswExe
-    if (-not (Test-Path $winswExe)) {
-        throw 'Download di WinSW (frankenphp-service.exe) non riuscito.'
-    }
-    Add-InstallChecklistItem 'WinSW (frankenphp-service.exe) scaricato'
-}
+# NOTA: Install-WinSW e Register-FrankenPHPService sono state RIMOSSE con la
+# revisione del modello servizi del 2026-09-08 (piano sez. 3g). FrankenPHP non
+# e' piu' un servizio Windows: lo avvia e sorveglia il wrapper/tray-app
+# (Install-Wrapper + Register-WrapperAutostart, sotto). Il codice WinSW resta
+# nella storia git (fino al commit che ha introdotto questa nota) come
+# riferimento. MariaDB resta un servizio, installato dall'MSI.
 
 function Set-PhpExtensions {
     $iniPath = "$Script:FrankenDir\php.ini"
@@ -565,41 +570,46 @@ function Invoke-Migrations {
     Add-InstallChecklistItem 'Migrazioni database applicate'
 }
 
-function Register-FrankenPHPService {
-    $existing = Get-Service -Name 'frankenphp' -ErrorAction SilentlyContinue
-    if ($existing) {
-        if ($existing.Status -ne 'Running') { Start-Service frankenphp }
-        Add-InstallChecklistItem 'Servizio FrankenPHP gia'' registrato'
-        return
+function Install-Wrapper {
+    # Copia l'eseguibile del wrapper/tray-app (gia' compilato e incluso nel
+    # pacchetto di release) accanto all'app. Supervisiona FrankenPHP + relay +
+    # snapshot + bridge di stampa come processi figli - sostituisce il servizio
+    # WinSW di FrankenPHP (piano sez. 3g). Icona e pagina di stato sono
+    # incorporate nell'exe (go:embed), non servono file accanto.
+    $src = Join-Path $Script:SourcePath "wrapper\$Script:WrapperExeName"
+    if (-not (Test-Path $src)) {
+        throw "Wrapper non trovato ($src). Va compilato e incluso nel pacchetto di release: cd wrapper; go build -ldflags '-H=windowsgui' -o $Script:WrapperExeName ./..."
     }
-    $winswExe = "$Script:FrankenDir\frankenphp-service.exe"
-    $winswXml = "$Script:FrankenDir\frankenphp-service.xml"
-    if (-not (Test-Path $winswExe)) {
-        throw 'WinSW (frankenphp-service.exe) non trovato - va incluso nel pacchetto di release.'
-    }
-    @"
-<service>
-  <id>frankenphp</id>
-  <name>FrankenPHP OpenSagra</name>
-  <description>Server FrankenPHP per l'app OpenSagra</description>
-  <executable>%BASE%\frankenphp.exe</executable>
-  <arguments>run --config "$Script:InstallPath\Caddyfile"</arguments>
-  <workingdirectory>$Script:InstallPath</workingdirectory>
-  <log mode="roll-by-time">
-    <pattern>yyyy-MM-dd</pattern>
-  </log>
-</service>
-"@ | Out-File -FilePath $winswXml -Encoding utf8 -Force
+    Copy-Item $src (Join-Path $Script:InstallPath $Script:WrapperExeName) -Force
+    Add-InstallChecklistItem 'Wrapper/tray-app copiato'
+}
 
-    Push-Location $Script:FrankenDir
+function Register-WrapperAutostart {
+    # Attivita' pianificata at-logon per l'utente corrente, RunLevel Limited:
+    # nessuna elevazione, FrankenPHP gira come utente loggato (fine del
+    # problema ACL upload di LocalSystem). Stesso nome/forma del task che il
+    # wrapper crea dal suo menu "Avvia all'accensione", cosi' la spunta lo
+    # riflette. Idempotente: -Force sovrascrive.
+    $exe = Join-Path $Script:InstallPath $Script:WrapperExeName
+    $action = New-ScheduledTaskAction -Execute $exe -Argument '-autostarted'
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    Register-ScheduledTask -TaskName $Script:AutostartTaskName -Action $action -Trigger $trigger `
+        -RunLevel Limited -Force | Out-Null
+    Add-InstallChecklistItem 'Wrapper: avvio all''accensione registrato'
+}
+
+function Start-Wrapper {
+    # Lancia il wrapper SUBITO, ma NON con Start-Process (l'installer gira
+    # elevato -> erediterebbe il token admin, che e' proprio cio' che vogliamo
+    # evitare). Start-ScheduledTask esegue il task appena registrato nel
+    # contesto normale dell'utente. -autostarted = niente finestra di stato
+    # automatica durante l'installazione.
     try {
-        & .\frankenphp-service.exe install
-        & .\frankenphp-service.exe start
-    } finally {
-        Pop-Location
+        Start-ScheduledTask -TaskName $Script:AutostartTaskName -ErrorAction Stop
+        Add-InstallChecklistItem 'Wrapper avviato'
+    } catch {
+        Add-InstallChecklistItem 'Wrapper: si avviera'' al prossimo accesso' 'error'
     }
-    Set-Service frankenphp -StartupType Automatic
-    Add-InstallChecklistItem 'Servizio FrankenPHP registrato e avviato'
 }
 
 function Set-FirewallRules {
@@ -636,7 +646,6 @@ try {
 
     Set-InstallProgress -Percent 5 -Status 'Installazione di FrankenPHP...'
     Install-FrankenPHP
-    Install-WinSW
 
     Set-InstallProgress -Percent 10 -Status 'Installazione dei componenti runtime...'
     Install-VCRedist
@@ -661,11 +670,15 @@ try {
     Invoke-Migrations
     Set-MercureSecretInDb -MercureSecret $mercureSecret
 
-    Set-InstallProgress -Percent 75 -Status 'Registrazione dei servizi...'
-    Register-FrankenPHPService
+    Set-InstallProgress -Percent 75 -Status 'Installazione del pannello OpenSagra...'
+    Install-Wrapper
+    Register-WrapperAutostart
 
     Set-InstallProgress -Percent 90 -Status 'Configurazione delle regole di rete...'
     Set-FirewallRules
+
+    Set-InstallProgress -Percent 97 -Status 'Avvio di OpenSagra...'
+    Start-Wrapper
 
     Close-InstallWindow -Success
 } catch {
