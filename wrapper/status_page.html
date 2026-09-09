@@ -145,15 +145,16 @@ async function refresh() {
   try { s = await (await fetch("/api/status")).json(); }
   catch (e) { $("#role").textContent = "wrapper non raggiungibile"; return; }
 
-  $("#role").innerHTML = `Questa macchina: <b>${s.role}</b>` +
-    (s.role === "SERVER" && s.client_count > 0 ? ` · ${s.client_count} cassa/e collegate` : "");
+  $("#role").innerHTML = `Questa macchina: <b>${s.role}</b>`;
 
+  const clientsLabel = n => n === 1 ? "1 cassa collegata" : n + " casse collegate";
   const anyErr = s.procs.some(p => p.state === "in errore");
   const fp = s.procs.find(p => p.name === "frankenphp");
   let cls = "ok", big = "Server attivo", sub = fp && fp.uptime ? "in funzione da " + fp.uptime : "";
   if (s.all_paused) { cls = "idle"; big = "Server in pausa"; sub = "premi “Avvia server” per riprendere"; }
   else if (anyErr) { cls = "err"; big = "Problemi in corso"; sub = "vedi Dettagli avanzati"; }
   else if (!fp || fp.state !== "attivo") { cls = "warn"; big = "Avvio in corso…"; sub = ""; }
+  else if (s.role === "SERVER") { sub += (sub ? " · " : "") + clientsLabel(s.client_count); }
   $("#beacon").className = "beacon " + cls;
   $("#heroBig").textContent = big;
   $("#heroSub").textContent = sub;
