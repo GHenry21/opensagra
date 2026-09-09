@@ -15,6 +15,8 @@ type Config struct {
 	AppRoot     string   // cartella con Caddyfile, bin/, config/
 	Frankenphp  string   // path assoluto a frankenphp(.exe)
 	LogDir      string   // dove finiscono i log dei figli + wrapper.log
+	AppURL      string   // URL dell'app vera ("Apri OpenSagra")
+	Autostarted bool     // lanciato dal task at-logon (-autostarted): non aprire la finestra da solo
 	BridgeCasse []string // PRINT_BRIDGE_CASSE, split su virgola
 
 	DBHost string // solo per activeClientCount() all'uscita
@@ -28,6 +30,8 @@ func loadConfig() (*Config, error) {
 		rootFlag = flag.String("root", "", "cartella radice dell'app (default: risalendo dall'eseguibile fino a un Caddyfile)")
 		fpFlag   = flag.String("frankenphp", "", "path a frankenphp.exe (default: autorilevato)")
 		logFlag  = flag.String("logdir", "", "cartella dei log (default: <eseguibile>/logs)")
+		urlFlag  = flag.String("appurl", "", "URL dell'app per \"Apri OpenSagra\" (default: http://localhost/)")
+		autoFlag = flag.Bool("autostarted", false, "impostato dal task at-logon: non aprire la finestra di stato all'avvio")
 	)
 	flag.Parse()
 
@@ -56,6 +60,8 @@ func loadConfig() (*Config, error) {
 		AppRoot:     root,
 		Frankenphp:  fp,
 		LogDir:      firstNonEmpty(*logFlag, filepath.Join(exeDir, "logs")),
+		AppURL:      firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "http://localhost/"),
+		Autostarted: *autoFlag,
 		BridgeCasse: splitCsv(env["PRINT_BRIDGE_CASSE"]),
 		DBHost:      valueOr(env["DB_POS_HOST"], "127.0.0.1"),
 		DBUser:      env["DB_POS_USER"],

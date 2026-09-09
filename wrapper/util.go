@@ -133,3 +133,17 @@ func indexOfFold(ss []string, target string) int {
 	}
 	return -1
 }
+
+// tailFile: le ultime n righe di un file di testo. I log dei figli sono capati
+// a 5 MiB dalla rotazione, quindi leggerli interi va bene.
+func tailFile(path string, n int) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "(nessun log)"
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}

@@ -11,9 +11,10 @@ import (
 )
 
 type tray struct {
-	cfg  *Config
-	sup  *Supervisor
-	quit func() // sequenza di uscita pulita (definita in main)
+	cfg    *Config
+	sup    *Supervisor
+	status *statusServer
+	quit   func() // sequenza di uscita pulita (definita in main)
 }
 
 func (t *tray) onReady() {
@@ -25,6 +26,7 @@ func (t *tray) onReady() {
 	systray.SetTitle("OpenSagra")
 	systray.SetTooltip("OpenSagra — server locale")
 
+	mWindow := systray.AddMenuItem("Finestra di stato", "Apri il pannello di stato di OpenSagra")
 	mOpen := systray.AddMenuItem("Apri OpenSagra", "Apri l'app nel browser")
 
 	systray.AddSeparator()
@@ -50,8 +52,12 @@ func (t *tray) onReady() {
 		defer tick.Stop()
 		for {
 			select {
+			case <-mWindow.ClickedCh:
+				if t.status != nil {
+					t.status.openWindow()
+				}
 			case <-mOpen.ClickedCh:
-				openURL("http://localhost/")
+				openURL(t.cfg.AppURL)
 			case <-mLogs.ClickedCh:
 				revealPath(t.cfg.LogDir)
 			case <-mRestart.ClickedCh:

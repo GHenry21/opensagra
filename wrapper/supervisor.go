@@ -51,6 +51,7 @@ type Supervisor struct {
 	logs    map[string]*os.File
 	running map[string]*os.Process
 	bump    map[string]chan struct{}
+	paused  map[string]bool // name -> in pausa (fermo, niente riavvio automatico)
 
 	wg sync.WaitGroup
 }
@@ -63,6 +64,7 @@ func newSupervisor(logDir string, job *jobObject) *Supervisor {
 		logs:    map[string]*os.File{},
 		running: map[string]*os.Process{},
 		bump:    map[string]chan struct{}{},
+		paused:  map[string]bool{},
 	}
 }
 
@@ -135,6 +137,75 @@ func (s *Supervisor) restartAll() {
 	}
 }
 
+// kick: uccide il processo di `name` se in esecuzione e sveglia il suo loop.
+func (s *Supervisor) kick(name string) {
+	s.mu.Lock()
+	p := s.running[name]
+	b := s.bump[name]
+	s.mu.Unlock()
+	if p != nil {
+		_ = p.Kill()
+	}
+	if b != nil {
+		select {
+		case b <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *Supervisor) restart(name string) { s.kick(name) }
+
+func (s *Supervisor) isPaused(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.paused[name]
+}
+
+// pause / resume: un figlio in pausa e' fermo e NON viene riavviato finche' non
+// lo si riprende. Non tocca wrapper ne' tray.
+func (s *Supervisor) pause(name string) {
+	s.mu.Lock()
+	s.paused[name] = true
+	s.mu.Unlock()
+	s.kick(name)
+}
+
+func (s *Supervisor) resume(name string) {
+	s.mu.Lock()
+	delete(s.paused, name)
+	s.mu.Unlock()
+	s.kick(name)
+}
+
+func (s *Supervisor) pauseAll() {
+	for _, n := range s.names() {
+		s.pause(n)
+	}
+}
+
+func (s *Supervisor) resumeAll() {
+	for _, n := range s.names() {
+		s.resume(n)
+	}
+}
+
+// allPaused: true se ogni figlio e' in pausa (stato del bottone aggregato).
+func (s *Supervisor) allPaused() bool {
+	names := s.names()
+	if len(names) == 0 {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, n := range names {
+		if !s.paused[n] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Supervisor) loop(ctx context.Context, c *Child) {
 	defer s.wg.Done()
 
@@ -144,12 +215,26 @@ func (s *Supervisor) loop(ctx context.Context, c *Child) {
 
 	backoff := time.Second
 	for ctx.Err() == nil {
+		if s.isPaused(c.Name) {
+			s.set(c.Name, childStatus{State: stateStopped, Detail: "in pausa", Since: time.Now()})
+			select {
+			case <-ctx.Done():
+				return
+			case <-bump: // resume
+			}
+			backoff = time.Second
+			continue
+		}
+
 		started := time.Now()
 		code, startErr := s.spawn(ctx, c)
 
 		if ctx.Err() != nil {
 			s.set(c.Name, childStatus{State: stateStopped, Detail: "wrapper in chiusura", Since: time.Now()})
 			return
+		}
+		if s.isPaused(c.Name) {
+			continue // messo in pausa mentre girava: il top del for parcheggia, niente stato "errore"
 		}
 		upFor := time.Since(started)
 

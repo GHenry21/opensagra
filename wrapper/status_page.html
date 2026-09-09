@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSagra — Stato</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { color-scheme: dark; }
+  body {
+    font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+    background: #14161b; color: #e8e8ea;
+    -webkit-user-select: none; user-select: none;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 14px 16px 20px; }
+
+  .role { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: #d4af37; font-weight: 600; }
+  .role b { color: #fff; }
+
+  .hero {
+    margin: 12px 0; padding: 16px; border-radius: 12px;
+    background: #1c1f26; border: 1px solid #2a2e37;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .hero .big { font-size: 20px; font-weight: 700; }
+  .hero .sub { font-size: 12px; color: #9aa0aa; margin-top: 2px; }
+  .beacon { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .beacon.ok  { background: #3ecf6a; box-shadow: 0 0 10px #3ecf6a88; }
+  .beacon.warn{ background: #e5a13a; box-shadow: 0 0 10px #e5a13a88; }
+  .beacon.err { background: #e5484d; box-shadow: 0 0 10px #e5484d88; }
+  .beacon.idle{ background: #8a8f98; }
+
+  .row { display: flex; gap: 8px; margin: 8px 0; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; padding: 9px 12px;
+    border: 1px solid #3a3f4a; background: #2a2e37; color: #e8e8ea;
+  }
+  button:hover { background: #363c47; }
+  button.primary { background: #d4af37; color: #1c1f26; border-color: #d4af37; font-weight: 600; }
+  button.primary:hover { background: #e0bd4e; }
+  button.grow { flex: 1; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .autostart { display: flex; align-items: center; gap: 8px; margin: 10px 2px; font-size: 12px; color: #cfd2d8; }
+  .autostart input { accent-color: #d4af37; width: 15px; height: 15px; }
+
+  details { margin-top: 14px; border-top: 1px solid #2a2e37; padding-top: 10px; }
+  summary { cursor: pointer; font-size: 12px; color: #9aa0aa; }
+  summary:hover { color: #cfd2d8; }
+
+  .warn-banner {
+    margin: 10px 0; padding: 8px 10px; border-radius: 8px; font-size: 11.5px;
+    background: #3a2f10; border: 1px solid #6b5410; color: #f0d78a;
+  }
+
+  .proc {
+    display: flex; align-items: center; gap: 10px;
+    background: #1c1f26; border: 1px solid #2a2e37; border-radius: 8px;
+    padding: 9px 11px; margin: 7px 0;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok { background: #3ecf6a; box-shadow: 0 0 6px #3ecf6a88; }
+  .dot.err { background: #e5484d; box-shadow: 0 0 6px #e5484d88; }
+  .dot.idle { background: #8a8f98; }
+  .proc .meta { flex: 1; min-width: 0; }
+  .proc .name { font-weight: 600; color: #fff; }
+  .proc .detail { font-size: 11px; color: #9aa0aa; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .proc .btns { display: flex; gap: 5px; }
+  .proc .btns button { padding: 5px 9px; font-size: 12px; }
+
+  .logs { margin-top: 12px; }
+  .logs-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .logs-head select { font: inherit; background: #2a2e37; color: #e8e8ea; border: 1px solid #3a3f4a; border-radius: 6px; padding: 4px 6px; }
+  pre.logbody {
+    background: #0e1013; border: 1px solid #2a2e37; border-radius: 8px;
+    padding: 8px 10px; height: 190px; overflow: auto;
+    font: 10.5px/1.5 Consolas, "Cascadia Mono", monospace; color: #b7f5b0;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .muted { color: #6b7078; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="role" id="role">Caricamento…</div>
+
+  <div class="hero">
+    <div class="beacon idle" id="beacon"></div>
+    <div style="flex:1">
+      <div class="big" id="heroBig">…</div>
+      <div class="sub" id="heroSub"></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <button class="primary grow" id="btnApp">↗ Apri OpenSagra</button>
+    <button class="grow" id="btnPause">Ferma server</button>
+  </div>
+  <div class="row">
+    <button class="grow" id="btnRestartAll">Riavvia tutto</button>
+    <button class="grow" id="btnLogs">Apri cartella log</button>
+  </div>
+
+  <label class="autostart">
+    <input type="checkbox" id="chkAutostart"> Avvia all'accensione
+  </label>
+
+  <details id="adv">
+    <summary>Dettagli avanzati</summary>
+    <div class="warn-banner">
+      Fermare o riavviare un singolo servizio può interrompere la stampa o la
+      sincronizzazione delle altre casse. Usalo solo per diagnosi.
+    </div>
+    <div id="procList"></div>
+
+    <div class="logs">
+      <div class="logs-head">
+        <span class="muted">log:</span>
+        <select id="logSel"></select>
+        <span class="muted" id="logHint">aggiornamento ogni 3 s</span>
+      </div>
+      <pre class="logbody" id="logBody">…</pre>
+    </div>
+  </details>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+async function api(op, name) {
+  const q = new URLSearchParams({ op }); if (name) q.set("name", name);
+  try { await fetch("/api/action?" + q, { method: "POST" }); } catch (e) {}
+  refresh();
+}
+function dotClass(state, paused) {
+  if (paused) return "idle";
+  if (state === "attivo") return "ok";
+  if (state === "in errore") return "err";
+  return "idle";
+}
+
+let lastProcs = "";
+async function refresh() {
+  let s;
+  try { s = await (await fetch("/api/status")).json(); }
+  catch (e) { $("#role").textContent = "wrapper non raggiungibile"; return; }
+
+  $("#role").innerHTML = `Questa macchina: <b>${s.role}</b>` +
+    (s.role === "SERVER" && s.client_count > 0 ? ` · ${s.client_count} cassa/e collegate` : "");
+
+  const anyErr = s.procs.some(p => p.state === "in errore");
+  const fp = s.procs.find(p => p.name === "frankenphp");
+  let cls = "ok", big = "Server attivo", sub = fp && fp.uptime ? "in funzione da " + fp.uptime : "";
+  if (s.all_paused) { cls = "idle"; big = "Server in pausa"; sub = "premi “Avvia server” per riprendere"; }
+  else if (anyErr) { cls = "err"; big = "Problemi in corso"; sub = "vedi Dettagli avanzati"; }
+  else if (!fp || fp.state !== "attivo") { cls = "warn"; big = "Avvio in corso…"; sub = ""; }
+  $("#beacon").className = "beacon " + cls;
+  $("#heroBig").textContent = big;
+  $("#heroSub").textContent = sub;
+
+  $("#btnPause").textContent = s.all_paused ? "Avvia server" : "Ferma server";
+  $("#chkAutostart").checked = s.autostart;
+
+  // righe per-processo (rigenera solo se cambiate, per non perdere focus/hover)
+  const sig = JSON.stringify(s.procs);
+  if (sig !== lastProcs) {
+    lastProcs = sig;
+    $("#procList").innerHTML = s.procs.map(p => `
+      <div class="proc">
+        <div class="dot ${dotClass(p.state, p.paused)}"></div>
+        <div class="meta">
+          <div class="name">${p.name}</div>
+          <div class="detail">${p.state}${p.pid ? " · PID " + p.pid : ""}${p.uptime ? " · " + p.uptime : ""}${p.detail ? " · " + p.detail : ""}</div>
+        </div>
+        <div class="btns">
+          <button data-op="${p.paused ? "resume" : "pause"}" data-name="${p.name}">${p.paused ? "▶" : "⏹"}</button>
+          <button data-op="restart" data-name="${p.name}">⟳</button>
+        </div>
+      </div>`).join("");
+    for (const b of $("#procList").querySelectorAll("button"))
+      b.onclick = () => api(b.dataset.op, b.dataset.name);
+
+    const sel = $("#logSel"), cur = sel.value;
+    sel.innerHTML = s.procs.map(p => `<option>${p.name}</option>`).join("");
+    if (cur && s.procs.some(p => p.name === cur)) sel.value = cur;
+  }
+}
+
+async function refreshLog() {
+  const name = $("#logSel").value;
+  if (!name || !$("#adv").open) return;
+  try {
+    const t = await (await fetch("/api/logs/" + encodeURIComponent(name) + "?n=300")).text();
+    const el = $("#logBody");
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+    el.textContent = t;
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  } catch (e) {}
+}
+
+$("#btnApp").onclick = () => api("open-app");
+$("#btnLogs").onclick = () => api("open-logs");
+$("#btnRestartAll").onclick = () => api("restart-all");
+$("#btnPause").onclick = () => api($("#btnPause").textContent === "Avvia server" ? "resume-all" : "pause-all");
+$("#chkAutostart").onchange = e => api(e.target.checked ? "autostart-on" : "autostart-off");
+$("#logSel").onchange = refreshLog;
+
+refresh(); setInterval(refresh, 2000);
+refreshLog(); setInterval(refreshLog, 3000);
+</script>
+</body>
+</html>

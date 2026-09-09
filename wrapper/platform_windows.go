@@ -124,6 +124,29 @@ func revealPath(p string) {
 	_ = exec.Command("explorer", p).Start()
 }
 
+// appWindowCmd: Edge o Chrome in modalita' app (finestra senza tab/barra
+// indirizzi) sulla pagina di stato. nil se nessuno dei due e' installato
+// (openWindow ripiega sul browser di default). Un `--user-data-dir` dedicato
+// isola dal profilo dell'utente e dà la single-instance: un secondo lancio
+// sullo stesso URL/profilo porta in primo piano la finestra gia' aperta.
+func appWindowCmd(url, profileDir string) *exec.Cmd {
+	for _, exe := range []string{
+		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+	} {
+		if fileExists(exe) {
+			return exec.Command(exe,
+				"--app="+url,
+				"--user-data-dir="+profileDir,
+				"--window-size=470,660",
+				"--no-first-run", "--no-default-browser-check")
+		}
+	}
+	return nil
+}
+
 // --- "avvia all'accensione": Scheduled Task at-logon per l'utente corrente ---
 //
 // Via PowerShell (non schtasks): gestisce senza patemi i path con spazi, e un
@@ -151,7 +174,7 @@ func setAutostart(enable bool) error {
 		return err
 	}
 	return psRun(
-		"$a = New-ScheduledTaskAction -Execute '" + exe + "'; " +
+		"$a = New-ScheduledTaskAction -Execute '" + exe + "' -Argument '-autostarted'; " +
 			"$t = New-ScheduledTaskTrigger -AtLogOn; " +
 			"Register-ScheduledTask -TaskName '" + _autostartTask + "' -Action $a -Trigger $t -RunLevel Limited -Force | Out-Null")
 }

@@ -48,6 +48,15 @@ func openURL(u string) {
 
 func revealPath(p string) { openURL(p) }
 
+func appWindowCmd(url, profileDir string) *exec.Cmd {
+	for _, name := range []string{"google-chrome", "chromium", "chromium-browser", "microsoft-edge"} {
+		if p, err := exec.LookPath(name); err == nil {
+			return exec.Command(p, "--app="+url, "--user-data-dir="+profileDir, "--window-size=470,660")
+		}
+	}
+	return nil // openWindow ripiega su xdg-open/open
+}
+
 func autostartEnabled() bool { return false }
 
 func setAutostart(enable bool) error {

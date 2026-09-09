@@ -60,6 +60,17 @@ func main() {
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
 
+	// Finestra di stato: server HTTP locale + pagina aperta in browser app-mode.
+	status := newStatusServer(cfg, sup)
+	if err := status.start(); err != nil {
+		log.Printf("finestra di stato: server non avviato: %v", err)
+	} else {
+		log.Printf("finestra di stato: %s", status.url())
+		if !cfg.Autostarted {
+			status.openWindow() // all'avvio manuale la si mostra; al logon no
+		}
+	}
+
 	// Quando FrankenPHP e' su, pulisci il banner "server giu'" sui client
 	// (simmetrico all'announce shutdown fatto in quit()).
 	go func() {
@@ -89,6 +100,6 @@ func main() {
 		systray.Quit()
 	}
 
-	t := &tray{cfg: cfg, sup: sup, quit: quit}
+	t := &tray{cfg: cfg, sup: sup, status: status, quit: quit}
 	systray.Run(t.onReady, t.onExit) // blocca finche' systray.Quit()
 }
