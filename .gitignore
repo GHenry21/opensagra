@@ -39,3 +39,6 @@ Thumbs.db
 # solo in locale, come variabili.env - tracciato solo Caddyfile.example.
 /Caddyfile
 
+
+# Script di sync locale verso la VM (path O: specifico di questa macchina)
+/sync-vm.ps1
