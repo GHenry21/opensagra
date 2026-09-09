@@ -285,8 +285,9 @@
                         title="Apri cassetto" aria-label="Apri cassetto" @click="openDrawer">
                         <?= pos_icon('open-drawer', ['width' => '18', 'height' => '18', 'class' => 'open-drawer', 'aria-hidden' => 'true']) ?>
                     </button>
-                    <button id="checkout-btn" class="primary-btn" type="button" 
-                        title="Stampa scontrino" aria-label="Stampa scontrino" @click="checkout">
+                    <button id="checkout-btn" class="primary-btn" type="button"
+                        title="Stampa scontrino" aria-label="Stampa scontrino" @click="checkout"
+                        :disabled="checkoutBusy">
                         <span>Stampa</span>
                         <?= pos_icon('print-receipt', ['width' => '18', 'height' => '18', 'class' => 'checkout-icon', 'aria-hidden' => 'true']) ?>
                     </button>
@@ -528,6 +529,10 @@
                     // oppure { kind, message, etaSeconds, at }. Vedi handleClusterAnnounce.
                     serverAnnounce: null,
                     _announceTimer: null,
+                    // Scalino 0 (Fase 4): alzato per tutta la durata di un checkout,
+                    // finestra di retry inclusa. Blocca un secondo invio (pulsante
+                    // disabilitato + guardia in checkout()).
+                    checkoutBusy: false,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1536,7 +1541,61 @@
                         this.paymentMethod = enabledValues.length === 1 ? enabledValues[0] : '';
                     }
                 },
-                checkout() {
+                // Scalino 1 (Fase 4): una chiave per ogni tentativo di checkout,
+                // riusata identica a tutti i retry dello stesso invio -> il server
+                // la vede due volte e non registra due vendite.
+                _newIdempotencyKey() {
+                    try {
+                        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                            return window.crypto.randomUUID();
+                        }
+                    } catch (e) {}
+                    // Fallback per contesti senza crypto.randomUUID (browser molto
+                    // vecchi, origini non sicure): UUID v4 "a mano".
+                    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                        const r = (Math.random() * 16) | 0;
+                        return (c === 'x' ? r : ((r & 0x3) | 0x8)).toString(16);
+                    });
+                },
+                // Un solo tentativo di POST. Risolve con la response JSON di
+                // successo; rigetta con { retriable, message } lasciando al
+                // chiamante la decisione se ritentare (Scalino 0).
+                _postCheckoutOnce(payload) {
+                    return new Promise((resolve, reject) => {
+                        $.ajax({
+                            url: '../print/print_receipt.php',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify(payload),
+                            dataType: 'json',
+                            timeout: 15000
+                        }).done((response) => {
+                            if (!response || !response.success) {
+                                reject({ retriable: false, message: (response && response.error) || 'Risposta non valida' });
+                                return;
+                            }
+                            resolve(response);
+                        }).fail((xhr) => {
+                            // status 0 = server/rete irraggiungibile (il "DB down" tipico a una
+                            // sagra LAN: blip WiFi o MariaDB che riparte); 502/503/504 = hub/DB
+                            // k.o.; 500 = spesso "new mysqli() fallita" prima di toccare i dati;
+                            // timeout = idem. Tutti retriabili. 403/409 = regola di business
+                            // (metodo pagamento, carrello vuoto, scorta esaurita): non si ritenta.
+                            const s = xhr.status;
+                            const retriable = s === 0 || s === 500 || s === 502 || s === 503 || s === 504
+                                || xhr.statusText === 'timeout';
+                            let message = 'Errore durante la registrazione della vendita.';
+                            try {
+                                const err = JSON.parse(xhr.responseText);
+                                if (err && (err.message || err.error)) {
+                                    message = err.message || err.error;
+                                }
+                            } catch (e) {}
+                            reject({ retriable, message });
+                        });
+                    });
+                },
+                async checkout() {
                     const metodoPag = this.paymentMethod || 'seleziona';
                     if (metodoPag === 'seleziona') {
                         this.showToast('Selezionare il metodo di pagamento', 'error');
@@ -1551,6 +1610,10 @@
                     if (!methodEnabled) {
                         this.showToast('Metodo di pagamento non abilitato per questa cassa.', 'error');
                         return;
+                    }
+
+                    if (this.checkoutBusy) {
+                        return; // un checkout e' gia' in corso (finestra di retry inclusa)
                     }
 
                     const cassa_id = localStorage.getItem('cassa_id');
@@ -1577,78 +1640,95 @@
                         totale: grandTotal,
                         sconto: this.totalDiscountApplied || 0,
                         pagato: amountPaid,
-                        resto: change >  0 ? change : 0,
-                        metodoPag: metodoPag
-                    };                              
-                
-                // Invia i dati al server per generare lo scontrino e stampare
-                    $.ajax({
-                        url: '../print/print_receipt.php',
-                        method: 'POST',
-                        contentType: 'application/json',
-                        data: JSON.stringify(payload),
-                        dataType: 'json',                        
-                    }).done(async(response) => {
-                        if (!response || !response.success) {
-                            this.showToast('Errore: ' + (response ? response.error:  'Risposta non valida'), 'error');
-                            return;
-                        }                        
+                        resto: change > 0 ? change : 0,
+                        metodoPag: metodoPag,
+                        idempotency_key: this._newIdempotencyKey()
+                    };
 
-                        // --- SMISTAMENTO METODO DI STAMPA ---
-                        switch (response.method) {
-                            case 'bluetooth_rawbt':
-                                if (response.base64) {
-                                    inviaBase64ARawBT(response.base64);
-                                } else {
-                                    this.showToast('Dati stampa RawBT non disponibili', 'error');
-                                } 
-                                break;
+                    this.checkoutBusy = true;
+                    // Scalino 0 (Fase 4): il "DB down" tipico a una sagra LAN dura
+                    // pochi secondi. Ritentiamo LO STESSO payload con backoff per
+                    // ~20 s prima di dichiarare il fallimento, in modo esplicito e
+                    // non distruttivo: il carrello resta intatto e l'operatore
+                    // legge "vendita NON registrata" invece di uno spinner appeso.
+                    const deadline = Date.now() + 20000;
+                    let delay = 1000;
 
-                            case 'direct':
-                                  // La stampa è già stata eseguita dal server (USB Windows/Linux o Rete)
-                                console.log("Scontrino inviato con successo dalla stampante di rete/USB del server.");
-                                break;
-
-                            case 'bridge_native':
-                                  // Sostituto di QZ: il server ha pubblicato i byte ESC/POS su un
-                                  // topic Mercure, un processo residente sul PC col cavo stampa.
-                                  // Il browser non fa nulla. Se il ponte non ha ricevuto, la
-                                  // vendita è comunque registrata: si ristampa dallo storico.
-                                if (response.published === false) {
-                                    this.showToast('Vendita registrata, ma lo scontrino NON è arrivato alla stampante (ponte non raggiungibile). Ristampalo dallo storico.', 'error', 8000);
+                    try {
+                        while (true) {
+                            try {
+                                const response = await this._postCheckoutOnce(payload);
+                                this._afterCheckoutSuccess(response);
+                                return;
+                            } catch (e) {
+                                const msg = (e && e.message) || 'Errore sconosciuto';
+                                if (!e || !e.retriable) {
+                                    this.showToast('Errore: ' + msg, 'error');
+                                    console.error('Errore Checkout:', msg);
+                                    return;
                                 }
-                                break;
-
-                            default:
-                                console.warn("Metodo di stampa sconosciuto:", response.method);
-                                break;
-                        }        
-
-                        this.showToast('Vendita registrata e inviata alla stampa!', 'success');
-
-                        // Svuota il carrello dopo il checkout
-                        this.billItems = [];
-                        this.discount = 0;
-                        this.amountPaid = 0;
-                        this.customer = '';
-                        // Blank unless only one payment method is enabled, in which case there was never a real
-                        // choice to make and re-forcing it every order would just be a redundant click.
-                        this.paymentMethod = '';
-                        this.resetPaymentMethodSelection();
-
-
-                    }).fail((xhr) => {
-                        let errorMessage = 'Errore durante la registrazione della vendita.';
-                        try {
-                            const err = JSON.parse(xhr.responseText);
-                            if (err && (err.message || err.error)) {
-                                errorMessage = err.message || err.error;
+                                if (Date.now() + delay >= deadline) {
+                                    this.showToast('Server non raggiungibile — vendita NON registrata. Riprova.', 'error', 0);
+                                    console.error('Checkout fallito dopo i retry:', msg);
+                                    return;
+                                }
+                                this.showToast('Server non raggiungibile, riprovo…', 'error', Math.min(delay, 3000));
+                                await new Promise((r) => setTimeout(r, delay));
+                                delay = Math.min(delay * 2, 5000);
                             }
-                        } catch (e) {}
+                        }
+                    } finally {
+                        this.checkoutBusy = false;
+                    }
+                },
+                _afterCheckoutSuccess(response) {
+                    // --- SMISTAMENTO METODO DI STAMPA ---
+                    switch (response.method) {
+                        case 'bluetooth_rawbt':
+                            if (response.base64) {
+                                inviaBase64ARawBT(response.base64);
+                            } else {
+                                this.showToast('Dati stampa RawBT non disponibili', 'error');
+                            }
+                            break;
 
-                        this.showToast(errorMessage, 'error');
-                        console.error("Errore Checkout AJAX:", xhr.responseText);
-                    });
+                        case 'direct':
+                            // La stampa è già stata eseguita dal server (USB Windows/Linux o Rete)
+                            console.log("Scontrino inviato con successo dalla stampante di rete/USB del server.");
+                            break;
+
+                        case 'bridge_native':
+                            // Sostituto di QZ: il server ha pubblicato i byte ESC/POS su un
+                            // topic Mercure, un processo residente sul PC col cavo stampa.
+                            // Il browser non fa nulla. Se il ponte non ha ricevuto, la
+                            // vendita è comunque registrata: si ristampa dallo storico.
+                            if (response.published === false) {
+                                this.showToast('Vendita registrata, ma lo scontrino NON è arrivato alla stampante (ponte non raggiungibile). Ristampalo dallo storico.', 'error', 8000);
+                            }
+                            break;
+
+                        default:
+                            console.warn("Metodo di stampa sconosciuto:", response.method);
+                            break;
+                    }
+
+                    if (response.idempotent_replay) {
+                        // Il server ha riconosciuto un doppio invio: la vendita era
+                        // gia' registrata, ha solo ristampato. Nessuna seconda vendita.
+                        this.showToast('Vendita già registrata: scontrino ristampato.', 'info');
+                    } else {
+                        this.showToast('Vendita registrata e inviata alla stampa!', 'success');
+                    }
+
+                    // Svuota il carrello dopo il checkout
+                    this.billItems = [];
+                    this.discount = 0;
+                    this.amountPaid = 0;
+                    this.customer = '';
+                    // Blank unless only one payment method is enabled, in which case there was never a real
+                    // choice to make and re-forcing it every order would just be a redundant click.
+                    this.paymentMethod = '';
+                    this.resetPaymentMethodSelection();
                 },
 
                 openOrdersPanel() {

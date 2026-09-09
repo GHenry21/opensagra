@@ -257,6 +257,89 @@ function ensureDettagliVenditaDiscountColumns($connectionDB) {
     $connectionDB->query("ALTER TABLE dettagli_vendita ADD COLUMN IF NOT EXISTS line_total_before_discount DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER line_discount_value");
 }
 
+/**
+ * Scalino 1 (Fase 4) - chiave di idempotenza sul checkout.
+ *
+ * La colonna e' NULL-abile: le vendite storiche non ce l'hanno e MySQL/MariaDB
+ * ammette piu' righe NULL sotto un indice UNIQUE. L'indice UNIQUE fa si' che un
+ * secondo POST con la stessa chiave non possa creare un doppione: viene
+ * intercettato prima (tryIdempotentReplay) oppure, in caso di corsa, fallisce
+ * sull'INSERT e la vendita gia' registrata viene ristampata.
+ *
+ * Idempotente: la si puo' richiamare a ogni checkout senza costo apprezzabile.
+ * Vedi anche config/migrations/003_vendite_idempotency_key.php.
+ */
+function ensureVenditeIdempotencyColumn($connectionDB) {
+    $connectionDB->query("ALTER TABLE vendite ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(36) NULL AFTER stornato");
+    $res = $connectionDB->query("SHOW INDEX FROM vendite WHERE Key_name = 'uniq_vendite_idempotency_key'");
+    if ($res && $res->num_rows === 0) {
+        // Colonna appena creata (tutti NULL) -> nessun duplicato storico da
+        // risolvere: l'ALTER non fallisce. Se fallisse comunque non e' fatale.
+        $connectionDB->query("ALTER TABLE vendite ADD UNIQUE INDEX uniq_vendite_idempotency_key (idempotency_key)");
+    }
+}
+
+/**
+ * Scalino 1 - se esiste gia' una vendita con questa idempotency_key, la
+ * ristampa e restituisce true (richiesta gestita: il chiamante deve solo
+ * chiudere la connessione e uscire). Nessuna nuova vendita, nessun decremento
+ * di scorte. Copre sia il retry automatico dello Scalino 0 sia il "ripremo il
+ * pulsante" manuale dell'operatore.
+ */
+function tryIdempotentReplay($connectionDB, $idempotencyKey) {
+    if ($idempotencyKey === '') {
+        return false;
+    }
+
+    $stmt = $connectionDB->prepare('SELECT id, totale, importo_pagato, resto, cassa_id, sconto, data_ora FROM vendite WHERE idempotency_key = ? LIMIT 1');
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param('s', $idempotencyKey);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$row) {
+        return false;
+    }
+
+    $id_vendita = (int)$row['id'];
+    $items = [];
+    $stmtDet = $connectionDB->prepare('SELECT prodotto, quantita, prezzo_unitario, totale, line_discount_percent, line_discount_value, line_total_before_discount FROM dettagli_vendita WHERE vendita_id = ? ORDER BY id ASC');
+    if ($stmtDet) {
+        $stmtDet->bind_param('i', $id_vendita);
+        $stmtDet->execute();
+        $resDet = $stmtDet->get_result();
+        while ($d = $resDet->fetch_assoc()) {
+            $items[] = [
+                'name' => (string)($d['prodotto'] ?? ''),
+                'quantity' => (int)($d['quantita'] ?? 0),
+                'price' => (float)($d['prezzo_unitario'] ?? 0),
+                'total' => (float)($d['totale'] ?? 0),
+                'line_discount_percent' => (float)($d['line_discount_percent'] ?? 0),
+                'line_discount_value' => (float)($d['line_discount_value'] ?? 0),
+                'line_total_before_discount' => (float)($d['line_total_before_discount'] ?? 0),
+                'line_total_after_discount' => (float)($d['totale'] ?? 0),
+            ];
+        }
+        $stmtDet->close();
+    }
+
+    try {
+        $res = routingStampa(
+            $connectionDB, (string)$row['cassa_id'], $id_vendita, $items,
+            (float)$row['totale'], (float)$row['sconto'],
+            (float)$row['importo_pagato'], (float)$row['resto'],
+            $row['data_ora'] ?? null
+        );
+        echo json_encode(array_merge(['success' => true, 'idempotent_replay' => true, 'id_vendita' => $id_vendita], $res));
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => $e->getMessage(), 'idempotent_replay' => true]);
+    }
+    return true;
+}
+
 function ensurePaymentMethodColumns($connectionDB) {
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_contanti TINYINT(1) NOT NULL DEFAULT 1 AFTER porta");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS abilita_carta TINYINT(1) NOT NULL DEFAULT 0 AFTER abilita_contanti");
@@ -624,6 +707,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
     $cassa_id = $data['cassa_id'] ?? 'ND';
     $metodoPag = $data['metodoPag'] ?? 'ND';
 
+    // Scalino 1 (Fase 4): chiave di idempotenza, generata dal client, una per
+    // tentativo di checkout (riusata identica a ogni retry dello Scalino 0).
+    // Formato atteso: UUID v4 (crypto.randomUUID) o simile. Una chiave assente o
+    // malformata viene ignorata -> comportamento legacy (vendita senza guardia
+    // anti-doppione).
+    $idempotencyKey = trim((string)($data['idempotency_key'] ?? ''));
+    if ($idempotencyKey !== '' && !preg_match('/^[A-Za-z0-9._-]{8,36}$/', $idempotencyKey)) {
+        $idempotencyKey = '';
+    }
+
     if (!isPaymentMethodEnabled($connectionDB, $cassa_id, $metodoPag)) {
         http_response_code(403);
         echo json_encode(['error' => 'Metodo di pagamento non abilitato per questa cassa.']);
@@ -632,6 +725,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
     }
 
     ensureDettagliVenditaDiscountColumns($connectionDB);
+    ensureVenditeIdempotencyColumn($connectionDB);
+
+    // Retry (Scalino 0) o doppio clic: la vendita con questa chiave esiste gia'
+    // -> ristampa e basta, niente seconda registrazione.
+    if (tryIdempotentReplay($connectionDB, $idempotencyKey)) {
+        $connectionDB->close();
+        exit;
+    }
 
     try {
         if (!is_array($items) || count($items) === 0) {
@@ -687,12 +788,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
             }
         }
 
-        $sqlVendita = "INSERT INTO vendite (cassa_id, totale, importo_pagato, resto, sconto, metodo_pagamento, stornato) VALUES (?, ?, ?, ?, ?, ?, 0)";
+        $sqlVendita = "INSERT INTO vendite (cassa_id, totale, importo_pagato, resto, sconto, metodo_pagamento, stornato, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, 0, ?)";
         $stmt = $connectionDB->prepare($sqlVendita);
         if (!$stmt) {
             throw new RuntimeException('Impossibile registrare la vendita.');
         }
-        $stmt->bind_param("sdddds", $cassa_id, $totale, $pagato, $resto, $sconto, $metodoPag);
+        $idempotencyKeyForInsert = $idempotencyKey !== '' ? $idempotencyKey : null;
+        $stmt->bind_param("sddddss", $cassa_id, $totale, $pagato, $resto, $sconto, $metodoPag, $idempotencyKeyForInsert);
         if (!$stmt->execute()) {
             $stmt->close();
             throw new RuntimeException('Impossibile registrare la vendita.');
@@ -725,6 +827,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
         $connectionDB->commit();
     } catch (Throwable $e) {
         $connectionDB->rollback();
+
+        // Corsa: due invii simultanei con la stessa idempotency_key (doppio clic,
+        // o retry dello Scalino 0 che parte mentre il primo e' ancora in volo).
+        // Il secondo INSERT ha perso sull'indice UNIQUE: la vendita esiste
+        // comunque, quindi ristampala invece di restituire un 409 grezzo. Se non
+        // c'e' nessuna riga con quella chiave il fallimento e' un altro (carrello
+        // vuoto, scorta esaurita, ...) e si cade nell'errore qui sotto.
+        if ($idempotencyKey !== '' && tryIdempotentReplay($connectionDB, $idempotencyKey)) {
+            $connectionDB->close();
+            exit;
+        }
+
         http_response_code(409);
         echo json_encode(['error' => $e->getMessage()]);
         $connectionDB->close();

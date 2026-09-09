@@ -118,7 +118,8 @@ CREATE TABLE `vendite` (
   `cassa_id` varchar(50) DEFAULT NULL,
   `sconto` decimal(10,2) DEFAULT NULL,
   `metodo_pagamento` varchar(50) DEFAULT NULL,
-  `stornato` int(1) NOT NULL DEFAULT 0
+  `stornato` int(1) NOT NULL DEFAULT 0,
+  `idempotency_key` varchar(36) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -149,7 +150,8 @@ ALTER TABLE `stock`
 -- Indici per le tabelle `vendite`
 --
 ALTER TABLE `vendite`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uniq_vendite_idempotency_key` (`idempotency_key`);
 
 --
 -- AUTO_INCREMENT per le tabelle scaricate
