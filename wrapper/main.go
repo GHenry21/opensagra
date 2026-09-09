@@ -38,6 +38,19 @@ func main() {
 	}
 	log.Printf("wrapper: root=%s frankenphp=%s casse-bridge=%v", cfg.AppRoot, cfg.Frankenphp, cfg.BridgeCasse)
 
+	// Diagnostica: i figli falliscono in modo poco chiaro se mancano i file
+	// per-macchina (non tracciati in git, li genera l'installer).
+	if !fileExists(filepath.Join(cfg.AppRoot, "Caddyfile")) {
+		log.Printf("ATTENZIONE: manca %s\\Caddyfile - FrankenPHP non partira'. "+
+			"Genera i file con install.ps1, o passa -root alla cartella giusta.", cfg.AppRoot)
+	}
+	if !fileExists(filepath.Join(cfg.AppRoot, "config", "variabili.env")) {
+		log.Printf("ATTENZIONE: manca %s\\config\\variabili.env - niente credenziali DB/segreto Mercure.", cfg.AppRoot)
+	}
+	if !fileExists(filepath.Join(cfg.AppRoot, "bin", "opensagra-realtime-relay.php")) {
+		log.Printf("ATTENZIONE: %s non sembra la radice di OpenSagra (manca bin/). Usa -root.", cfg.AppRoot)
+	}
+
 	if cfg.RegisterAutostart {
 		if err := setAutostart(true); err != nil {
 			log.Printf("register-autostart: %v", err)

@@ -69,10 +69,18 @@ func readEnvFile(path string) map[string]string {
 
 // detectAppRoot: dalla cartella dell'eseguibile, risale cercando un Caddyfile
 // (dev: wrapper/ dentro il repo; installato: wrapper.exe nella root).
+// detectAppRoot: risale dall'eseguibile cercando la radice dell'app. Ancora su
+// `bin/opensagra-realtime-relay.php` (c'e' sempre, anche su una copia appena
+// fatta) PIU' un marcatore di radice — il `Caddyfile` generato dall'installer,
+// o `Caddyfile.example` se il Caddyfile reale non e' ancora stato creato.
+// Cosi' l'exe sotto `<root>/wrapper/` trova `<root>` anche senza Caddyfile.
 func detectAppRoot(start string) string {
 	dir := start
-	for i := 0; i < 4; i++ {
-		if fileExists(filepath.Join(dir, "Caddyfile")) {
+	for i := 0; i < 5; i++ {
+		hasBin := fileExists(filepath.Join(dir, "bin", "opensagra-realtime-relay.php"))
+		hasCaddy := fileExists(filepath.Join(dir, "Caddyfile")) ||
+			fileExists(filepath.Join(dir, "Caddyfile.example"))
+		if hasBin && hasCaddy {
 			return dir
 		}
 		parent := filepath.Dir(dir)
