@@ -24,8 +24,12 @@ func isThisMachineServer(cfg *Config) bool {
 	}
 }
 
-// activeClientCount: quante connessioni non-locali ci sono sul MariaDB locale.
-// Best effort assoluto: qualunque errore -> 0. Non deve MAI bloccare l'uscita.
+// activeClientCount: quanti IP non-locali sono connessi al MariaDB locale.
+// Best effort assoluto: qualunque errore -> 0, non deve MAI bloccare l'uscita.
+//
+// Le casse client fanno connessioni brevi (un poll ogni ~6s, ~20ms l'una):
+// un solo SHOW PROCESSLIST le manca quasi sempre. Campioniamo 4 volte in ~1.5s
+// e uniamo gli IP visti.
 func activeClientCount(cfg *Config) int {
 	if !isThisMachineServer(cfg) {
 		return 0
@@ -36,46 +40,58 @@ func activeClientCount(cfg *Config) int {
 	}
 	defer db.Close()
 
+	seen := map[string]struct{}{}
+	for i := 0; i < 4; i++ {
+		if i > 0 {
+			time.Sleep(400 * time.Millisecond)
+		}
+		for _, ip := range remoteHostsOnce(db) {
+			seen[ip] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
+func remoteHostsOnce(db *sql.DB) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, "SHOW PROCESSLIST")
 	if err != nil {
-		return 0
+		return nil
 	}
 	defer rows.Close()
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return 0
+		return nil
 	}
 	hostIdx := indexOfFold(cols, "Host")
 	if hostIdx < 0 {
-		return 0
+		return nil
 	}
 
-	remotes := map[string]struct{}{}
 	cells := make([]sql.NullString, len(cols))
 	ptrs := make([]any, len(cols))
 	for i := range cells {
 		ptrs[i] = &cells[i]
 	}
+	var out []string
 	for rows.Next() {
 		if err := rows.Scan(ptrs...); err != nil {
 			continue
 		}
 		host := cells[hostIdx].String
-		h := host
 		if i := strings.LastIndexByte(host, ':'); i >= 0 { // "192.168.1.5:53421" -> "192.168.1.5"
-			h = host[:i]
+			host = host[:i]
 		}
-		switch strings.ToLower(h) {
+		switch strings.ToLower(host) {
 		case "", "localhost", "127.0.0.1", "::1":
 			continue
 		}
-		remotes[host] = struct{}{}
+		out = append(out, host)
 	}
-	return len(remotes)
+	return out
 }
 
 // runAnnounce: riusa il CLI PHP gia' esistente invece di reimplementare la
@@ -100,21 +116,40 @@ func announceShutdown(cfg *Config) {
 	}
 }
 
-// announceBack: all'avvio, quando FrankenPHP e' su, dice ai client di pulire il
-// banner "server giu'". L'hub puo' non essere pronto nell'istante esatto in cui
-// il processo parte: qualche tentativo. I client si ripuliscono comunque al
-// primo evento non-announce o dopo 10 min, quindi un fallimento non e' grave.
+// announceBack: dice ai client di pulire il banner "server giu'". L'hub puo'
+// non essere pronto nell'istante della chiamata: qualche tentativo. I client si
+// ripuliscono comunque al primo evento non-announce o dopo 10 min.
 func announceBack(ctx context.Context, cfg *Config) {
 	if !isThisMachineServer(cfg) {
 		return
 	}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
+		if runAnnounce(cfg, "back") == nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(3 * time.Second):
 		}
-		if runAnnounce(cfg, "back") == nil {
+	}
+}
+
+// announceBackWhenUp: aspetta che il figlio frankenphp risulti attivo (max
+// ~40s) poi pubblica l'announce "back". Usato all'avvio del wrapper e dopo un
+// "Avvia server" dalla finestra di stato.
+func announceBackWhenUp(ctx context.Context, sup *Supervisor, cfg *Config) {
+	if !isThisMachineServer(cfg) {
+		return
+	}
+	for i := 0; i < 40; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+		if sup.get("frankenphp").State == stateRunning {
+			announceBack(ctx, cfg)
 			return
 		}
 	}

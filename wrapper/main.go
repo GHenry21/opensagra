@@ -18,7 +18,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 
 	"fyne.io/systray"
 )
@@ -69,7 +68,7 @@ func main() {
 	sup.Start(ctx, buildChildren(cfg))
 
 	// Finestra di stato: server HTTP locale + pagina aperta in browser app-mode.
-	status := newStatusServer(cfg, sup)
+	status := newStatusServer(ctx, cfg, sup)
 	if err := status.start(); err != nil {
 		log.Printf("finestra di stato: server non avviato: %v", err)
 	} else {
@@ -81,19 +80,7 @@ func main() {
 
 	// Quando FrankenPHP e' su, pulisci il banner "server giu'" sui client
 	// (simmetrico all'announce shutdown fatto in quit()).
-	go func() {
-		for i := 0; i < 60; i++ {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
-			}
-			if sup.get("frankenphp").State == stateRunning {
-				announceBack(ctx, cfg)
-				return
-			}
-		}
-	}()
+	go announceBackWhenUp(ctx, sup, cfg)
 
 	// Sequenza di uscita pulita, invocata dal menu tray dopo conferma.
 	quit := func() {

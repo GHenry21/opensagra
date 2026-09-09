@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 var statusPageHTML []byte
 
 type statusServer struct {
+	ctx context.Context
 	cfg *Config
 	sup *Supervisor
 
@@ -33,8 +35,8 @@ type statusServer struct {
 	winOpen     bool // finestra app-mode gia' aperta
 }
 
-func newStatusServer(cfg *Config, sup *Supervisor) *statusServer {
-	return &statusServer{cfg: cfg, sup: sup}
+func newStatusServer(ctx context.Context, cfg *Config, sup *Supervisor) *statusServer {
+	return &statusServer{ctx: ctx, cfg: cfg, sup: sup}
 }
 
 func (h *statusServer) start() error {
@@ -185,9 +187,13 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 	case "restart-all":
 		h.sup.restartAll()
 	case "pause-all":
+		// Per un client un server in pausa == server giu': avvisalo PRIMA di
+		// fermare FrankenPHP (l'hub deve essere ancora up per pubblicare).
+		announceShutdown(h.cfg)
 		h.sup.pauseAll()
 	case "resume-all":
 		h.sup.resumeAll()
+		go announceBackWhenUp(h.ctx, h.sup, h.cfg) // pulisce il banner sui client quando risale
 	case "restart":
 		h.sup.restart(name)
 	case "pause":
