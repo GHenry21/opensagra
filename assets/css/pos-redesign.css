@@ -549,6 +549,14 @@ body.dark-mode .pos-icon-btn:hover {
   background: var(--mc-danger);
 }
 
+.pos-net-pill__eta {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--mc-danger);
+  white-space: nowrap;
+}
+
 .pos-sidebar-overlay {
   display: none;
   position: fixed;

@@ -586,6 +586,9 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     _lastNetModeCheck: 0,
                     _netModeCheckInFlight: false,
                     _reloadingForNetMode: false,
+                    // Countdown "passaggio al DB locale tra Ns" nella pillola di
+                    // rete in sidebar, attivo mentre il centrale non risponde.
+                    _netPillEtaTimer: null,
                     _categoriesInitialized: false,
                     // Inizializzato subito (non solo in mounted) cosi' la riga "Importo pagato",
                     // che su desktop compare solo con metodo "contanti", non lampeggia al primo paint su mobile.
@@ -1346,6 +1349,7 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                 // cronometro; qualunque successo lo azzera.
                 noteServerReachable() {
                     this._serverDownSince = null;
+                    this.updateNetPillEta();
                 },
                 noteServerUnreachable() {
                     if (this._serverDownSince === null) {
@@ -1355,6 +1359,35 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     // qualcuno ha gia' switchato questa cassa a locale e billing
                     // sta parlando col vecchio host. Controllo opportunistico.
                     this.checkNetworkModeSwitched();
+                    // Countdown nella pillola di rete finche' dura il buco.
+                    if (!this._netPillEtaTimer) {
+                        this._netPillEtaTimer = setInterval(() => this.updateNetPillEta(), 1000);
+                    }
+                    this.updateNetPillEta();
+                },
+                // Aggiorna (o nasconde) il countdown "DB locale tra Ns" nella
+                // pillola di rete della sidebar. Lo swap in se' resta silenzioso
+                // (nessun toast/banner): questo e' solo un "so cosa sta
+                // succedendo" mentre l'operatore vede i checkout fallire.
+                updateNetPillEta() {
+                    const el = document.getElementById('pos-net-pill-eta');
+                    if (!el) {
+                        return;
+                    }
+                    if (!bootedAsNetworkClient() || this._serverDownSince === null || this._reloadingForNetMode) {
+                        el.hidden = true;
+                        el.textContent = '';
+                        if (this._netPillEtaTimer) {
+                            clearInterval(this._netPillEtaTimer);
+                            this._netPillEtaTimer = null;
+                        }
+                        return;
+                    }
+                    const remaining = Math.ceil((fallbackAfterMs() - (Date.now() - this._serverDownSince)) / 1000);
+                    el.textContent = remaining > 0
+                        ? ('· DB locale tra ' + remaining + 's')
+                        : '· passaggio al DB locale…';
+                    el.hidden = false;
                 },
                 // Se al boot eravamo un client di rete e ora variabili.env
                 // risulta locale (switch da conf_rete, o wrapper, o fallback
@@ -2258,6 +2291,9 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                 }
                 if (this._ordersPanelCloseTimer) {
                     clearTimeout(this._ordersPanelCloseTimer);
+                }
+                if (this._netPillEtaTimer) {
+                    clearInterval(this._netPillEtaTimer);
                 }
                 if (this._productPickerResizeFallbackHandler) {
                     window.removeEventListener('resize', this._productPickerResizeFallbackHandler);

@@ -106,6 +106,10 @@ $_hNavGroups = [
         <a href="<?= $_hPages ?>conf_rete.php" class="pos-net-pill" id="pos-net-pill" title="Configurazione Rete">
             <span class="pos-net-pill__dot" id="pos-net-pill-dot"></span>
             <span id="pos-net-pill-text">Rete: verifica…</span>
+            <!-- Conto alla rovescia al passaggio automatico sul DB locale (Fase 4).
+                 Popolato SOLO da pages/billing.php quando il centrale non risponde;
+                 lo script della pillola qui sotto non lo tocca. -->
+            <span id="pos-net-pill-eta" class="pos-net-pill__eta" hidden></span>
         </a>
     </div>
 </aside>
