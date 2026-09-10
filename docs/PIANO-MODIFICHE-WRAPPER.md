@@ -191,9 +191,9 @@ Linux" del `README.md` si leggono come **"non si fa salvo necessità"**.
   (relay attivo, config client scritta a mano 2026-09-10); manca un giro
   completo: menu/click, uscita, `--kind=back`, snapshot in pausa/ripresa al
   cambio ruolo.
-- Voci "scaffold" ancora aperte in `wrapper/README.md`: icona `.ico` come
-  risorsa dell'exe + info versione (il `.syso` col **manifest** c'è già,
-  commit `63fc9b9`), `--kind=back` anche dopo *"Riavvia tutto"*, firma `.exe`
+- Risorse exe **fatte**: `.syso` con manifest (`63fc9b9`) + **icona exe** e
+  **info versione** (`rsrc.rc` esteso, commit successivo). Restano da
+  `wrapper/README.md`: `--kind=back` anche dopo *"Riavvia tutto"*, firma `.exe`
   (SmartScreen).
 - `install.ps1` **non testato su VM pulita** per la parte wrapper
   (`Install-Wrapper` / `Start-Wrapper` de-elevato via task INTERACTIVE una-tantum).
