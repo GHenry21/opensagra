@@ -112,6 +112,16 @@
       Fermare o riavviare un singolo servizio può interrompere la stampa o la
       sincronizzazione delle altre casse. Usalo solo per diagnosi.
     </div>
+
+    <div class="proc" id="mariadbRow" hidden>
+      <div class="dot" id="mariadbDot"></div>
+      <div class="meta">
+        <div class="name">MariaDB</div>
+        <div class="detail" id="mariadbDetail">servizio</div>
+      </div>
+    </div>
+    <button id="btnDb" hidden style="width:100%; margin:7px 0">Apri gestione DB (AdminNeo)</button>
+
     <div id="procList"></div>
 
     <div class="logs">
@@ -152,6 +162,7 @@ async function refresh() {
   const fp = s.procs.find(p => p.name === "frankenphp");
   let cls = "ok", big = "Server attivo", sub = fp && fp.uptime ? "in funzione da " + fp.uptime : "";
   if (s.all_paused) { cls = "idle"; big = "Server in pausa"; sub = "premi “Avvia server” per riprendere"; }
+  else if (!s.mariadb_up) { cls = "err"; big = "Database fermo"; sub = "il servizio MariaDB non risponde"; }
   else if (anyErr) { cls = "err"; big = "Problemi in corso"; sub = "vedi Dettagli avanzati"; }
   else if (!fp || fp.state !== "attivo") { cls = "warn"; big = "Avvio in corso…"; sub = ""; }
   else if (s.role === "SERVER") { sub += (sub ? " · " : "") + clientsLabel(s.client_count); }
@@ -161,6 +172,14 @@ async function refresh() {
 
   $("#btnPause").textContent = s.all_paused ? "Avvia server" : "Ferma server";
   $("#chkAutostart").checked = s.autostart;
+
+  // MariaDB: read-only, non e' un figlio supervisionato (servizio Windows)
+  $("#mariadbRow").hidden = false;
+  $("#mariadbDot").className = "dot " + (s.mariadb_up ? "ok" : "err");
+  $("#mariadbDetail").textContent = s.mariadb_up
+    ? "attivo (servizio)"
+    : "fermo — riparte da servizi.msc / al riavvio del PC";
+  $("#btnDb").hidden = !s.db_tool_url;
 
   // righe per-processo (rigenera solo se cambiate, per non perdere focus/hover)
   const sig = JSON.stringify(s.procs);
@@ -200,6 +219,7 @@ async function refreshLog() {
 }
 
 $("#btnApp").onclick = () => api("open-app");
+$("#btnDb").onclick = () => api("open-db");
 $("#btnLogs").onclick = () => api("open-logs");
 $("#btnRestartAll").onclick = () => api("restart-all");
 $("#btnPause").onclick = () => api($("#btnPause").textContent === "Avvia server" ? "resume-all" : "pause-all");

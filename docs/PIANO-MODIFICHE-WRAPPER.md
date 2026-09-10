@@ -7,12 +7,13 @@
 
 ---
 
-## 1. Conteggio "N casse collegate" — segnale sbagliato ⏳ DA FARE
+## 1. Conteggio "N casse collegate" — segnale sbagliato ✅ FATTO (2026-09-10)
 
-**Bloccato su:** l'altra sessione ha modifiche non committate in
-`wrapper/cluster.go` / `wrapper/main.go` (difese snapshot + `watchDbHost`).
-`activeClientCount` sta in `cluster.go`. Riprendere quando quei file sono
-committati (opzione **B** scelta dall'utente 2026-09-10).
+`activeClientCount` in `cluster.go` ora unisce per-IP il campionamento
+`SHOW PROCESSLIST` **e** gli IP remoti con una connessione TCP `ESTABLISHED`
+verso la 80/443 (`webClientIPs`, da `netstat -an -p TCP`, esclusi loopback e
+gli IP locali). Verificato: con la VM ferma su `billing.php` il conteggio
+riporta 1 (prima 0).
 
 **Problema.** Il conteggio usa `SHOW PROCESSLIST` sul MariaDB locale e conta gli
 IP non-locali. Ma una cassa **client** ferma su `billing.php` col realtime
@@ -50,50 +51,41 @@ sorgente. Nessuna modifica all'app.
 
 ---
 
-## 2. Istanza singola più tollerante ⏳ DA FARE
+## 2. Istanza singola più tollerante ✅ FATTO (2026-09-10)
 
 **Sintomo.** Il wrapper ha rifiutato l'avvio con *"un'altra istanza del wrapper
 è già in esecuzione, esco."* pur **senza nessun processo wrapper vivo** —
-capitato 2 volte (VM 2026-09-09 20:57, host 2026-09-10 00:58). Verificato subito
-dopo: il mutex `Global\opensagra-wrapper` era **libero** (test .NET lo ricrea
-nuovo). Era una corsa con la chiusura dell'istanza precedente ancora in corso
-(quit sequence: `announceShutdown` fino a 4s + `sup.Wait()` + `job.close()` +
-`systray.Quit()`), oppure un doppio avvio ravvicinato.
+capitato 2 volte (VM 2026-09-09 20:57, host 2026-09-10 00:58). Era una corsa con
+la chiusura dell'istanza precedente ancora in corso, o un doppio avvio
+ravvicinato.
 
-**Fix.** Su `ERROR_ALREADY_EXISTS` non uscire subito:
-
-- scrivere all'avvio riuscito un lock file `<logdir>/wrapper.lock` con **PID** +
-  **URL della finestra di stato**;
-- su `ERROR_ALREADY_EXISTS`, leggere il lock file:
-  - PID vivo → aprire quella finestra di stato (porta l'istanza esistente in
-    primo piano) ed uscire — comportamento utile invece del silenzio;
-  - PID morto / file assente → mutex stantìo: **procedere** (loggare l'anomalia).
-
-**File:** `wrapper/main.go` (`acquireSingleInstance` + gestione),
-`wrapper/platform_windows.go`.
+`wrapper/lock.go` (nuovo): all'avvio riuscito scrive `<logdir>/wrapper.lock`
+= `PID\n<URL finestra di stato>`. `acquireSingleInstance` ora ritorna `fresh`
+(= mutex creato da noi). Se `!fresh`, `main.go` legge il lock file:
+`processAlive(pid)` vero → `openURL(statusURL)` (mostra l'istanza esistente) ed
+esce; PID morto/assente → mutex stantìo, **prosegue** (log). `quit` +
+`defer removeLock`. `processAlive` in `platform_windows.go`
+(`OpenProcess` + `GetExitCodeProcess == 259`) e stub Unix (`Signal(0)`).
+Verificato: secondo avvio → "un'altra istanza e' gia' viva - apro la sua
+finestra".
 
 ---
 
-## 3. "Ferma server" e MariaDB — DECISO: non lo controlla, solo status
+## 3. "Ferma server" e MariaDB ✅ FATTO (2026-09-10): non lo controlla, solo status
 
-**Domanda (utente, 2026-09-10):** il pulsante **"Ferma server"** (pausa
-aggregata: ferma frankenphp + relay + bridge + snapshot, wrapper/tray vivi,
-`announce shutdown` ai client) dovrebbe **fermare e riavviare anche MariaDB**?
-Nota: MariaDB parte comunque come servizio all'avvio.
+**Domanda (utente):** "Ferma server" dovrebbe fermare/riavviare anche MariaDB?
+(MariaDB parte comunque come servizio all'avvio.)
 
-**Deciso (2026-09-10):**
+**Fatto.**
 
-- **"Ferma server" NON tocca MariaDB.** Resta = mettere offline *l'app*, non il
-  database.
-- Nei **"Dettagli avanzati"**: riga **read-only** `MariaDB: attivo (servizio) /
-  fermo` (ping best-effort sulla 3306, cache). Se è giù, il riquadro grande dice
-  *"Database fermo"* invece di lasciare frankenphp a sbattere con errori poco
-  leggibili.
-- **File:** `wrapper/status_http.go` (nuovo campo `mariadb_up` in `/api/status`,
-  ping in un file nuovo tipo `wrapper/mariadb.go` — NON `cluster.go`),
-  `wrapper/status_page.html`. Non tocca i file bloccati → **fattibile subito**.
+- **"Ferma server" NON tocca MariaDB** — mette offline *l'app*, non il DB.
+- `wrapper/mariadb.go` (nuovo): `mariadbUp()` = ping read-only sulla 3306,
+  cache 5s. Campo `mariadb_up` in `/api/status`.
+- `status_page.html`: riga read-only **MariaDB: attivo (servizio) / fermo** nei
+  Dettagli avanzati; se `!mariadb_up` il riquadro grande dice **"Database fermo"**
+  (prima di `anyErr`/`avvio`).
 
-**Analisi (per memoria).**
+**Analisi (perché non controllarlo).**
 
 | | Contro il controllo di MariaDB dal wrapper |
 |---|---|
@@ -103,19 +95,9 @@ Nota: MariaDB parte comunque come servizio all'avvio.
 | Riavvio | "Avvia server" dovrebbe far ripartire MariaDB **per prima**, aspettare che la 3306 accetti, **poi** riprendere i figli → step di readiness in più. |
 | Manutenzione vera | Se serve davvero fermare MariaDB (backup a freddo, spostare il disco) è un'azione admin deliberata da `services.msc`, giustamente più attritosa. |
 
-**Proposta (da confermare):**
-
-- **"Ferma server" NON tocca MariaDB.** Resta ciò che è: mettere offline
-  *l'app*, non spegnere il database.
-- **Aggiungere però la visibilità read-only**: nei "Dettagli avanzati" una riga
-  **`MariaDB: attivo (servizio)` / `fermo`** (query best-effort sulla 3306 o
-  `Get-Service` — senza controlli). Se MariaDB è giù, il riquadro grande lo dice
-  chiaro (*"Database fermo"*) invece di lasciare i figli frankenphp a sbattere
-  con errori poco leggibili.
-
 ---
 
-## 4. Tasto "Gestione DB" — AdminNeo su `/db` (localhost-only) — DECISO
+## 4. Tasto "Gestione DB" — AdminNeo su `/db` (localhost-only) ✅ FATTO (2026-09-10)
 
 **Contesto.** La sidebar ha un link "Gestione Database" → `/phpmyadmin` che su
 un'installazione pulita 404a (l'installer non instrada phpMyAdmin, e phpMyAdmin
@@ -135,33 +117,30 @@ wrapper.
   (driver + lingue + tema scelti prima del download → un file su misura, solo
   MySQL, niente driver Mongo/Elastic che non servono) e i temi migliori.
 
-**Deciso.**
+**Fatto.**
 
-- **Vendorizzare** il file singolo in **`tools/adminer.php`** nel repo (come
-  `vendor/`): deterministico, si vede nei diff, si aggiorna sostituendolo.
-- Build AdminNeo da configurare sulla pagina download: **driver = solo MySQL**,
-  **lingue = it (+ en)**, **tema = uno pulito** (scelta sulla pagina). URL del
-  configuratore nella forma
-  `https://www.adminneo.org/files/<version>/<drivers>_<languages>_<themes>/adminneo-<version>.php`
-  → **annotare la versione + l'URL esatto** in testa a `tools/adminer.php` così
-  il bump è un download + replace.
-- `install.ps1`: copia `tools/adminer.php` in `C:\opensagra\tools\` +
-  `New-CaddyConfig` aggiunge, in **entrambi** i blocchi di sito, un route
-  **solo-localhost**:
+- **`tools/adminer.php`** vendorizzato = **AdminNeo 5.7.1**, build
+  `mysql_en.it_default` (384 KB). Provenienza + istruzioni bump in
+  `tools/README.md`. `Copy-AppFiles` lo porta in `C:\opensagra\tools\` (la
+  cartella `tools` non è in `ExcludeFromCopy`).
+- `install.ps1` `New-CaddyConfig` `$dbRoute` (in entrambi i blocchi di sito),
+  validato con `frankenphp adapt` — `handle` + matcher `path`/`remote_ip`
+  (`handle_path` accetta un solo pattern, non "/db /db/*"):
   ```
-  handle_path /db {
-      @l remote_ip 127.0.0.1 ::1
-      handle @l { root * C:\opensagra\tools ; rewrite * /adminer.php ; php_server }
-      respond 403
-  }
+  @dbpath path /db /db/*
+  @dblocal { path /db /db/*; remote_ip 127.0.0.1 ::1 }
+  handle @dblocal { rewrite * /adminer.php; root * <InstallPath>\tools; php_server }
+  handle @dbpath  { respond "... solo dal PC server." 403 }
   ```
-  (forma da rifinire — l'importante è che da IP di LAN risponda 403, non serva
-  la pagina).
-- `includes/sidebar.php`: link "Gestione Database" → `/db` (era `/phpmyadmin`).
-- **Tasto wrapper** nei "Dettagli avanzati": "Apri gestione DB" → apre
-  `<AppURL>db` nel browser. Si **nasconde** se `/db` non risponde (check di
-  raggiungibilità nello status, come per `pma`), così su installazioni senza il
-  route non compare.
+  Verificato live: `GET localhost/db` → 200 `<title>Login - AdminNeo</title>`;
+  `GET <IP-LAN>/db` → 403.
+- `includes/sidebar.php`: link "Gestione Database" ora `/db` (relativo,
+  same-origin); rimosse `$_hEnv`/`$_hDbHost` diventate morte.
+- **Wrapper**: `db_tool_url` in `/api/status` — `GET <AppURL>/db`, 2xx/3xx **e**
+  corpo che contiene "adminneo" (un'app SPA risponde 200 anche senza route: il
+  marker evita il falso positivo). Cache 30s, TLS-skip per `tls internal`. La
+  pagina mostra "Apri gestione DB (AdminNeo)" solo se valorizzato; azione
+  `open-db` → `openURL`.
 
 ---
 

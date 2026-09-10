@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -32,6 +34,8 @@ type statusServer struct {
 	mu          sync.Mutex
 	clientCount int
 	clientAt    time.Time
+	dbToolURL   string
+	dbToolAt    time.Time
 	winOpen     bool // finestra app-mode gia' aperta
 }
 
@@ -104,6 +108,8 @@ type statusJSON struct {
 	AppURL      string     `json:"app_url"`
 	Autostart   bool       `json:"autostart"`
 	AllPaused   bool       `json:"all_paused"`
+	MariadbUp   bool       `json:"mariadb_up"`
+	DbToolURL   string     `json:"db_tool_url"` // "" se /db non risponde
 	LogDir      string     `json:"log_dir"`
 	Procs       []procJSON `json:"procs"`
 }
@@ -121,6 +127,43 @@ func (h *statusServer) cachedClientCount() int {
 	return h.clientCount
 }
 
+// cachedDbToolURL: prova <AppURL>/db (lo strumento DB AdminNeo, route
+// solo-localhost generato da install.ps1). Cache 30s. "" se non risponde
+// -> il tasto "Gestione DB" nella pagina non compare.
+func (h *statusServer) cachedDbToolURL() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.dbToolAt.IsZero() && time.Since(h.dbToolAt) < 30*time.Second {
+		return h.dbToolURL
+	}
+	h.dbToolAt = time.Now()
+	h.dbToolURL = ""
+
+	u := strings.TrimRight(h.cfg.AppURL, "/") + "/db"
+	client := &http.Client{
+		Timeout: 1500 * time.Millisecond,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // tls internal, self-signed
+		},
+	}
+	resp, err := client.Get(u)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return ""
+	}
+	// Un app SPA/catch-all puo' rispondere 200 a /db anche senza il route:
+	// serve un marker vero di AdminNeo nel corpo.
+	body := make([]byte, 16<<10)
+	n, _ := io.ReadFull(resp.Body, body)
+	if strings.Contains(strings.ToLower(string(body[:n])), "adminneo") {
+		h.dbToolURL = u
+	}
+	return h.dbToolURL
+}
+
 func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	role := "CLIENT"
 	if isThisMachineServer(h.cfg) {
@@ -132,6 +175,8 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		AppURL:      h.cfg.AppURL,
 		Autostart:   autostartEnabled(),
 		AllPaused:   h.sup.allPaused(),
+		MariadbUp:   mariadbUp(h.cfg),
+		DbToolURL:   h.cachedDbToolURL(),
 		LogDir:      h.cfg.LogDir,
 	}
 	for _, name := range h.sup.names() {
@@ -202,6 +247,10 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 		h.sup.resume(name)
 	case "open-app":
 		openURL(h.cfg.AppURL)
+	case "open-db":
+		if u := h.cachedDbToolURL(); u != "" {
+			openURL(u)
+		}
 	case "open-logs":
 		revealPath(h.cfg.LogDir)
 	case "autostart-on":
