@@ -231,6 +231,7 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 	switch op {
 	case "restart-all":
 		h.sup.restartAll()
+		go announceBackWhenUp(h.ctx, h.sup, h.cfg) // pulisce un eventuale banner "server giu'" quando FrankenPHP risale
 	case "pause-all":
 		// Per un client un server in pausa == server giu': avvisalo PRIMA di
 		// fermare FrankenPHP (l'hub deve essere ancora up per pubblicare).

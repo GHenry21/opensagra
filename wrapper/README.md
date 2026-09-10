@@ -129,7 +129,8 @@ opensagra-wrapper.exe -root C:\opensagra -frankenphp C:\Users\me\.frankenphp\fra
       **manifest** (Common-Controls v6 → TaskDialog, DPI permonitorv2), **icona**
       (Explorer/taskbar/Alt-Tab, la stessa `assets/opensagra.ico` della tray),
       **info versione** (proprietà file). `go build` include il `.syso` da solo.
-- [ ] `--kind=back` anche dopo un *Riavvia tutto* (ora solo all'avvio del wrapper)
+- [x] `--kind=back` anche dopo *Riavvia tutto* (finestra e menu tray) — non
+      `--kind=shutdown` prima: un riavvio è breve, non vale allarmare le casse
 - [x] Rotazione dei log dei figli — `<name>.log` → `<name>.log.1` oltre 5 MiB, controllata a ogni (ri)avvio del figlio
 - [ ] Firma dell'`.exe` (SmartScreen)
 - [ ] macOS: `NSStatusItem` / Linux: fallback X-chiude se manca `StatusNotifierItem`

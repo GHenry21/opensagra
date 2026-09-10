@@ -192,9 +192,12 @@ Linux" del `README.md` si leggono come **"non si fa salvo necessità"**.
   completo: menu/click, uscita, `--kind=back`, snapshot in pausa/ripresa al
   cambio ruolo.
 - Risorse exe **fatte**: `.syso` con manifest (`63fc9b9`) + **icona exe** e
-  **info versione** (`rsrc.rc` esteso, commit successivo). Restano da
-  `wrapper/README.md`: `--kind=back` anche dopo *"Riavvia tutto"*, firma `.exe`
-  (SmartScreen).
+  **info versione** (`e9b46cd`). `--kind=back` dopo *"Riavvia tutto"* **fatto**.
+- **Firma `.exe` (SmartScreen): decisa NO** (2026-09-10). Costo non giustificato
+  per poche installazioni note. Si documenta lo *"Esegui comunque"*. Se un
+  domani la distribuzione si allarga → Azure Trusted Signing (~€10/mese,
+  attivabile a lotti: firma con timestamp = valida per sempre anche dopo la
+  disdetta).
 - `install.ps1` **non testato su VM pulita** per la parte wrapper
   (`Install-Wrapper` / `Start-Wrapper` de-elevato via task INTERACTIVE una-tantum).
 - Distribuzione: il pacchetto di release deve **compilare** `wrapper/opensagra-wrapper.exe`

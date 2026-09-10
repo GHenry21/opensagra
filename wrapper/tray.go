@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -9,6 +10,7 @@ import (
 )
 
 type tray struct {
+	ctx    context.Context
 	cfg    *Config
 	sup    *Supervisor
 	status *statusServer
@@ -58,6 +60,7 @@ func (t *tray) onReady() {
 				revealPath(t.cfg.LogDir)
 			case <-mRestart.ClickedCh:
 				t.sup.restartAll()
+				go announceBackWhenUp(t.ctx, t.sup, t.cfg)
 			case <-mAutostart.ClickedCh:
 				want := !mAutostart.Checked()
 				if err := setAutostart(want); err != nil {

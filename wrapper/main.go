@@ -126,6 +126,6 @@ func main() {
 		systray.Quit()
 	}
 
-	t := &tray{cfg: cfg, sup: sup, status: status, quit: quit}
+	t := &tray{ctx: ctx, cfg: cfg, sup: sup, status: status, quit: quit}
 	systray.Run(t.onReady, t.onExit) // blocca finche' systray.Quit()
 }
