@@ -161,7 +161,14 @@ func announceBackWhenUp(ctx context.Context, sup *Supervisor, cfg *Config) {
 // ri-leggerlo, la finestra di stato continuerebbe a dire "CLIENT" (o "SERVER")
 // col valore d'avvio, e l'avviso "N casse collegate" all'uscita userebbe il
 // ruolo sbagliato. Poll leggero: un file di poche righe ogni 15s.
-func watchDbHost(ctx context.Context, cfg *Config) {
+//
+// Al cambio ruolo regola anche il figlio snapshot: gira solo quando la macchina
+// e' client (serve a tenere pronto il DB locale per il fallback). Su server /
+// indipendente resta in pausa - e' il processo che ha azzerato il catalogo il
+// 2026-09-10.
+func watchDbHost(ctx context.Context, cfg *Config, sup *Supervisor) {
+	syncSnapshotChild(cfg, sup) // stato iniziale coerente col ruolo d'avvio
+
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
 	for {
@@ -175,7 +182,28 @@ func watchDbHost(ctx context.Context, cfg *Config) {
 					role = "SERVER / indipendente (DB locale)"
 				}
 				log.Printf("wrapper: DB_POS_HOST cambiato -> %s | ruolo ora: %s", cfg.DbHost(), role)
+				syncSnapshotChild(cfg, sup)
 			}
 		}
 	}
+}
+
+// syncSnapshotChild: pausa lo snapshot se la macchina e' server/indipendente,
+// lo riprende se e' client. Idempotente (pause/resume su uno stato gia' giusto
+// non fanno nulla di dannoso).
+func syncSnapshotChild(cfg *Config, sup *Supervisor) {
+	if sup == nil {
+		return
+	}
+	if isThisMachineServer(cfg) {
+		if !sup.isPaused(snapshotChildName) {
+			log.Printf("wrapper: metto in pausa il figlio %q (macchina non client)", snapshotChildName)
+		}
+		sup.pause(snapshotChildName)
+		return
+	}
+	if sup.isPaused(snapshotChildName) {
+		log.Printf("wrapper: riprendo il figlio %q (macchina client)", snapshotChildName)
+	}
+	sup.resume(snapshotChildName)
 }

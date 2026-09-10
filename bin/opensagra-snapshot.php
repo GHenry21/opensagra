@@ -29,6 +29,17 @@
  * Lanciato dal wrapper come processo figlio (non un servizio - vedi piano 3g).
  * Su un server / installazione indipendente resta idle. Log su STDERR.
  * Avvio manuale per test:  php bin/opensagra-snapshot.php
+ *
+ * DIFESE (dopo l'incidente del 2026-09-10, catalogo azzerato):
+ *  - guardia "stessa istanza": se DB_POS_HOST punta allo stesso MariaDB del DB
+ *    locale (IP di LAN / hostname invece di 127.0.0.1) non si copia nulla - si
+ *    leggerebbe una tabella appena droppata.
+ *  - snapshotTable() e' stage-then-swap: costruisce `<t>__snapnew` e fa
+ *    `RENAME TABLE` atomico solo a copia completa; su errore la live resta
+ *    intatta.
+ *  - guardia anti-collasso: non sostituisce una copia locale non vuota con una
+ *    vuota (SNAPSHOT_ALLOW_EMPTY=1 per forzare).
+ *  - snapshot_last_ok si scrive solo se `stock` locale e' non vuota.
  */
 
 require_once __DIR__ . '/../config/env_reader.php';
@@ -68,18 +79,83 @@ function refTablesFingerprint(mysqli $server): string
     return implode(':', $parts);
 }
 
+// "Impronta" dell'istanza MariaDB dietro una connessione. Serve a riconoscere
+// il caso "il server remoto e' in realta' il DB locale" (stesso MariaDB
+// raggiunto via IP di LAN / hostname invece di 127.0.0.1): li' `server` e
+// `local` sono la stessa tabella e lo snapshot finirebbe per copiarsela da se'.
+//
+// MariaDB non ha `@@server_uuid` (e' di MySQL) e `@@server_id` spesso vale 0 di
+// default: usiamo hostname + porta + datadir, byte-identici sulle due
+// connessioni verso lo stesso mysqld e diversi tra macchine diverse (il
+// computer name Windows cambia sempre, il datadir quasi sempre).
+function mariadbInstanceFingerprint(mysqli $c): string
+{
+    try {
+        $res = $c->query('SELECT @@hostname AS h, @@port AS p, @@datadir AS d, @@server_id AS s');
+        $r = $res ? $res->fetch_assoc() : null;
+        if (!$r) {
+            return '';
+        }
+        return implode('|', [$r['h'] ?? '', $r['p'] ?? '', $r['d'] ?? '', $r['s'] ?? '']);
+    } catch (mysqli_sql_exception $e) {
+        return '';
+    }
+}
+
+// Conteggio righe di una tabella locale. Tabella inesistente (prima copia in
+// assoluto) o errore -> 0, non deve mai far fallire una guardia.
+function localRowCount(mysqli $local, string $table): int
+{
+    try {
+        $res = $local->query("SELECT COUNT(*) AS n FROM `$table`");
+        return $res ? (int) ($res->fetch_assoc()['n'] ?? 0) : 0;
+    } catch (mysqli_sql_exception $e) {
+        return 0;
+    }
+}
+
+// La copia locale e' utilizzabile per il fallback? `stock` vuota = catalogo
+// inservibile: non certificarla con snapshot_last_ok (e' l'ancora di fiducia di
+// api/enter_local_fallback.php). SNAPSHOT_ALLOW_EMPTY=1 per un catalogo
+// legittimamente vuoto.
+function localCatalogUsable(mysqli $local): bool
+{
+    return localRowCount($local, 'stock') > 0 || getenv('SNAPSHOT_ALLOW_EMPTY') === '1';
+}
+
+// Scrive snapshot_last_ok solo se la copia locale e' davvero utilizzabile.
+// enter_local_fallback.php si fida di questo marker per autorizzare lo swap sul
+// DB locale: non deve certificare un `stock` vuoto.
+function markSnapshotOk(mysqli $local, int $now): void
+{
+    if (localCatalogUsable($local)) {
+        setAppConfig($local, 'snapshot_last_ok', (string) $now);
+        return;
+    }
+    snapLog('NON aggiorno snapshot_last_ok: `stock` locale vuota dopo la copia - catalogo non utilizzabile per il fallback (SNAPSHOT_ALLOW_EMPTY=1 per accettarlo).');
+}
+
 /**
- * Rende la tabella locale una copia esatta di quella del server: DROP + CREATE
- * dal DDL del server (`SHOW CREATE TABLE`) + reinsert delle righe.
+ * Rende la tabella locale una copia esatta di quella del server, SENZA mai
+ * lasciarla in uno stato intermedio: costruisce una `<table>__snapnew` a lato
+ * (DDL dal `SHOW CREATE TABLE` del server + reinsert delle righe) e solo a
+ * copia completa fa lo swap atomico con `RENAME TABLE`. Se qualcosa va storto
+ * prima dello swap, la tabella live non e' stata toccata - il "tengo la copia
+ * precedente" del loop torna vero.
  *
- * Il DROP+CREATE (non un semplice DELETE) e' deliberato: il DB locale di un
- * client non viene mai usato in esercizio normale, quindi il suo schema puo'
- * essere vecchio / non allineato alle migrazioni (drift reale visto sulla VM:
- * `casse_stampanti` senza la colonna `bridge_host`). Queste sono cache di sola
- * lettura lato client, ricrearle e' sicuro (nessuna FK entrante: solo
- * dettagli_vendita->vendite, tabelle che non tocchiamo).
+ * Perche' ricreare da zero e non un DELETE + INSERT: il DB locale di un client
+ * non viene usato in esercizio normale, quindi il suo schema puo' essere
+ * vecchio / non allineato alle migrazioni (drift reale visto sulla VM:
+ * `casse_stampanti` senza `bridge_host`). Queste sono cache di sola lettura
+ * lato client, nessuna FK entrante (solo dettagli_vendita->vendite, non toccate).
+ *
+ * Guardia anti-collasso: se il server ha 0 righe ma la copia locale ne ha,
+ * NON sostituisce (sorgente verosimilmente rotta / puntata all'istanza
+ * sbagliata). SNAPSHOT_ALLOW_EMPTY=1 per forzare un catalogo davvero vuoto.
+ *
+ * @return int righe copiate
  */
-function snapshotTable(mysqli $server, mysqli $local, string $table): void
+function snapshotTable(mysqli $server, mysqli $local, string $table): int
 {
     $ddlRow = $server->query("SHOW CREATE TABLE `$table`");
     $ddl = $ddlRow ? $ddlRow->fetch_assoc() : null;
@@ -87,15 +163,6 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): void
     if (!str_starts_with($createSql, 'CREATE TABLE')) {
         throw new RuntimeException("SHOW CREATE TABLE `$table` inattesa sul server");
     }
-
-    // DDL = commit implicito: fuori da qualsiasi transazione.
-    $local->query('SET FOREIGN_KEY_CHECKS = 0');
-    $local->query("DROP TABLE IF EXISTS `$table`");
-    if (!$local->query($createSql)) {
-        $local->query('SET FOREIGN_KEY_CHECKS = 1');
-        throw new RuntimeException("CREATE `$table` locale fallita: " . $local->error);
-    }
-    $local->query('SET FOREIGN_KEY_CHECKS = 1');
 
     $cols = [];
     $colsRes = $server->query("SHOW COLUMNS FROM `$table`");
@@ -106,6 +173,7 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): void
         throw new RuntimeException("tabella `$table` senza colonne?");
     }
 
+    // Righe dal server PRIMA di toccare qualunque cosa in locale.
     $rows = [];
     $dataRes = $server->query("SELECT * FROM `$table`");
     if (!$dataRes) {
@@ -115,16 +183,49 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): void
         $rows[] = $r;
     }
 
-    $colList = '`' . implode('`,`', $cols) . '`';
-    $placeholders = implode(',', array_fill(0, count($cols), '?'));
+    // Guardia anti-collasso: mai rimpiazzare una copia locale non vuota con una
+    // vuota. Un catalogo che passa da N a 0 in un colpo non e' mai legittimo in
+    // esercizio.
+    $localBefore = localRowCount($local, $table);
+    if (count($rows) === 0 && $localBefore > 0 && getenv('SNAPSHOT_ALLOW_EMPTY') !== '1') {
+        throw new RuntimeException(
+            "RIFIUTO lo snapshot di `$table`: il server ne ha 0 righe ma la copia locale ne ha "
+            . "$localBefore - sorgente inaffidabile, tengo la copia locale "
+            . "(SNAPSHOT_ALLOW_EMPTY=1 per forzare)"
+        );
+    }
 
-    $local->begin_transaction();
+    // Tabella sostituta costruita a lato: la live resta intatta fino allo swap.
+    $stage = $table . '__snapnew';
+    $stageCreate = preg_replace(
+        '/^CREATE TABLE `' . preg_quote($table, '/') . '`/',
+        "CREATE TABLE `$stage`",
+        $createSql,
+        1,
+        $nSub
+    );
+    if ($stageCreate === null || $nSub !== 1) {
+        throw new RuntimeException("impossibile derivare il DDL di staging per `$table`");
+    }
+
+    $local->query('SET FOREIGN_KEY_CHECKS = 0');
+    $local->query("DROP TABLE IF EXISTS `$stage`");
+    if (!$local->query($stageCreate)) {
+        $local->query('SET FOREIGN_KEY_CHECKS = 1');
+        throw new RuntimeException("CREATE `$stage` locale fallita: " . $local->error);
+    }
+
+    $inTx = false;
     try {
         if ($rows) {
-            $ins = $local->prepare("INSERT INTO `$table` ($colList) VALUES ($placeholders)");
+            $colList = '`' . implode('`,`', $cols) . '`';
+            $placeholders = implode(',', array_fill(0, count($cols), '?'));
+            $ins = $local->prepare("INSERT INTO `$stage` ($colList) VALUES ($placeholders)");
             if (!$ins) {
-                throw new RuntimeException("prepare INSERT `$table` locale fallita: " . $local->error);
+                throw new RuntimeException("prepare INSERT `$stage` locale fallita: " . $local->error);
             }
+            $local->begin_transaction();
+            $inTx = true;
             foreach ($rows as $r) {
                 // mysqli::execute(array) - dal PHP 8.1: niente bind_param/tipi,
                 // MariaDB coerce ogni valore (string|null) nella colonna giusta.
@@ -133,18 +234,41 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): void
                     $values[] = $r[$c] ?? null;
                 }
                 if (!$ins->execute($values)) {
-                    throw new RuntimeException("INSERT in `$table` locale fallita: " . $ins->error);
+                    throw new RuntimeException("INSERT in `$stage` locale fallita: " . $ins->error);
                 }
             }
             $ins->close();
+            $local->commit();
+            $inTx = false;
         }
-        $local->commit();
+
+        // Swap atomico. La tabella `$table` esiste prima e dopo (o e' la prima
+        // copia in assoluto, e allora non c'e' nulla da rimpiazzare).
+        $old = $table . '__snapold';
+        $local->query("DROP TABLE IF EXISTS `$old`");
+        $liveExists = ($lr = $local->query("SHOW TABLES LIKE '$table'")) && $lr->num_rows > 0;
+        if ($liveExists) {
+            if (!$local->query("RENAME TABLE `$table` TO `$old`, `$stage` TO `$table`")) {
+                throw new RuntimeException("RENAME swap `$table` fallita: " . $local->error);
+            }
+            $local->query("DROP TABLE IF EXISTS `$old`");
+        } else {
+            if (!$local->query("RENAME TABLE `$stage` TO `$table`")) {
+                throw new RuntimeException("RENAME `$stage` -> `$table` fallita: " . $local->error);
+            }
+        }
     } catch (Throwable $e) {
-        $local->rollback();
+        if ($inTx) {
+            try { $local->rollback(); } catch (Throwable $ignored) {}
+        }
+        try { $local->query("DROP TABLE IF EXISTS `$stage`"); } catch (Throwable $ignored) {}
+        $local->query('SET FOREIGN_KEY_CHECKS = 1');
         throw $e;
     }
 
+    $local->query('SET FOREIGN_KEY_CHECKS = 1');
     snapLog("copiata `$table` (" . count($rows) . " righe)");
+    return count($rows);
 }
 
 // --- Connessioni (ricreate a ogni giro di lavoro: il processo e' longevo, le
@@ -199,6 +323,20 @@ while (true) {
         continue;
     }
 
+    // Guardia "stessa istanza": se DB_POS_HOST punta (via IP di LAN, hostname,
+    // alias...) allo stesso MariaDB del DB locale, `server` e `local` sono la
+    // stessa tabella: snapshotTable() la leggerebbe DOPO averla droppata ->
+    // catalogo azzerato. Non c'e' comunque niente da copiare da se' a se'.
+    $serverId = mariadbInstanceFingerprint($server);
+    $localId = mariadbInstanceFingerprint($local);
+    if ($serverId !== '' && $serverId === $localId) {
+        snapLog("DB_POS_HOST ($host) e' la STESSA istanza MariaDB del DB locale: niente da snapshottare (evito di sovrascrivere le mie stesse tabelle di riferimento). Idle.");
+        $server->close();
+        $local->close();
+        sleep(SNAP_IDLE_SECONDS);
+        continue;
+    }
+
     try {
         // Il catalogo del server e' cambiato dall'ultimo giro?
         $verRow = $server->query(
@@ -220,7 +358,7 @@ while (true) {
             $lastFullAt = $now;
             $lastStockVersion = $stockVersion;
             $lastRefFingerprint = $refFingerprint;
-            setAppConfig($local, 'snapshot_last_ok', (string) $now);
+            markSnapshotOk($local, $now);
         } else {
             $didAny = false;
             if ($stockChanged) {
@@ -238,7 +376,7 @@ while (true) {
                 $didAny = true;
             }
             if ($didAny) {
-                setAppConfig($local, 'snapshot_last_ok', (string) $now);
+                markSnapshotOk($local, $now);
             }
         }
     } catch (Throwable $e) {

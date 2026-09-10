@@ -79,6 +79,8 @@ func main() {
 
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
+	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
+	// sua regolazione al cambio ruolo li gestisce watchDbHost, piu' sotto.
 
 	// Finestra di stato: server HTTP locale + pagina aperta in browser app-mode.
 	status := newStatusServer(ctx, cfg, sup)
@@ -97,8 +99,9 @@ func main() {
 
 	// conf_rete / il fallback locale riscrivono DB_POS_HOST a caldo: rileggilo
 	// cosi' la finestra di stato e l'avviso d'uscita non restano sul ruolo
-	// d'avvio (i figli relay/snapshot si autoregolano gia' da soli).
-	go watchDbHost(ctx, cfg)
+	// d'avvio. Al cambio ruolo mette in pausa / riprende anche il figlio
+	// snapshot (il relay si autoregola gia' da solo con exit(0)).
+	go watchDbHost(ctx, cfg, sup)
 
 	// Sequenza di uscita pulita, invocata dal menu tray dopo conferma.
 	quit := func() {

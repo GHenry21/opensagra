@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+// snapshotChildName: nome del figlio che esegue bin/opensagra-snapshot.php.
+// Riferito anche da main.go / cluster.go per metterlo in pausa quando la
+// macchina non e' un client.
+const snapshotChildName = "snapshot"
+
 // buildChildren: i processi che il wrapper supervisiona.
 //
 // Contratto exit-code (vedi README):
@@ -41,7 +46,7 @@ func buildChildren(cfg *Config) []*Child {
 			// (catalogo, casse, config) cosi' che il "Fallback locale una-via"
 			// abbia un DB pronto se il centrale cade. Non fa exit(0): resta in
 			// loop e va idle da solo quando non e' un client o e' in fallback.
-			Name:          "snapshot",
+			Name:          snapshotChildName,
 			Dir:           cfg.AppRoot,
 			Bin:           cfg.Frankenphp,
 			Args:          phpCli("bin/opensagra-snapshot.php"),
