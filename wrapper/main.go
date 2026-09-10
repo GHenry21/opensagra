@@ -59,12 +59,18 @@ func main() {
 		}
 	}
 
-	release, ok := acquireSingleInstance("opensagra-wrapper")
-	if !ok {
-		log.Print("un'altra istanza del wrapper e' gia' in esecuzione, esco.")
-		return
-	}
+	release, fresh := acquireSingleInstance("opensagra-wrapper")
 	defer release()
+	if !fresh {
+		if alive, statusURL := readLock(cfg.LogDir); alive {
+			log.Printf("wrapper: un'altra istanza e' gia' viva - apro la sua finestra di stato (%s)", statusURL)
+			if statusURL != "" {
+				openURL(statusURL)
+			}
+			return
+		}
+		log.Print("wrapper: il mutex 'opensagra-wrapper' risulta occupato ma nessun processo vivo lo tiene (stantio) - proseguo")
+	}
 
 	// Job object: quando il wrapper muore (anche crash), Windows termina tutto
 	// l'albero dei figli. Senza, un crash lascia frankenphp.exe orfano che
@@ -86,12 +92,15 @@ func main() {
 	status := newStatusServer(ctx, cfg, sup)
 	if err := status.start(); err != nil {
 		log.Printf("finestra di stato: server non avviato: %v", err)
+		writeLock(cfg.LogDir, "")
 	} else {
 		log.Printf("finestra di stato: %s", status.url())
+		writeLock(cfg.LogDir, status.url()) // PID + URL: lo legge un secondo avvio
 		if !cfg.Autostarted {
 			status.openWindow() // all'avvio manuale la si mostra; al logon no
 		}
 	}
+	defer removeLock(cfg.LogDir)
 
 	// Quando FrankenPHP e' su, pulisci il banner "server giu'" sui client
 	// (simmetrico all'announce shutdown fatto in quit()).
@@ -106,6 +115,7 @@ func main() {
 	// Sequenza di uscita pulita, invocata dal menu tray dopo conferma.
 	quit := func() {
 		log.Print("wrapper: uscita richiesta")
+		removeLock(cfg.LogDir)
 		announceShutdown(cfg) // avvisa le casse PRIMA di fermare FrankenPHP
 		cancel()              // exec.CommandContext uccide i figli
 		sup.Wait()

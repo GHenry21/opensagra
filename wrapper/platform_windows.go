@@ -30,9 +30,12 @@ func hideWindow(cmd *exec.Cmd) {
 	}
 }
 
-// --- istanza singola: named mutex ---
-
-func acquireSingleInstance(name string) (release func(), ok bool) {
+// --- istanza singola: named mutex + (in main) lock file ---
+//
+// `fresh` = true se questo processo ha CREATO il mutex (nessun altro lo tiene).
+// Se false, main.go consulta il lock file: PID vivo -> apre la sua finestra ed
+// esce; PID morto -> mutex stantio, prosegue. `release` chiude sempre l'handle.
+func acquireSingleInstance(name string) (release func(), fresh bool) {
 	n, err := windows.UTF16PtrFromString(`Global\` + name)
 	if err != nil {
 		return func() {}, true // in dubbio, non impedire l'avvio
@@ -41,11 +44,22 @@ func acquireSingleInstance(name string) (release func(), ok bool) {
 	if h == 0 {
 		return func() {}, true
 	}
-	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		windows.CloseHandle(h)
-		return func() {}, false
+	return func() { windows.CloseHandle(h) }, !errors.Is(err, windows.ERROR_ALREADY_EXISTS)
+}
+
+// processAlive: true se esiste un processo con quel PID ancora in esecuzione.
+func processAlive(pid int) bool {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return false // nessun processo (o accesso negato: comunque non "nostro")
 	}
-	return func() { windows.CloseHandle(h) }, true
+	defer windows.CloseHandle(h)
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return true // non si sa -> prudenza, non calpestare
+	}
+	const stillActive = 259
+	return code == stillActive
 }
 
 // --- job object: KILL_ON_JOB_CLOSE = i figli muoiono col wrapper ---

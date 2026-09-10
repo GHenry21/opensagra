@@ -13,12 +13,21 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 func hideWindow(cmd *exec.Cmd) {}
 
-func acquireSingleInstance(name string) (release func(), ok bool) {
+func acquireSingleInstance(name string) (release func(), fresh bool) {
 	return func() {}, true // TODO: flock su /tmp/<name>.lock
+}
+
+func processAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 type jobObject struct{}
