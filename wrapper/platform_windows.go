@@ -102,11 +102,13 @@ func (j *jobObject) assign(pid int) error {
 
 func (j *jobObject) close() { windows.CloseHandle(j.h) }
 
-// --- MessageBox di conferma uscita ---
+// --- conferma uscita: TaskDialog (Vista+), fallback a MessageBox ---
 
 var (
 	_user32          = windows.NewLazySystemDLL("user32.dll")
 	_procMessageBoxW = _user32.NewProc("MessageBoxW")
+	_comctl32        = windows.NewLazySystemDLL("comctl32.dll")
+	_procTaskDialog  = _comctl32.NewProc("TaskDialog")
 )
 
 const (
@@ -116,18 +118,53 @@ const (
 	_MB_SETFOREGROUND = 0x00010000
 	_MB_TOPMOST       = 0x00040000
 	_IDYES            = 6
+
+	_TDCBF_YES_BUTTON = 0x0001
+	_TDCBF_NO_BUTTON  = 0x0002
+	_TD_WARNING_ICON  = 0xFFFF // MAKEINTRESOURCE(-1)
 )
 
-func confirmQuit(title, body string) bool {
+// confirmQuit: title = titolo finestra; heading = istruzione grande in grassetto
+// (blu); body = testo sotto. Su Windows moderno usa TaskDialog (aspetto app,
+// DPI-aware — richiede il manifest Common-Controls v6, incluso via .syso).
+func confirmQuit(title, heading, body string) bool {
+	if ok, done := taskDialogYesNo(title, heading, body); done {
+		return ok
+	}
+	// fallback: MessageBox classico
 	t, _ := windows.UTF16PtrFromString(title)
-	b, _ := windows.UTF16PtrFromString(body)
-	ret, _, _ := _procMessageBoxW.Call(
-		0,
-		uintptr(unsafe.Pointer(b)),
-		uintptr(unsafe.Pointer(t)),
-		uintptr(_MB_YESNO|_MB_ICONWARNING|_MB_DEFBUTTON2|_MB_SETFOREGROUND|_MB_TOPMOST),
-	)
+	b, _ := windows.UTF16PtrFromString(heading + "\n\n" + body)
+	ret, _, _ := _procMessageBoxW.Call(0,
+		uintptr(unsafe.Pointer(b)), uintptr(unsafe.Pointer(t)),
+		uintptr(_MB_YESNO|_MB_ICONWARNING|_MB_DEFBUTTON2|_MB_SETFOREGROUND|_MB_TOPMOST))
 	return ret == _IDYES
+}
+
+// taskDialogYesNo: (rispostaSì, riuscito). done=false -> TaskDialog non
+// disponibile, usa il fallback.
+func taskDialogYesNo(title, heading, body string) (yes bool, done bool) {
+	if err := _procTaskDialog.Find(); err != nil {
+		return false, false
+	}
+	tw, _ := windows.UTF16PtrFromString(title)
+	hw, _ := windows.UTF16PtrFromString(heading)
+	bw, _ := windows.UTF16PtrFromString(body)
+	var pressed int32
+	// TaskDialog(hwndParent, hInstance, pszWindowTitle, pszMainInstruction,
+	//   pszContent, dwCommonButtons, pszIcon, *pnButton) HRESULT
+	hr, _, _ := _procTaskDialog.Call(
+		0, 0,
+		uintptr(unsafe.Pointer(tw)),
+		uintptr(unsafe.Pointer(hw)),
+		uintptr(unsafe.Pointer(bw)),
+		uintptr(_TDCBF_YES_BUTTON|_TDCBF_NO_BUTTON),
+		uintptr(_TD_WARNING_ICON),
+		uintptr(unsafe.Pointer(&pressed)),
+	)
+	if hr != 0 { // non S_OK
+		return false, false
+	}
+	return pressed == _IDYES, true
 }
 
 // --- apertura URL / cartella ---

@@ -2,7 +2,10 @@
 /opensagra-wrapper
 /opensagra-wrapper.exe
 *.exe
+*.exe~
 *.syso
+# ...tranne il .syso del manifest (piccolo, rigenerabile da rsrc.rc + windres)
+!rsrc_windows_amd64.syso
 
 # runtime
 /logs/

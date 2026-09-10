@@ -1,0 +1,7 @@
+#include <winuser.h>
+
+/* Manifest applicativo (Common Controls v6 + DPI). Genera il .syso con:
+ *   windres -F pe-x86-64 -O coff rsrc.rc rsrc_windows_amd64.syso
+ * `go build` include automaticamente qualsiasi *.syso nella cartella.
+ */
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "opensagra.manifest"

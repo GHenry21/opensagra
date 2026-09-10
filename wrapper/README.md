@@ -125,7 +125,9 @@ opensagra-wrapper.exe -root C:\opensagra -frankenphp C:\Users\me\.frankenphp\fra
       non webview incorporata. API status/logs/action, pausa aggregata, per-processo.
       **API verificata via curl; rendering pagina + finestra app-mode da provare a video.**
 - [x] "Avvia all'accensione" (Scheduled Task at-logon), spunta nel menu — Windows
-- [ ] Icona `.ico` (vedi `assets/README.md`) + `.syso` con manifest/versione
+- [~] `.syso` con **manifest** (Common-Controls v6 + DPI) → `rsrc.rc` +
+      `opensagra.manifest` → `rsrc_windows_amd64.syso` (via `windres`); serve a
+      TaskDialog. **Resta:** icona `.ico` come risorsa dell'exe + info versione.
 - [ ] `--kind=back` anche dopo un *Riavvia tutto* (ora solo all'avvio del wrapper)
 - [x] Rotazione dei log dei figli — `<name>.log` → `<name>.log.1` oltre 5 MiB, controllata a ogni (ri)avvio del figlio
 - [ ] Firma dell'`.exe` (SmartScreen)

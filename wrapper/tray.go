@@ -89,11 +89,11 @@ func (t *tray) onReady() {
 func (t *tray) onExit() {}
 
 func (t *tray) confirmQuit() bool {
-	body := "Vuoi davvero chiudere OpenSagra?\nIl server locale su questa macchina si fermerà."
+	heading := "Chiudere OpenSagra?"
+	body := "Il server locale su questo PC si fermerà. MariaDB resta attivo."
 	if n := activeClientCount(t.cfg); n > 0 {
-		body = fmt.Sprintf(
-			"ATTENZIONE: %d cassa/e collegate perderanno il database quando questo PC si ferma.\n\n"+
-				"Chiudere comunque OpenSagra?", n)
+		heading = fmt.Sprintf("%d cassa/e collegate perderanno l'accesso", n)
+		body = "Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra."
 	}
-	return confirmQuit("OpenSagra", body)
+	return confirmQuit("OpenSagra", heading, body)
 }

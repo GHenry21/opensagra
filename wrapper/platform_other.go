@@ -36,8 +36,8 @@ func newJobObject() (*jobObject, error)   { return nil, fmt.Errorf("job object: 
 func (j *jobObject) assign(pid int) error { return nil }
 func (j *jobObject) close()               {}
 
-func confirmQuit(title, body string) bool {
-	fmt.Printf("\n%s\n%s\n[s/N]: ", title, body)
+func confirmQuit(title, heading, body string) bool {
+	fmt.Printf("\n%s\n%s\n%s\n[s/N]: ", title, heading, body)
 	s, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "s", "si", "y", "yes":
