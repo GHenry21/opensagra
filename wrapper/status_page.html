@@ -35,12 +35,14 @@
   button {
     font: inherit; cursor: pointer; border-radius: 8px; padding: 9px 12px;
     border: 1px solid #3a3f4a; background: #2a2e37; color: #e8e8ea;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   }
   button:hover { background: #363c47; }
   button.primary { background: #d4af37; color: #1c1f26; border-color: #d4af37; font-weight: 600; }
   button.primary:hover { background: #e0bd4e; }
   button.grow { flex: 1; }
   button:disabled { opacity: .5; cursor: default; }
+  button svg { display: block; flex-shrink: 0; }
 
   .autostart { display: flex; align-items: center; gap: 8px; margin: 10px 2px; font-size: 12px; color: #cfd2d8; }
   .autostart input { accent-color: #d4af37; width: 15px; height: 15px; }
@@ -67,8 +69,7 @@
   .proc .name { font-weight: 600; color: #fff; }
   .proc .detail { font-size: 11px; color: #9aa0aa; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .proc .btns { display: flex; gap: 5px; }
-  .proc .btns button { padding: 5px 9px; font-size: 12px; }
-  .proc .btns button svg { display: block; }
+  .proc .btns button { padding: 6px 8px; }
 
   .logs { margin-top: 12px; }
   .logs-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -80,6 +81,23 @@
     white-space: pre-wrap; word-break: break-all;
   }
   .muted { color: #6b7078; font-size: 11px; }
+
+  /* --- conferma modale --- */
+  .modal-back {
+    position: fixed; inset: 0; background: #000a; display: flex;
+    align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal {
+    background: #1c1f26; border: 1px solid #3a3f4a; border-radius: 12px;
+    padding: 18px 18px 14px; max-width: 340px; margin: 16px;
+    box-shadow: 0 12px 40px #000a;
+  }
+  .modal .m-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .modal .m-body { font-size: 12.5px; color: #b7bcc6; white-space: pre-line; }
+  .modal .m-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .m-actions button { flex: 1; }
+  .modal .m-actions .yes { background: #e5484d; border-color: #e5484d; color: #fff; font-weight: 600; }
+  .modal .m-actions .yes:hover { background: #ef5a5f; }
 </style>
 </head>
 <body>
@@ -95,12 +113,12 @@
   </div>
 
   <div class="row">
-    <button class="primary grow" id="btnApp">↗ Apri OpenSagra</button>
-    <button class="grow" id="btnPause">Ferma server</button>
+    <button class="primary grow" id="btnApp" data-icon="external-link"><span>Apri OpenSagra</span></button>
+    <button class="grow" id="btnPause"><span>Ferma server</span></button>
   </div>
   <div class="row">
-    <button class="grow" id="btnRestartAll">Riavvia tutto</button>
-    <button class="grow" id="btnLogs">Apri cartella log</button>
+    <button class="grow" id="btnRestartAll" data-icon="rotate-cw"><span>Riavvia tutto</span></button>
+    <button class="grow" id="btnLogs" data-icon="folder-open"><span>Apri cartella log</span></button>
   </div>
 
   <label class="autostart">
@@ -121,7 +139,7 @@
         <div class="detail" id="mariadbDetail">servizio</div>
       </div>
       <div class="btns">
-        <button id="btnDb" hidden title="Apri il gestore DB (AdminNeo)"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>
+        <button id="btnDb" hidden title="Apri il gestore DB (AdminNeo)" data-icon="external-link"></button>
       </div>
     </div>
 
@@ -140,6 +158,43 @@
 
 <script>
 const $ = s => document.querySelector(s);
+
+// --- icone (Lucide, path viewBox 24) ---
+const ICONS = {
+  "external-link": '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  "power": '<path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>',
+  "play": '<polygon points="6 3 20 12 6 21 6 3"/>',
+  "pause": '<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>',
+  "rotate-cw": '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  "folder-open": '<path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>',
+};
+function ic(name, size = 15) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ""}</svg>`;
+}
+// icone sui bottoni statici (data-icon)
+for (const b of document.querySelectorAll("button[data-icon]"))
+  b.insertAdjacentHTML("afterbegin", ic(b.dataset.icon, b.classList.contains("grow") ? 15 : 14));
+
+// --- conferma modale (Promise<bool>) ---
+function confirmBox(title, body) {
+  return new Promise(resolve => {
+    const back = document.createElement("div");
+    back.className = "modal-back";
+    back.innerHTML = `<div class="modal">
+      <div class="m-title">${title}</div>
+      <div class="m-body">${body}</div>
+      <div class="m-actions"><button class="no">No</button><button class="yes">Sì</button></div>
+    </div>`;
+    const done = v => { back.remove(); resolve(v); };
+    back.querySelector(".no").onclick = () => done(false);
+    back.querySelector(".yes").onclick = () => done(true);
+    back.addEventListener("click", e => { if (e.target === back) done(false); });
+    document.body.appendChild(back);
+    back.querySelector(".yes").focus();
+  });
+}
+
 async function api(op, name) {
   const q = new URLSearchParams({ op }); if (name) q.set("name", name);
   try { await fetch("/api/action?" + q, { method: "POST" }); } catch (e) {}
@@ -173,7 +228,7 @@ async function refresh() {
   $("#heroBig").textContent = big;
   $("#heroSub").textContent = sub;
 
-  $("#btnPause").textContent = s.all_paused ? "Avvia server" : "Ferma server";
+  $("#btnPause").innerHTML = ic("power", 15) + `<span>${s.all_paused ? "Avvia server" : "Ferma server"}</span>`;
   $("#chkAutostart").checked = s.autostart;
 
   // MariaDB: read-only, non e' un figlio supervisionato (servizio Windows)
@@ -196,8 +251,9 @@ async function refresh() {
           <div class="detail">${p.state}${p.pid ? " · PID " + p.pid : ""}${p.uptime ? " · " + p.uptime : ""}${p.detail ? " · " + p.detail : ""}</div>
         </div>
         <div class="btns">
-          <button data-op="${p.paused ? "resume" : "pause"}" data-name="${p.name}">${p.paused ? "▶" : "⏹"}</button>
-          <button data-op="restart" data-name="${p.name}">⟳</button>
+          <button data-op="${p.paused ? "resume" : "pause"}" data-name="${p.name}"
+            title="${p.paused ? "Riprendi" : "Ferma"}">${ic(p.paused ? "play" : "pause", 13)}</button>
+          <button data-op="restart" data-name="${p.name}" title="Riavvia">${ic("rotate-cw", 13)}</button>
         </div>
       </div>`).join("");
     for (const b of $("#procList").querySelectorAll("button"))
@@ -225,7 +281,11 @@ $("#btnApp").onclick = () => api("open-app");
 $("#btnDb").onclick = () => api("open-db");
 $("#btnLogs").onclick = () => api("open-logs");
 $("#btnRestartAll").onclick = () => api("restart-all");
-$("#btnPause").onclick = () => api($("#btnPause").textContent === "Avvia server" ? "resume-all" : "pause-all");
+$("#btnPause").onclick = async () => {
+  if (($("#btnPause").textContent || "").trim() === "Avvia server") { api("resume-all"); return; }
+  if (await confirmBox("Fermare il server?", "Le casse collegate perderanno l'accesso finché non premi “Avvia server”.\nMariaDB resta attivo."))
+    api("pause-all");
+};
 $("#chkAutostart").onchange = e => api(e.target.checked ? "autostart-on" : "autostart-off");
 $("#logSel").onchange = refreshLog;
 
