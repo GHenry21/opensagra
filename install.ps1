@@ -488,6 +488,27 @@ function New-CaddyConfig {
 	}
 "@
 
+    # /db -> AdminNeo (tools\adminer.php), SOLO da localhost: dal PC-server si
+    # usa il gestore DB, da una cassa in LAN si becca un 403. Identico nei due
+    # blocchi di sito. `handle` (non handle_path) + `rewrite * /adminer.php`:
+    # AdminNeo e' un file solo, non gli serve il prefisso strippato, e
+    # handle_path accetta un solo pattern (non "/db /db/*").
+    $dbRoute = @"
+	@dbpath path /db /db/*
+	@dblocal {
+		path /db /db/*
+		remote_ip 127.0.0.1 ::1
+	}
+	handle @dblocal {
+		rewrite * /adminer.php
+		root * $Script:InstallPath\tools
+		php_server
+	}
+	handle @dbpath {
+		respond "Il gestore DB e' raggiungibile solo dal PC server." 403
+	}
+"@
+
     $caddyPath = Join-Path $Script:InstallPath 'Caddyfile'
     @"
 {
@@ -500,6 +521,7 @@ http://:80 {
 	encode zstd gzip
 	php_server
 
+$dbRoute
 $httpMercure
 }
 
@@ -509,10 +531,11 @@ $httpsHosts {
 	php_server
 	tls internal
 
+$dbRoute
 $httpsMercure
 }
 "@ | Out-File -FilePath $caddyPath -Encoding ascii -Force
-    Add-InstallChecklistItem 'Caddyfile generato (con hub Mercure)'
+    Add-InstallChecklistItem 'Caddyfile generato (Mercure + gestore DB /db)'
 }
 
 function Invoke-DatabaseProvisioning {

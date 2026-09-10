@@ -5,9 +5,6 @@ $_hRoot = $_hInPages ? '../' : '';
 $_hPages = $_hInPages ? '' : 'pages/';
 $_hCurrentPage = basename(parse_url($_SERVER['PHP_SELF'] ?? '', PHP_URL_PATH) ?? '');
 
-$_hEnv = parse_ini_file(__DIR__ . '/../config/variabili.env');
-$_hDbHost = $_hEnv['DB_POS_HOST'] ?? 'localhost';
-
 $_hNavGroups = [
     [
         [
@@ -83,7 +80,7 @@ $_hNavGroups = [
             <?= pos_icon('network') ?>
             <span>Configurazione Rete</span>
         </a>
-        <a href="http://<?= htmlspecialchars($_hDbHost) ?>/phpmyadmin" target="_blank" rel="noopener noreferrer"
+        <a href="/db" target="_blank" rel="noopener noreferrer"
             class="pos-sidebar__link">
             <?= pos_icon('database-table') ?>
             <span>Gestione Database</span>
