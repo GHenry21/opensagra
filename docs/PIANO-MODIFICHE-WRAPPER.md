@@ -145,15 +145,56 @@ wrapper.
 
 ---
 
-## 5. Altro (aperto)
+## 5. Pannello per server desktop macOS / Linux — DIFFERITO (analisi 2026-09-10)
+
+**Domanda:** un'installazione **indipendente / server** su un desktop Linux o
+Mac, gestita da un utente che non usa il terminale — serve il wrapper? Se no,
+come si avvia / ferma / si vede se relay-bridge vanno?
+
+**Con solo systemd/launchd** (l'approccio "nativo"):
+
+| | systemd/launchd puro | |
+|---|---|---|
+| avvio | automatico al boot/login | ✅ ok |
+| **stop con un bottone** | no (`systemctl stop` / terminale) | ❌ scoperto |
+| **stato di relay/bridge/…** | no (`systemctl status` / `journalctl`) | ❌ scoperto |
+
+Per un utente non tecnico i due ❌ pesano. Ma la parte "pannello" del wrapper
+— **`status_http.go` + `status_page.html`** (server HTTP locale + finestra
+browser con stato dei figli, Ferma/Avvia, log) — **è già Go puro, cross-OS**.
+Windows-only sono solo: tray, dialogo Esci (TaskDialog), kill-anti-orfani
+(Job Object), autostart (chiave Run).
+
+**Percorso, se servirà davvero:**
+
+- il wrapper gira come **servizio `systemd --user`** (Linux) / **LaunchAgent**
+  (macOS) → dà supervisione + avvio al login, al posto di Job Object + Run key
+- **niente tray**: un'icona sul desktop (`.desktop` / mini `.app`) apre la
+  **finestra del pannello** (la stessa di Windows)
+- Linux-specifici da scrivere: `flock` per l'istanza singola,
+  `zenity`/`kdialog` per la conferma Esci, kill del **process-group** per gli
+  orfani, un `install.sh` che scrive l'unità + il `.desktop`. macOS: `launchd`
+  plist + `osascript` per la conferma + un `.app`/`.command`.
+- stima ~1 gg Linux (grosso = riuso del pannello esistente), simile macOS.
+
+**Decisione:** **non farlo ora.** Nessun server desktop macOS/Linux è nei
+piani (server = Windows col wrapper; Pi = client headless con systemd, nessuna
+interazione operatore). Se salta fuori un desktop Linux/Mac come server per un
+non-tecnico, il percorso è questo e costa poco. Le voci "tray nativa macOS/
+Linux" del `README.md` si leggono come **"non si fa salvo necessità"**.
+
+---
+
+## 6. Altro (aperto)
 
 - Test **end-to-end del wrapper su un client Windows** — la VM ora ci gira
   (relay attivo, config client scritta a mano 2026-09-10); manca un giro
   completo: menu/click, uscita, `--kind=back`, snapshot in pausa/ripresa al
   cambio ruolo.
-- Voci "scaffold" ancora aperte in `wrapper/README.md`: icona `.syso` +
-  versione nell'exe, `--kind=back` anche dopo *"Riavvia tutto"*, firma `.exe`
-  (SmartScreen), tray nativa macOS/Linux.
+- Voci "scaffold" ancora aperte in `wrapper/README.md`: icona `.ico` come
+  risorsa dell'exe + info versione (il `.syso` col **manifest** c'è già,
+  commit `63fc9b9`), `--kind=back` anche dopo *"Riavvia tutto"*, firma `.exe`
+  (SmartScreen).
 - `install.ps1` **non testato su VM pulita** per la parte wrapper
   (`Install-Wrapper` / `Start-Wrapper` de-elevato via task INTERACTIVE una-tantum).
 - Distribuzione: il pacchetto di release deve **compilare** `wrapper/opensagra-wrapper.exe`
