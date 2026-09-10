@@ -139,8 +139,9 @@ wrapper.
 - **Wrapper**: `db_tool_url` in `/api/status` — `GET <AppURL>/db`, 2xx/3xx **e**
   corpo che contiene "adminneo" (un'app SPA risponde 200 anche senza route: il
   marker evita il falso positivo). Cache 30s, TLS-skip per `tls internal`. La
-  pagina mostra "Apri gestione DB (AdminNeo)" solo se valorizzato; azione
-  `open-db` → `openURL`.
+  sulla **riga MariaDB** compare un bottone-icona **⇗** (stile dei ⏹/⟳ dei
+  processi) solo se `db_tool_url` è valorizzato; azione `open-db` → `openURL`.
+  Niente stop/restart di MariaDB dal wrapper (vedi §3).
 
 ---
 
