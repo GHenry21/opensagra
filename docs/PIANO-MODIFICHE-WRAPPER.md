@@ -74,14 +74,26 @@ nuovo). Era una corsa con la chiusura dell'istanza precedente ancora in corso
 
 ---
 
-## 3. "Ferma server" deve toccare MariaDB? 🤔 DA DECIDERE
+## 3. "Ferma server" e MariaDB — DECISO: non lo controlla, solo status
 
 **Domanda (utente, 2026-09-10):** il pulsante **"Ferma server"** (pausa
 aggregata: ferma frankenphp + relay + bridge + snapshot, wrapper/tray vivi,
 `announce shutdown` ai client) dovrebbe **fermare e riavviare anche MariaDB**?
 Nota: MariaDB parte comunque come servizio all'avvio.
 
-**Analisi.**
+**Deciso (2026-09-10):**
+
+- **"Ferma server" NON tocca MariaDB.** Resta = mettere offline *l'app*, non il
+  database.
+- Nei **"Dettagli avanzati"**: riga **read-only** `MariaDB: attivo (servizio) /
+  fermo` (ping best-effort sulla 3306, cache). Se è giù, il riquadro grande dice
+  *"Database fermo"* invece di lasciare frankenphp a sbattere con errori poco
+  leggibili.
+- **File:** `wrapper/status_http.go` (nuovo campo `mariadb_up` in `/api/status`,
+  ping in un file nuovo tipo `wrapper/mariadb.go` — NON `cluster.go`),
+  `wrapper/status_page.html`. Non tocca i file bloccati → **fattibile subito**.
+
+**Analisi (per memoria).**
 
 | | Contro il controllo di MariaDB dal wrapper |
 |---|---|
@@ -103,7 +115,57 @@ Nota: MariaDB parte comunque come servizio all'avvio.
 
 ---
 
-## 4. Altro (aperto)
+## 4. Tasto "Gestione DB" — AdminNeo su `/db` (localhost-only) — DECISO
+
+**Contesto.** La sidebar ha un link "Gestione Database" → `/phpmyadmin` che su
+un'installazione pulita 404a (l'installer non instrada phpMyAdmin, e phpMyAdmin
+non c'è). Serve uno strumento DB leggero, e un tasto nella finestra di stato del
+wrapper.
+
+**Valutazione (2026-09-10).**
+
+- phpMyAdmin pieno: scartato — ~8–30 MB, `config.inc.php` da generare, componente
+  terzo security-sensitive da tenere aggiornato (la migrazione ha *tolto* roba
+  così, vedi QZ Tray).
+- HeidiSQL: scartato — non è davvero "già spedito" (assente su questo PC anche
+  con MariaDB da winget), Windows-only, UI non gradita.
+- **AdminNeo** (fork Adminer, attivo, Vrána fra i contributori) **oppure Adminer
+  classico 6.0.2** — entrambi mantenuti, single-file, PHP 8.5 ok, MySQL/MariaDB
+  ok, licenza Apache-2.0/GPL-2. Scelto **AdminNeo** per il *build configuratore*
+  (driver + lingue + tema scelti prima del download → un file su misura, solo
+  MySQL, niente driver Mongo/Elastic che non servono) e i temi migliori.
+
+**Deciso.**
+
+- **Vendorizzare** il file singolo in **`tools/adminer.php`** nel repo (come
+  `vendor/`): deterministico, si vede nei diff, si aggiorna sostituendolo.
+- Build AdminNeo da configurare sulla pagina download: **driver = solo MySQL**,
+  **lingue = it (+ en)**, **tema = uno pulito** (scelta sulla pagina). URL del
+  configuratore nella forma
+  `https://www.adminneo.org/files/<version>/<drivers>_<languages>_<themes>/adminneo-<version>.php`
+  → **annotare la versione + l'URL esatto** in testa a `tools/adminer.php` così
+  il bump è un download + replace.
+- `install.ps1`: copia `tools/adminer.php` in `C:\opensagra\tools\` +
+  `New-CaddyConfig` aggiunge, in **entrambi** i blocchi di sito, un route
+  **solo-localhost**:
+  ```
+  handle_path /db {
+      @l remote_ip 127.0.0.1 ::1
+      handle @l { root * C:\opensagra\tools ; rewrite * /adminer.php ; php_server }
+      respond 403
+  }
+  ```
+  (forma da rifinire — l'importante è che da IP di LAN risponda 403, non serva
+  la pagina).
+- `includes/sidebar.php`: link "Gestione Database" → `/db` (era `/phpmyadmin`).
+- **Tasto wrapper** nei "Dettagli avanzati": "Apri gestione DB" → apre
+  `<AppURL>db` nel browser. Si **nasconde** se `/db` non risponde (check di
+  raggiungibilità nello status, come per `pma`), così su installazioni senza il
+  route non compare.
+
+---
+
+## 5. Altro (aperto)
 
 - Test **end-to-end del wrapper su un client Windows** — la VM ora ci gira
   (relay attivo, config client scritta a mano 2026-09-10); manca un giro
