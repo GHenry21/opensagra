@@ -200,5 +200,9 @@ Linux" del `README.md` si leggono come **"non si fa salvo necessità"**.
   disdetta).
 - `install.ps1` **non testato su VM pulita** per la parte wrapper
   (`Install-Wrapper` / `Start-Wrapper` de-elevato via task INTERACTIVE una-tantum).
-- Distribuzione: il pacchetto di release deve **compilare** `wrapper/opensagra-wrapper.exe`
-  (nessuna build in `install.ps1`, gira su macchine senza Go).
+- **Compilazione per la release ✅ FATTO (2026-09-11):** `wrapper/build.ps1`
+  (vet + `go build -H=windowsgui`, `CGO_ENABLED=0`, girato per davvero: exe
+  12 MB, versione letta correttamente) + `.github/workflows/build-wrapper.yml`
+  equivalente in CI (stessi passi, artefatto scaricabile) — **inerte finché il
+  repo non ha un remote GitHub**, pronto per quando ci sarà. `install.ps1`
+  resta senza build: si aspetta l'exe già pronto (gira su macchine senza Go).

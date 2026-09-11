@@ -1,0 +1,54 @@
+name: Build wrapper
+
+# Equivalente CI di wrapper\build.ps1 (stessi passi: vet + build, CGO_ENABLED=0,
+# -H=windowsgui). Produce l'exe come artefatto scaricabile - non pubblica, non
+# firma (vedi PIANO-MODIFICHE-WRAPPER.md: firma SmartScreen decisa NO).
+#
+# Inerte finche' il repo non ha un remote GitHub: gira solo li'.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wrapper/**"
+      - ".github/workflows/build-wrapper.yml"
+  pull_request:
+    paths:
+      - "wrapper/**"
+  workflow_dispatch: {} # per lanciarla a mano dalla tab Actions
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: wrapper
+    env:
+      CGO_ENABLED: "0" # tutte le dipendenze sono puro Go (nessun compilatore C richiesto)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+
+      - name: Info versione (verifica rapida)
+        shell: pwsh
+        run: |
+          $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo("opensagra-wrapper.exe")
+          "$($v.ProductName) v$($v.FileVersion) - $($v.FileDescription)"
+          (Get-Item opensagra-wrapper.exe).Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opensagra-wrapper
+          path: wrapper/opensagra-wrapper.exe
+          retention-days: 30

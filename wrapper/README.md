@@ -100,13 +100,24 @@ wrapper un bridge in fallback è semplicemente "processo vivo". Nessun impatto.
 
 ## Build
 
+```powershell
+.\wrapper\build.ps1              # vet + build di produzione (-H=windowsgui)
+.\wrapper\build.ps1 -Console      # idem ma con console, per debug (stdout visibile)
+.\wrapper\build.ps1 -Tidy          # + go mod tidy prima
+```
+
+Equivalente manuale:
+
 ```sh
 cd wrapper
 go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
 ```
 
-`go.mod`/`go.sum` sono già nel repo. Build puro-Go (nessun cgo): la finestra di
-stato è HTTP + browser app-mode, non una webview incorporata.
+`go.mod`/`go.sum` sono già nel repo. Build puro-Go (nessun cgo, `CGO_ENABLED=0`
+nello script): la finestra di stato è HTTP + browser app-mode, non una webview
+incorporata. Stessi passi in CI: `.github/workflows/build-wrapper.yml` (gira
+solo quando il repo ha un remote GitHub — produce l'exe come artefatto
+scaricabile dalla tab Actions, non pubblica/firma nulla).
 
 `-H=windowsgui` → nessuna console per il wrapper. I log finiscono in
 `<eseguibile>/logs/` (`wrapper.log` + un file per figlio).
