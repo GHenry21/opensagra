@@ -16,14 +16,24 @@
 
     Meccanismo:
     1. wrapper\build.ps1 -> wrapper\opensagra-wrapper.exe fresco
-    2. `git archive HEAD` -> snapshot pulito dei soli file tracciati (niente
-       .git, node_modules, log di test, cruft della working tree)
+    2. `git ls-files --cached --others --exclude-standard` -> lista dei file
+       "che contano" (tracciati + nuovi non ignorati), letti pero' DAL DISCO
+       (working tree), non dall'ultimo commit: le modifiche non ancora
+       committate finiscono nel pacchetto. Scelta voluta per i test rapidi -
+       vedi nota sotto. Rispetta comunque .gitignore (niente .git,
+       node_modules, log di test, vendor arriva a parte al passo 3).
     3. dentro quello zip si aggiungono wrapper\opensagra-wrapper.exe (compilato,
        gitignored - non e' tracciato) e vendor\ (Composer, gitignored - deve
        gia' esistere: `composer install` a parte, PRIMA di lanciare questo)
     4. ps2exe compila packaging\installer-bootstrap.ps1 in un unico exe, con
        quello zip incorporato come risorsa (-embedFiles) e -requireAdmin (UAC
        al lancio, non serve elevarsi di nuovo dentro install.ps1)
+
+    NOTA: include le modifiche non committate DI PROPOSITO, solo per i test
+    "voglio provare quello che ho appena scritto su un'altra macchina" senza
+    dover fare commit intermedi usa-e-getta. Per un pacchetto di release vero
+    (solo stato committato, riproducibile da un commit preciso) va rivista per
+    usare `git archive HEAD` invece della working tree.
 
 .PARAMETER Out
     Percorso dell'exe risultante. Default: opensagra-installer.exe nella root
@@ -50,21 +60,27 @@ try {
     $wrapperExe = Join-Path $RepoRoot 'wrapper\opensagra-wrapper.exe'
     if (-not (Test-Path $wrapperExe)) { throw 'wrapper\opensagra-wrapper.exe non trovato dopo la build.' }
 
-    Write-Host '2/5  Esporto i file tracciati da HEAD (git archive)...' -ForegroundColor Cyan
+    Write-Host '2/5  Preparo il payload dal working tree (incluse le modifiche non committate)...' -ForegroundColor Cyan
     $payloadZip = Join-Path $Work 'payload.zip'
-    Push-Location $RepoRoot
-    try {
-        git archive --format=zip -o $payloadZip HEAD
-        if ($LASTEXITCODE -ne 0) { throw 'git archive fallito.' }
-    } finally {
-        Pop-Location
-    }
+
+    $rawFiles = git -C $RepoRoot ls-files -z --cached --others --exclude-standard
+    if ($LASTEXITCODE -ne 0) { throw 'git ls-files fallito.' }
+    $fileList = @($rawFiles -split "`0" | Where-Object { $_ -ne '' })
+
     $headSha = (git -C $RepoRoot rev-parse --short HEAD)
-    Write-Host "     HEAD: $headSha (attenzione: modifiche non committate NON incluse)" -ForegroundColor DarkGray
+    $isDirty = [bool](git -C $RepoRoot status --porcelain)
+    $srcLabel = if ($isDirty) { "$headSha+modifiche non committate" } else { $headSha }
+    Write-Host "     $($fileList.Count) file dal working tree ($srcLabel)" -ForegroundColor DarkGray
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $zip = [System.IO.Compression.ZipFile]::Open($payloadZip, 'Update')
+    $zip = [System.IO.Compression.ZipFile]::Open($payloadZip, 'Create')
     try {
+        foreach ($rel in $fileList) {
+            $full = Join-Path $RepoRoot ($rel -replace '/', '\')
+            if (-not (Test-Path $full -PathType Leaf)) { continue }
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $full, $rel) | Out-Null
+        }
+
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $wrapperExe, 'wrapper/opensagra-wrapper.exe') | Out-Null
 
@@ -102,7 +118,7 @@ try {
         requireAdmin = $true   # UAC al doppio click - install.ps1 si trova gia' elevato
         title        = 'Installazione OpenSagra'
         product      = 'OpenSagra'
-        description  = "Installer (da HEAD $headSha)"
+        description  = "Installer (da $srcLabel)"
         version      = '0.1.0.0'
         embedFiles   = @{ '%TEMP%\opensagra-installer-payload.zip' = $payloadZip }
     }
