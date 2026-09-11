@@ -602,7 +602,7 @@ function Install-Wrapper {
     # incorporate nell'exe (go:embed), non servono file accanto.
     $src = Join-Path $Script:SourcePath "wrapper\$Script:WrapperExeName"
     if (-not (Test-Path $src)) {
-        throw "Wrapper non trovato ($src). Va compilato e incluso nel pacchetto di release: cd wrapper; go build -ldflags '-H=windowsgui' -o $Script:WrapperExeName ./..."
+        throw "Wrapper non trovato ($src). Va compilato PRIMA di impacchettare la release: .\wrapper\build.ps1 (macchina di sviluppo, richiede Go - vedi wrapper\README.md)."
     }
     Copy-Item $src (Join-Path $Script:InstallPath $Script:WrapperExeName) -Force
     Add-InstallChecklistItem 'Wrapper/tray-app copiato'
