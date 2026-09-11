@@ -60,7 +60,10 @@ $Script:ExcludeFromCopy = @(
     # compilato (wrapper\opensagra-wrapper.exe) lo copia Install-Wrapper.
     'wrapper',
     # Materiale sensibile bundlato accanto a install.ps1: mai dentro la webroot.
-    'private'
+    'private',
+    # Script di packaging (make-installer.ps1 ecc.) - servono solo a costruire
+    # opensagra-installer.exe, non fanno parte dell'app installata.
+    'packaging'
 )
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release

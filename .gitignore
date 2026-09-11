@@ -42,3 +42,8 @@ Thumbs.db
 
 # Script di sync locale verso la VM (path O: specifico di questa macchina)
 /sync-vm.ps1
+
+# Installer a-un-file, prodotto da packaging\make-installer.ps1 (contiene
+# uno snapshot dell'intero repo + vendor/ + il wrapper compilato - grosso,
+# rigenerato ad ogni release, non va committato)
+/opensagra-installer.exe
