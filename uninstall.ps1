@@ -26,6 +26,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Log minimo scritto SEMPRE, dal primissimo istante - stesso motivo di
+# install.ps1: impacchettato con ps2exe (-noConsole) un fallimento precoce
+# altrimenti non lascia nessuna traccia visibile.
+$Script:LogPath = Join-Path $env:TEMP 'opensagra-uninstall.log'
+try { "[$(Get-Date -Format o)] avvio uninstall.ps1 (PID $PID)" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+
 # ============================================================================
 # Configurazione (stessi valori di install.ps1 - l'uninstaller deve poter
 # girare anche dopo che C:\opensagra e' stato rimosso, quindi non li legge da
@@ -373,6 +379,18 @@ try {
     Close-InstallWindow -Success
 } catch {
     Write-Error $_
+    try { ($_ | Out-String) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+
+    $wasReady = $Script:SyncHash -and $Script:SyncHash.Ready
     Close-InstallWindow -ErrorMessage $_.Exception.Message
+    if (-not $wasReady) {
+        try {
+            Add-Type -AssemblyName PresentationFramework
+            [System.Windows.MessageBox]::Show(
+                "Disinstallazione fallita:`n`n$($_.Exception.Message)`n`nDettagli completi in $Script:LogPath",
+                'Errore disinstallazione OpenSagra',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+        } catch {}
+    }
     exit 1
 }

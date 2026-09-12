@@ -38,6 +38,16 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Log minimo scritto SEMPRE, dal primissimo istante - impacchettato con
+# ps2exe (-noConsole) un fallimento precoce (prima che la finestra WPF sia
+# pronta) altrimenti non lascia traccia di nessun tipo: "eseguo l'exe e non
+# succede nulla" (visto testando su una macchina reale, 2026-09-12) senza
+# nessun modo di capire se il processo non e' nemmeno partito o se e' morto
+# subito dopo. Path fisso e semplice: e' il primo posto dove guardare quando
+# "non succede nulla".
+$Script:LogPath = Join-Path $env:TEMP 'opensagra-install.log'
+try { "[$(Get-Date -Format o)] avvio install.ps1 (PID $PID)" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+
 # Senza questo, Invoke-WebRequest (qui e nello script ufficiale di FrankenPHP,
 # eseguito inline piu' sotto) disegna la sua progress bar di default che,
 # ospitato dentro l'host minimale di ps2exe (nessuna vera console), si
@@ -718,6 +728,23 @@ try {
     Close-InstallWindow -Success
 } catch {
     Write-Error $_
+    try { ($_ | Out-String) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+
+    # Se la finestra WPF non e' mai arrivata a "Ready" (es. l'errore e'
+    # scattato prima che si apra, o nell'apertura stessa), Close-InstallWindow
+    # e' un no-op silenzioso - senza console (-noConsole) non resterebbe
+    # NESSUNA traccia visibile. Il MessageBox qui sotto e' il fallback che
+    # garantisce che l'errore si veda comunque, non solo nel log.
+    $wasReady = $Script:SyncHash -and $Script:SyncHash.Ready
     Close-InstallWindow -ErrorMessage $_.Exception.Message
+    if (-not $wasReady) {
+        try {
+            Add-Type -AssemblyName PresentationFramework
+            [System.Windows.MessageBox]::Show(
+                "Installazione fallita:`n`n$($_.Exception.Message)`n`nDettagli completi in $Script:LogPath",
+                'Errore installazione OpenSagra',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+        } catch {}
+    }
     exit 1
 }
