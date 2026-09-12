@@ -387,10 +387,21 @@ function Install-MariaDBEngine {
     # MSI del pacchetto (WiX): ADDLOCAL=ALL installa tutte le feature, REMOVE=
     # HeidiSQL la toglie di nuovo. Non serve: la gestione DB passa da /db
     # (AdminNeo, vedi tools/), non da un client desktop.
+    #
+    # Bug reale (2026-09-12, causa di "MariaDB non trovato" su ogni VM
+    # pulita pur con l'id giusto): Start-Process -ArgumentList con un array
+    # NON quota da solo un elemento con spazi al suo interno - 'ADDLOCAL=ALL
+    # REMOVE=HeidiSQL' arrivava a winget spezzato in DUE argomenti separati
+    # (--custom prendeva solo "ADDLOCAL=ALL", "REMOVE=HeidiSQL" diventava un
+    # argomento randagio che confondeva la ricerca del pacchetto ->
+    # APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND). Le virgolette DENTRO la
+    # stringa dell'elemento (non attorno all'elemento nell'array) sono
+    # l'unico modo per farle arrivare nella command line finale - verificato
+    # con un dump degli argv ricevuti.
     $wingetArgs = @(
         'install', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity',
         '--accept-package-agreements', '--accept-source-agreements',
-        '--custom', 'ADDLOCAL=ALL REMOVE=HeidiSQL'
+        '--custom', '"ADDLOCAL=ALL REMOVE=HeidiSQL"'
     )
     $wingetResult = Start-Process -FilePath 'winget' -ArgumentList $wingetArgs -WindowStyle Hidden -Wait -PassThru
     if (-not (Test-Path "$Script:MariaDbDir\bin\mariadbd.exe")) {
