@@ -15,7 +15,7 @@
 | **Packaging / distribuzione** | **Nessun binario embed.** Lo script d'installazione **copia i file** di opensagra nelle cartelle di destinazione. Il codice sorgente resta aperto e ispezionabile (progetto open source). `vendor/` incluso nel pacchetto di release (niente `composer install` sul target). |
 | **Cosa varia in base alle risposte** | Il codice di opensagra è **sempre spedito completo e identico**. Il wizard automatizza solo due passi oggi manuali: (1) generare `config/variabili.env` dalle risposte, (2) creare DB/tabelle/utente. Vedi **Fase 3a**. |
 | **HTTPS** | **Aggiornato dopo i test reali (2026-09-06): HTTP e HTTPS coesistono stabilmente, non è un aut-aut.** Il problema di mixed-content su Firefox/WebKit riguarda **solo** il metodo di stampa `bridge_qz` (un QZ Tray condiviso raggiunto via IP di LAN); la stampa diretta (`WIN_USB`/`LINUX_USB`/`RETE`, gestita interamente dal server PHP senza WebSocket lato browser) **funziona identica su HTTPS**, verificato con test reale. Regola pratica per la Fase 3: cassa con stampante diretta → HTTPS ok; cassa che usa un bridge QZ condiviso → HTTP. Il bridge condiviso è il caso meno comune, quindi un avviso mirato nella guida/wizard basta, senza sacrificare HTTP/2/3 e il lucchetto per tutti gli altri. Dettagli in **Appendice C**. |
-| **Realtime (Mercure/SSE)** | **Attivo (2026-09-08, Fase 4).** Hub nel binario FrankenPHP, topic `products`, `EventSource` in `billing.php` con fallback al polling. Cross-macchina in modalità rete via `bin/opensagra-realtime-relay.php` (verificato con la VM). Wiring del punto 5 **fatto** (2026-09-09, non testato su VM pulita): `conf_rete` sincronizza il segreto via DB (`7d064bc`), `install.ps1` genera il blocco `mercure{}` + `MERCURE_JWT_SECRET` + riga `app_config` (`94c4b2f`), il relay è un processo figlio del wrapper Go (scaffold `d4d758e`), non più un servizio WinSW. **Roadmap collegata punto 4 — "Fallback locale una-via + push a chiusura cassa" fatto e testato 2026-09-09** (`api/enter_local_fallback.php`, `api/push_local_sales.php`, `bin/opensagra-snapshot.php`, migrazione 004; test DB-level + browser + **end-to-end cross-macchina VM** verdi). Dettagli nel riquadro "✅ Implementazione (2026-09-09)" della sezione "Design concreto — Fallback locale una-via". |
+| **Realtime (Mercure/SSE)** | **Attivo (2026-09-08, Fase 4).** Hub nel binario FrankenPHP, topic `products`, `EventSource` in `billing.php` con fallback al polling. Cross-macchina in modalità rete via `bin/opensagra-realtime-relay.php` (verificato con la VM). Wiring del punto 5 **fatto** (2026-09-09, non testato su VM pulita): `conf_rete` sincronizza il segreto via DB (`7d064bc`), `install.ps1` genera il blocco `mercure{}` + `MERCURE_JWT_SECRET` + riga `app_config` (`94c4b2f`), il relay è un processo figlio del wrapper Go (scaffold `d4d758e`), non più un servizio WinSW. **Roadmap collegata punto 4 — "Fallback locale una-via + push a chiusura cassa" fatto e testato 2026-09-09** (`api/enter_local_fallback.php`, `api/push_local_sales.php`, `bin/opensagra-snapshot.php`, migrazione 004; test DB-level + browser + **end-to-end cross-macchina VM** verdi). **Strumenti visivi persistenti per il push aggiunti 2026-09-10** (`api/sync_status.php`, badge in sidebar, card in `conf_rete.php`, guardia anti-orfani su `set_network_config.php`, auto-heal nel push). **Corretto 2026-09-12** (dopo un brainstorming, senza codice finché il disegno non era chiuso): le vendite pendenti non possono più diventare orfane cambiando modalità (nuovo marcatore `FALLBACK_SESSION_ACTIVE`), e un nodo che passa da indipendente a client non perde più il proprio catalogo (`stock`/`casse_stampanti`/`receipt_config`) — torna a posto da solo, in automatico, allo switch pulito verso Indipendente (`config/catalog_backup.php`, niente pagina dedicata). Scoperto nello stesso ragionamento un problema pre-esistente slegato: nomi prodotto duplicati potevano far scalare lo stock sbagliato in un push (`config/product_name.php`: nome sempre MAIUSCOLO + controllo duplicati). Dettagli nei riquadri "✅ Implementazione (2026-09-09)", "✅ Strumenti visivi per il push (2026-09-10)" e "✅ Vendite mai orfane + catalogo che non si sporca (2026-09-12)" della sezione "Design concreto — Fallback locale una-via". |
 | **Worker mode** | Ottimizzazione futura opzionale. Scope e stima in Appendice B. |
 | **QZ Tray** | Stampa da stampanti USB via browser. La procedura certificati/firma attuale (openssl + override + `sign-message.php`) **resta invariata** in questa migrazione. Con Caddy/HTTPS vanno però verificati alcuni punti di mixed-content: vedi **Appendice C**. Nessuna modifica al codice QZ ora. |
 | **Wizard d'installazione** | Lo script pone domande in linguaggio semplice (architettura, QZ, HTTPS) e configura di conseguenza: vedi **Fase 3a**. ⚠️ Le domande attuali sono solo una bozza, da riformulare al momento della Fase 3. |
@@ -866,11 +866,121 @@ Fatto tutto A–E. Scelte concrete e scostamenti dal design:
 
 - **Punto B — snapshot.** `bin/opensagra-snapshot.php`, **processo separato** (non dentro il relay: isolato, testabile da solo, non tocca `bin/mercure_subscriber.php` condiviso da relay+bridge). Registrato in `wrapper/children.go` accanto a relay/bridge. Loop: idle se non client, **in pausa se `FALLBACK_ORIGIN_HOST` è valorizzato** (mutua esclusione col push — critico), altrimenti ogni ~10 s controlla `MAX(updated_at)`/`COUNT` su `stock` del server e, se cambiato, ricopia `stock`; ogni ~180 s ricopia **tutte** le tabelle di riferimento (`stock`, `casse_stampanti`, `receipt_config`). `snapshotTable()` = **`DROP TABLE` + `CREATE TABLE` dal `SHOW CREATE TABLE` del server** + reinsert (`mysqli::execute($array)`, PHP ≥ 8.1). Il DROP+CREATE (non un `DELETE`) è deliberato — **scoperto testando sulla VM**: il DB locale di un client non è mai usato in esercizio normale, quindi il suo schema può essere non allineato alle migrazioni (drift reale: `casse_stampanti` sulla VM senza la colonna `bridge_host` → `INSERT` fallito). Sono cache di sola lettura lato client, ricrearle è sicuro (nessuna FK entrante). **`app_config` non si copia**: al client non serve la k/v del server, gli basta scrivere in locale il proprio `snapshot_last_ok` (via `setAppConfig`, che crea la tabella on-demand). Scostamento dal design: il refresh anticipato **non** riusa gli eventi Mercure del relay (niente IPC) — interroga direttamente il DB del server, costo trascurabile e zero accoppiamento.
 
-- **Punto C + D — push.** `api/push_local_sales.php` (POST): richiede `FALLBACK_ORIGIN_HOST` (else 409); se il centrale non risponde → `{success:false, server_online:false, pending:N}`. Per ogni vendita locale `da_sincronizzare=1 AND pushed_at IS NULL`, **transazione sul centrale**: INSERT testata (riusa `data_ora` + `idempotency_key`; su `1062` la recupera e la tratta come già fatta), INSERT dettagli sul nuovo `vendita_id`, **decremento stock "cieco"** (`quantity_available - qta WHERE name = ?`, **niente `FOR UPDATE`**, **negativi ammessi** — segnale di oversell, lo storno lo sistema), commit; poi sul locale `pushed_at = NOW(), da_sincronizzare = 0`. A push completo: `DB_POS_HOST` torna all'IP del server, `FALLBACK_ORIGIN_HOST` azzerato (lo snapshot riparte da solo), `publishProductsChanged()` best-effort. Push parziale → marker intatti, il bottone ripete. Integrazione UI: `api/chiudi_cassa.php` aggiunge `fallback_active` + `pending_sync`; `includes/sidebar.php` dopo "Chiudi Cassa", se in fallback, lancia il push e — se il centrale è ancora giù o il push è parziale — mostra un toast **persistente** con bottone "Sincronizza ora" (`toast.js` `action`). Nessun avviso durante il servizio: l'affordance compare solo a chiusura (fine serata).
+- **Punto C + D — push.** `api/push_local_sales.php` (POST): richiede `FALLBACK_ORIGIN_HOST` (else 409); se il centrale non risponde → `{success:false, server_online:false, pending:N}`. Per ogni vendita locale `da_sincronizzare=1 AND pushed_at IS NULL`, **transazione sul centrale**: INSERT testata (riusa `data_ora` + `idempotency_key`; su `1062` la recupera e la tratta come già fatta), INSERT dettagli sul nuovo `vendita_id`, **decremento stock "cieco"** (`quantity_available - qta WHERE name = ?`, **niente `FOR UPDATE`**, **negativi ammessi** — segnale di oversell, lo storno lo sistema), commit; poi sul locale `pushed_at = NOW(), da_sincronizzare = 0`. A push completo: `DB_POS_HOST` torna all'IP del server, `FALLBACK_ORIGIN_HOST` azzerato (lo snapshot riparte da solo), `publishProductsChanged()` best-effort. Push parziale → marker intatti, il bottone ripete. Integrazione UI: `api/chiudi_cassa.php` aggiunge `fallback_active` + `pending_sync`; `includes/sidebar.php` dopo "Chiudi Cassa", se in fallback, lancia il push e — se il centrale è ancora giù o il push è parziale — mostra un toast con bottone "Sincronizza ora" (`toast.js` `action`). Nessun avviso durante il servizio: l'affordance compare solo a chiusura (fine serata). **Il toast però non sopravvive a un reload / riavvio del browser**: gli strumenti visivi persistenti sono stati aggiunti dopo — vedi **"✅ Strumenti visivi per il push (2026-09-10)"** subito sotto.
 
 - **Punto E — test.** `e2e/local-fallback.manual.php` (CLI, due schemi usa-e-getta `opensagra_pos_fbtest_central`/`_local`, **non tocca `variabili.env` né `opensagra_pos`**): guardie di A, push con dettagli rimappati + stock decrementato + negativi ammessi, ri-push idempotente (0 doppioni), centrale irraggiungibile gestito — **tutto verde**. Contiene una copia fedele del ciclo di `push_local_sales.php` (da tenere in sync — nota in testa al file). `e2e/local-fallback.spec.js` (Playwright, 3 browser, tutte le chiamate mutanti stubbate): soglia sotto/sopra → swap silenzioso + reload, hook di forzatura, "Chiudi Cassa" in fallback → push + bottone "Sincronizza ora" → retry ok. Non-regressione: `checkout-resilienza`, `mercure-realtime`, `bridge-native-config`, `cluster-announce` verdi. Migrazione `config/migrations/004_vendite_fallback_sync.php` (colonne `vendite.da_sincronizzare` + `pushed_at` + indice; anche in `config/pos.sql` e nell'`ensure*` a runtime di `print_receipt.php`) — idempotente, lanciata due volte.
 
 - **End-to-end cross-macchina VM — ✅ FATTO 2026-09-09.** Host = server (`192.168.88.224`), VM `opensagra-test` = client. Copiati i file sulla VM, migrata la `vendite` locale (003+004), avviato `bin/opensagra-snapshot.php` sulla VM → copia `stock`/`casse_stampanti`/`receipt_config` host→VM (schema `casse_stampanti` riallineato dal DROP+CREATE, vedi Punto B) + `snapshot_last_ok`. "Centrale giù" simulato con una regola firewall **solo sulla VM** che blocca `→192.168.88.224:3306` (non tocca il DB host né il live-testing). Sequenza verificata: `enter_local_fallback.php` → `variabili.env` VM swappato (`DB_POS_HOST=127.0.0.1`, `FALLBACK_ORIGIN_HOST=192.168.88.224`), snapshot va in pausa; checkout in fallback → vendita nella `vendite` locale VM con `da_sincronizzare=1`, stock locale 9→7 (la stampa fallisce, VM senza stampante per quella cassa — atteso, in reale ci pensa il bridge); sblocco firewall → `push_local_sales.php` → `{success:true,pushed:1,back_to_network:true}`, sul centrale nuova `vendite` id 155 (`data_ora`/`idempotency_key`/`metodo_pagamento` preservati), dettagli rimappati, `stock` centrale 9→7, `variabili.env` VM tornato client, `pushed_at` valorizzato in locale, **nessun doppione**. Pulito tutto (vendita di test + stock ripristinato su entrambi i DB, regola firewall e processo snapshot rimossi). Il DB locale del client va inizializzato da `config/pos.sql` (Fase 3 lo fa per ogni installazione); il DROP+CREATE dello snapshot ricuce comunque il drift di schema.
+
+#### ✅ Strumenti visivi per il push (2026-09-10)
+
+Buco riscontrato rileggendo il piano: lato grafico l'**unico** aggancio al push era il toast dopo "Chiudi Cassa" — in memoria, quindi perso a un reload / riavvio del browser (l'app gira in finestra app-mode dal wrapper), alla chiusura manuale del toast o navigando altrove. Il "bottone persistente" previsto al Punto C era di fatto solo un toast persistente. Aggiunto un livello di strumenti che sopravvive:
+
+- **`api/sync_status.php`** (nuovo, GET leggero, `Cache-Control: no-store`). Interroga **sempre `127.0.0.1`** (le vendite in attesa stanno sempre nel MariaDB locale, sia in fallback sia tornati in rete): `{ fallback_active, origin_host, pending_sync, pending_known, armed }`. `pending_sync` = `COUNT(*) FROM vendite WHERE da_sincronizzare=1 AND pushed_at IS NULL` (usa `idx_vendite_da_sincronizzare`); `pending_known:false` se la tabella non c'è (cache locale di un client mai andato in fallback) — il chiamante allora non mostra nulla. `armed` = marker `app_config['close_sync_pending']`.
+
+- **Marker `close_sync_pending`** (riga in `app_config` sul DB locale). Lo **scrive `api/chiudi_cassa.php`** quando si chiude con `fallback_active && pending_sync>0`; lo **azzera `api/push_local_sales.php`** a push completo (`remaining===0`). Serve a tenere il badge **spento durante il servizio** (prima della chiusura non c'è) e acceso — e persistente — solo da fine serata in poi. Rispetta la decisione "nessun avviso mentre l'operatore batte ordini".
+
+- **Badge persistente in sidebar** (`includes/sidebar.php`, `#pos-sync-pending`, stile in `pos-redesign.css`). Visibile **da qualunque pagina** (la sidebar è globale), sotto la pillola di rete, quando `pending_sync>0 && (armed || !fallback_active)`. Testo "N vendite da sincronizzare col server centrale" + bottone "Sincronizza ora". Polling `sync_status.php` ogni 20 s → sopravvive a reload/riavvio perché il conteggio arriva dal server, non da stato in pagina. La routine di push è stata estratta in `window.posSyncLocalSales(pushUrl, hint)` — **una sola** per "Chiudi Cassa", bottone del toast e badge.
+
+- **Card in `pages/conf_rete.php`** (`#syncPendingCard`, `.rete-card--warn`). Compare quando `pending_sync>0` **a prescindere da `armed`** (visita diagnostica deliberata → si mostrano anche gli orfani). Riporta il numero e l'host di destinazione (`origin_host`) + "Sincronizza ora" (riusa `window.posSyncLocalSales`). È la "sede naturale" del controllo, accanto allo switch di rete.
+
+- **Guardia in `api/set_network_config.php` (prima versione, poi corretta).** Prima di scrivere, se il DB locale ha `da_sincronizzare=1 AND pushed_at IS NULL` → **409** `{ error, pending_sync }` a meno di `{ force: true }`; a fine switch azzerava comunque `FALLBACK_ORIGIN_HOST`. Si è scoperto — ragionando con l'utente il 2026-09-12, prima di testare qualunque cosa — che forzando lo switch (`force:true`) con un debito ancora aperto quell'azzeramento **orfanava per davvero** le vendite pendenti (irraggiungibili dall'interfaccia). **Sostituito dalla correzione strutturale**: vedi **"✅ Vendite mai orfane + catalogo che non si sporca (2026-09-12)"** più sotto — niente più `force`/409, il debito non si tocca mai con uno switch manuale.
+
+- **Auto-heal degli orfani in `api/push_local_sales.php` (prima versione).** Se `FALLBACK_ORIGIN_HOST` era vuoto ma `DB_POS_HOST` puntava già a un server remoto, modalità `heal-only` con connessione esplicita a `127.0.0.1`. Il meccanismo resta (per gli orfani pre-esistenti a questa correzione) ma non è più il caso normale: con la correzione del 2026-09-12 il debito non viene più azzerato da uno switch manuale, quindi il ramo "vero" (`FALLBACK_ORIGIN_HOST` valorizzato) copre ormai anche quello che prima serviva l'heal-only.
+
+- **Test.** `e2e/local-fallback.spec.js` + un caso nuovo: badge che compare da `sync_status.php` stubbato, **sopravvive a un `page.reload()`**, e a push riuscito si nasconde da solo. `npx playwright test` (chromium): 4/4 verdi su questo file; non-regressione `checkout-resilienza` / `mercure-realtime` / `cluster-announce` / `bridge-native-config` 9/9 verdi. Smoke reale: `GET api/sync_status.php` → `{"fallback_active":false,…,"pending_sync":0,"pending_known":true,"armed":false}`; `POST api/set_network_config.php` senza pendenti invariato. Nessuna modifica di schema (il marker è una riga `app_config`, tabella già auto-creata).
+
+#### ✅ Vendite mai orfane + catalogo che non si sporca (2026-09-12)
+
+Piano completo: `C:\Users\enrig\.claude\plans\facciamo-brainstroming-di-base-elegant-bachman.md`.
+Nato da un brainstorming a voce (nessun codice toccato finché il disegno non è stato chiuso)
+che ha corretto **due buchi** nella prima versione scritta lo stesso giorno (sezione
+precedente) e ne ha scoperto un **terzo**, pre-esistente e slegato.
+
+**Buco 1 — le vendite pendenti potevano diventare orfane.** La prima versione della guardia in
+`api/set_network_config.php` (sopra) azzerava comunque `FALLBACK_ORIGIN_HOST` se lo switch
+veniva forzato con un debito ancora aperto: le vendite restavano nel DB ma diventavano
+irraggiungibili dall'interfaccia. **Corretto separando due informazioni che prima stavano
+nella stessa variabile:**
+- `FALLBACK_ORIGIN_HOST` diventa puramente **"c'è un debito verso questo server"** — non si
+  azzera più con nessuno switch manuale, solo quando `api/push_local_sales.php` lo salda per
+  davvero.
+- **Nuovo marcatore `FALLBACK_SESSION_ACTIVE`** (`config/env_reader.php`, `variabili.env`):
+  vero solo se è stato **il sistema** a decidere il fallback (`api/enter_local_fallback.php` lo
+  accende) e nessuno switch manuale l'ha ancora toccato — `api/set_network_config.php` lo
+  **spegne sempre**, qualunque modalità venga scelta. Governa due cose: (a)
+  `print/print_receipt.php` marca le vendite nuove `da_sincronizzare=1` solo se è acceso —
+  altrimenti sono vendite locali normali e definitive, anche se resta un vecchio debito aperto
+  verso un altro server; (b) `api/push_local_sales.php`, a debito saldato, torna in rete da solo
+  (`DB_POS_HOST = $originHost`) **solo se** era acceso e il nodo è ancora fisicamente locale —
+  altrimenti lascia la modalità scelta dall'operatore esattamente com'era. `push_local_sales.php`
+  inoltre non usa più "quello che dice `DB_POS_HOST` ora" per trovare il DB locale (con la
+  correzione può benissimo essere un server B diverso da quello del debito): si connette sempre
+  esplicitamente a `127.0.0.1`.
+
+**Buco 2 — il catalogo di un nodo che è stato Indipendente non tornava mai a posto da solo.**
+Un nodo usato una stagione come indipendente che passa in Client si vede sovrascrivere
+`stock`/`casse_stampanti`/`receipt_config` col catalogo del centrale (`bin/opensagra-
+snapshot.php`, comportamento corretto in rete) — ma tornare Indipendente non ripristinava
+nulla. Una prima versione (pagina dedicata "Backup Catalogo" con elenco/ripristina/elimina) è
+stata **giudicata troppo tecnica e macchinosa** ("utente medio non sa cos'è un db") e rifatta:
+
+- **`config/catalog_backup.php`** (motore, invariato nella logica di base): due tabelle
+  on-demand **sul DB locale del nodo** — `catalog_backup_batches(id, created_at, reason)` +
+  `catalog_backup_tables(id, batch_id, table_name, row_count, data JSON)`.
+  `backupCatalogTables()` salva solo le tabelle non vuote (nessun batch se tutte vuote — **se il
+  catalogo era vuoto in origine non si ripristina nulla apposta**, deciso esplicitamente: meglio
+  un catalogo pieno "sporco" che uno svuotato a sorpresa). `restoreCatalogBackupBatch()`
+  stage-then-swap (righe intere, quantità comprese) **con un nuovo backup di sicurezza dello
+  stato attuale prima di sovrascrivere** — un ripristino non cancella mai, si annida.
+  **Nuovo:** `mostRecentBackupBatch()` (l'unico che viene mai offerto in automatico) e
+  `pruneCatalogBackups()` / `CATALOG_BACKUP_KEEP=3` (pulizia silenziosa dei più vecchi — nessuna
+  UI per gestirli, quindi nessun elenco da tenere in ordine a vista).
+- **`api/set_network_config.php`**: switch a **Client** → backup automatico e silenzioso se il
+  locale non è vuoto (invariato). Switch a **Indipendente** (nuovo) → ripristina subito l'ultimo
+  batch, **senza chiedere nulla e a prescindere dal debito vendite** (sono due faccende
+  indipendenti — il ripristino tocca solo stock/casse/scontrino, mai vendite; un gate sul debito
+  creerebbe un vicolo cieco se non si azzera mai, es. push che fallisce sempre). Risposta con
+  `catalog_restored: {tables, safety_backup_id}` o null.
+- **`pages/conf_rete.php`**: un solo toast informativo dopo lo switch a Indipendente se qualcosa
+  è stato ripristinato, con azione **"Annulla"** (richiama `api/restore_catalog_backup.php` sul
+  `safety_backup_id` appena creato). **Nessuna pagina dedicata**: `pages/conf_backup.php` e gli
+  endpoint `api/list_catalog_backups.php` / `api/delete_catalog_backup.php` sono stati rimossi;
+  `api/restore_catalog_backup.php` resta solo per supportare "Annulla".
+
+**Buco 3 (scoperto, non un difetto di questo lavoro — pre-esistente e slegato) — nomi prodotto
+duplicati.** `api/push_local_sales.php` decrementa lo stock sul centrale cercando per **nome**
+(lo scontrino salva il nome, non un id): due prodotti con lo stesso nome farebbero scalare per
+errore anche quello non coinvolto nella vendita, **in silenzio** (a differenza del vero oversell
+tra casse, visibile perché lo stock scende sotto zero). Deciso: nome sempre **MAIUSCOLO** al
+salvataggio (anche se digitato in minuscolo, `mb_strtoupper`) + controllo duplicati sul nome
+**intero** normalizzato (spazi multipli collassati, trattino equivalente a spazio — "PANINO
+SALSICCIA" e "PANINO PORCHETTA" restano prodotti distinti). Nuovo `config/product_name.php`
+(`normalizeProductNameForStorage()`, `productNameIsDuplicate()`), usato da
+`api/insert_product.php` e `api/update_product.php` (quest'ultimo esclude se stesso dal
+confronto).
+
+**Fuori scope, deciso esplicitamente:** il warning "cassa non associata a nessuna stampante"
+che può comparire in `billing.php` durante un fallback attivo (perché `casse_stampanti` è
+overwritten dal centrale) resta com'è — non è un caso d'uso frequente ("non ci si mette a
+cambiare casse in continuo"). Il limite per cui il bridge di stampa condiviso (`BRIDGE_NATIVE`)
+non funziona durante un fallback (l'hub Mercure segue `DB_POS_HOST`) resta anche lui fuori
+scope, pre-esistente e slegato da questo lavoro.
+
+- **Test.** `e2e/local-fallback.manual.php` +5 scenari (decisione `$autoReturnToNetwork` per
+  ognuno dei 4 casi mode/sessione, e verifica che il debito si azzeri SOLO al push, mai a uno
+  switch manuale, attraverso una sequenza di switch multipli). `e2e/catalog-backup.manual.php`
+  +2 scenari (`mostRecentBackupBatch()` ritorna il più recente non il primo; pruning tiene
+  esattamente `CATALOG_BACKUP_KEEP` batch, toglie i più vecchi). Nuovo
+  `e2e/product-name.manual.php` (normalizzazione + duplicati, incl. accenti e caso
+  aggiorna-se-stesso). **Tutti verdi.** Non-regressione Playwright (`local-fallback`,
+  `checkout-resilienza`, `cluster-announce`, `mercure-realtime`, `bridge-native-config`) 13/13
+  verdi. Smoke reale (sola lettura): `sync_status.php`, `billing.php`, `add_product.php`,
+  `conf_rete.php` caricano dopo il refactor di `env_reader.php`. **Non ripetuto end-to-end sul
+  vero switch di rete** della macchina di sviluppo condivisa (rischio concorrenza col test live
+  dell'utente) — **da rifare sulla VM**, il runbook di collaudo pubblicato in questa stessa fase
+  va ripetuto da capo perché gli scenari D ed E si basavano sul vecchio gate `force`/409, ora
+  rimosso.
 
 ### Pro e contro (valutazione 2026-09-07, prima di decidere se promuoverla)
 

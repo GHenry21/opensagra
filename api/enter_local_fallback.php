@@ -78,10 +78,15 @@ try {
     exit;
 }
 
-// Ordine: prima salva l'origine, poi sposta DB_POS_HOST. Se il processo muore
-// tra i due, al giro dopo FALLBACK_ORIGIN_HOST e' gia' scritto e questo
-// endpoint (ramo "already") completa il quadro senza danni.
+// Ordine: prima salva l'origine (il debito) e marca la sessione come decisa
+// dal sistema, poi sposta DB_POS_HOST. Se il processo muore a meta', al giro
+// dopo i marker sono gia' scritti e questo endpoint (ramo "already") completa
+// il quadro senza danni. FALLBACK_SESSION_ACTIVE=1 e' cio' che permette a
+// push_local_sales.php di distinguere questo caso (automatico, si aspetta di
+// tornare in rete da solo) da un domani switch manuale (l'operatore decide
+// lui, vedi env_reader.php).
 if (!setEnvValue($env['env_file'], 'FALLBACK_ORIGIN_HOST', $currentHost)
+    || !setEnvValue($env['env_file'], 'FALLBACK_SESSION_ACTIVE', '1')
     || !setEnvValue($env['env_file'], 'DB_POS_HOST', '127.0.0.1')) {
     http_response_code(500);
     echo json_encode(['error' => 'Impossibile scrivere config/variabili.env (permessi file?).']);

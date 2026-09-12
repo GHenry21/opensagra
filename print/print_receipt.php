@@ -753,12 +753,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
     ensureVenditeIdempotencyColumn($connectionDB);
     ensureVenditeFallbackSyncColumns($connectionDB);
 
-    // Fase 4 punto 4: se la cassa sta girando in fallback locale (il centrale e'
-    // irraggiungibile, api/enter_local_fallback.php ha spostato DB_POS_HOST su
-    // 127.0.0.1 e salvato l'IP del server in FALLBACK_ORIGIN_HOST) ogni vendita
-    // nasce con da_sincronizzare=1: verra' ricaricata sul centrale a chiusura
-    // cassa da api/push_local_sales.php.
-    $daSincronizzare = loadPosEnvVars()['fallback_origin_host'] !== '' ? 1 : 0;
+    // Fase 4 punto 4: la vendita nasce da_sincronizzare=1 SOLO mentre e' attiva
+    // una sessione di fallback decisa dal sistema (fallback_session_active,
+    // api/enter_local_fallback.php) - non basta avere un debito aperto
+    // (fallback_origin_host). Distinzione corretta il 2026-09-12: se
+    // l'operatore ha scelto lui, a mano, di restare in locale (magari con un
+    // vecchio debito verso un altro server ancora da saldare), le vendite di
+    // OGGI sono vendite locali normali e definitive - non vanno marcate per
+    // l'invio, altrimenti finirebbero a inseguire un server che l'operatore ha
+    // deliberatamente deciso di non usare piu' per adesso. Vedi
+    // config/env_reader.php per il dettaglio dei due marcatori.
+    $daSincronizzare = loadPosEnvVars()['fallback_session_active'] ? 1 : 0;
 
     // Retry (Scalino 0) o doppio clic: la vendita con questa chiave esiste gia'
     // -> ristampa e basta, niente seconda registrazione.

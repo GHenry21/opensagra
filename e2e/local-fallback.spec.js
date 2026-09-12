@@ -10,7 +10,10 @@
 //     (POST enter_local_fallback.php) e la pagina si ricarica, in silenzio;
 //   - l'hook di test window.__opensagraForceLocalFallback() forza lo swap;
 //   - a "Chiudi Cassa", se la cassa era in fallback, parte il push e - se il
-//     centrale e' ancora giu' - compare il bottone persistente "Sincronizza ora".
+//     centrale e' ancora giu' - compare il bottone persistente "Sincronizza ora";
+//   - il badge persistente in sidebar (#pos-sync-pending), guidato da
+//     api/sync_status.php, compare su qualunque pagina e sopravvive a un reload
+//     finche' restano vendite locali da sincronizzare.
 
 const { test, expect } = require('@playwright/test');
 
@@ -149,6 +152,51 @@ test('Chiudi Cassa in fallback: push al centrale, poi bottone "Sincronizza ora" 
 
   await expect.poll(() => pushCalls, { timeout: 15000 }).toBe(2);
   await toastSeen(page, 'sincronizzate col server centrale');
+
+  await context.close();
+});
+
+test('badge persistente in sidebar: compare da sync_status.php e sparisce a push riuscito', async ({ browser }) => {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const page = await context.newPage();
+  await page.addInitScript((cassa) => {
+    try { localStorage.setItem('cassa_id', cassa); } catch (e) {}
+  }, CASSA_ID);
+
+  // Evita che parta la rilevazione del fallback durante il test.
+  await page.route('**/api/products_version.php', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: 1, count: 1 }) }));
+
+  // Stato: cassa gia' chiusa (armed), centrale non ancora ricontattato, 2 pendenti.
+  let pending = 2;
+  await page.route('**/api/sync_status.php', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ fallback_active: true, origin_host: '192.168.1.50', pending_sync: pending, pending_known: true, armed: true }),
+    }));
+
+  let pushCalls = 0;
+  await page.route('**/api/push_local_sales.php', async (route) => {
+    pushCalls += 1;
+    pending = 0; // il push va a buon fine
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, pushed: 2, skipped: 0, server_online: true, back_to_network: true }) });
+  });
+
+  await page.goto(`${BASE}/pages/billing.php`, { waitUntil: 'domcontentloaded' });
+
+  const badge = page.locator('#pos-sync-pending');
+  await expect(badge).toBeVisible({ timeout: 15000 });
+  await expect(badge).toContainText('2 vendite da sincronizzare');
+
+  // Sopravvive a un reload (il conteggio arriva dal server, non da stato in pagina).
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#pos-sync-pending')).toBeVisible({ timeout: 15000 });
+
+  await page.locator('#pos-sync-pending-btn').click();
+  await expect.poll(() => pushCalls, { timeout: 15000 }).toBe(1);
+  // A push riuscito il badge si nasconde da solo.
+  await expect(page.locator('#pos-sync-pending')).toBeHidden({ timeout: 15000 });
 
   await context.close();
 });

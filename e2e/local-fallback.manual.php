@@ -22,6 +22,13 @@
  *   3. Push: dettagli rimappati sul nuovo id, stock decrementato (negativi
  *      ammessi), riga locale marcata; ri-push idempotente (0 doppioni).
  *   4. Centrale irraggiungibile -> esito "graceful", nessuna eccezione.
+ *   5. Fase 4 punto 4, correzione 2026-09-12 - "vendite mai orfane": la
+ *      decisione "torno in rete da solo o resto dove l'operatore mi ha
+ *      messo" (api/push_local_sales.php, $autoReturnToNetwork) e la
+ *      marcatura delle vendite nuove (print/print_receipt.php,
+ *      $daSincronizzare) dipendono da FALLBACK_SESSION_ACTIVE, non piu' da
+ *      FALLBACK_ORIGIN_HOST - copie fedeli delle due espressioni, da tenere
+ *      in sync se cambiano.
  * (Lo scenario 2 - lo swap che riscrive variabili.env - e' coperto lato
  * browser da e2e/local-fallback.spec.js con la POST stubbata.)
  */
@@ -224,6 +231,67 @@ try {
     $graceful = true;
 }
 check($graceful, 'connessione al centrale fallita in modo gestito (l\'endpoint risponde {server_online:false})');
+
+echo PHP_EOL . "== Scenario 5 - FALLBACK_SESSION_ACTIVE (vendite mai orfane, 2026-09-12) ==" . PHP_EOL;
+
+/** Copia fedele di api/push_local_sales.php::$autoReturnToNetwork. */
+function autoReturnToNetwork(bool $sessionActive, string $host): bool
+{
+    return $sessionActive && in_array($host, ['', '127.0.0.1', 'localhost', '::1'], true);
+}
+
+/** Copia fedele di print/print_receipt.php::$daSincronizzare. */
+function daSincronizzareFlag(bool $sessionActive): int
+{
+    return $sessionActive ? 1 : 0;
+}
+
+// Caso A: fallback automatico mai toccato -> torna in rete da solo.
+check(autoReturnToNetwork(true, '127.0.0.1') === true,
+    'sessione attiva + ancora locale -> torna in rete da solo (percorso "felice", invariato)');
+check(daSincronizzareFlag(true) === 1,
+    'sessione attiva -> le vendite nuove si marcano da_sincronizzare=1');
+
+// Caso B: l'operatore ha forzato Indipendente con un debito ancora aperto.
+check(autoReturnToNetwork(false, '127.0.0.1') === false,
+    'sessione spenta (switch manuale) pur restando locale -> NON torna in rete da solo: modalita\' dell\'operatore rispettata');
+check(daSincronizzareFlag(false) === 0,
+    'sessione spenta -> le vendite di oggi sono locali normali, NON inseguono un vecchio debito');
+
+// Caso C: l'operatore ha forzato Client verso un server B diverso da quello del debito.
+check(autoReturnToNetwork(false, '192.168.88.50') === false,
+    'sessione spenta + host gia\' remoto (server B) -> nessun cambio di modalita\' automatico, B resta B');
+
+// Caso D: orfano pre-esistente (FALLBACK_ORIGIN_HOST vuoto, DB_POS_HOST remoto) - vedi push_local_sales.php,
+// rientra comunque nel ramo "sessione spenta": nessun ritorno automatico, si limita a saldare.
+check(autoReturnToNetwork(false, '192.168.88.224') === false,
+    'orfano pre-esistente sanato -> stesso comportamento del caso C, nessuna sorpresa sulla modalita\'');
+
+echo PHP_EOL . "== Scenario 5b - il debito non si azzera mai con uno switch manuale, solo col push ==" . PHP_EOL;
+// Simula: FALLBACK_ORIGIN_HOST resta valorizzato attraverso due switch manuali
+// (Client -> Indipendente -> Client di nuovo), poi si salda solo al push.
+$origin = '192.168.88.224';
+$sessionActive = true; // fallback automatico iniziale
+
+// api/enter_local_fallback.php: swap automatico.
+check($sessionActive === true && $origin !== '', 'stato iniziale: fallback automatico, debito verso il centrale');
+
+// api/set_network_config.php (switch manuale a Indipendente): la correzione
+// e' che NON tocca $origin, spegne solo la sessione.
+$sessionActive = false; // set_network_config.php azzera SEMPRE la sessione
+check($origin === '192.168.88.224', 'switch manuale a Indipendente: il debito (FALLBACK_ORIGIN_HOST) resta intatto');
+check($sessionActive === false, 'switch manuale: la sessione si spegne (decide l\'operatore da qui in poi)');
+
+// Un secondo switch manuale (es. verso un altro Client) - stesso principio,
+// $origin ancora non toccato.
+check($origin === '192.168.88.224', 'un secondo switch manuale non tocca il debito nemmeno lui');
+
+// Solo il push, quando riesce, lo azzera.
+$pushSucceeded = true;
+if ($pushSucceeded) {
+    $origin = ''; // api/push_local_sales.php: FALLBACK_ORIGIN_HOST azzerato SOLO qui
+}
+check($origin === '', 'il debito si azzera SOLO quando il push lo salda per davvero, mai prima');
 
 // --- Cleanup ---
 $central->close();

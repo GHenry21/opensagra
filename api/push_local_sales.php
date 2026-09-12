@@ -21,21 +21,40 @@
  * decrementi di una vendita stanno in un'unica transazione sul centrale: se la
  * riga vendita c'e', c'e' tutto.
  *
- * A push completo: DB_POS_HOST torna all'IP del server, FALLBACK_ORIGIN_HOST
- * viene azzerato -> la cassa e' di nuovo in modalita' rete e lo snapshot
- * riparte.
+ * A push completo il debito si salda sempre (FALLBACK_ORIGIN_HOST azzerato).
+ * Se torna anche in modalita' rete da solo (DB_POS_HOST all'IP del server) o
+ * se invece lascia la modalita' scelta dall'operatore invariata dipende da
+ * FALLBACK_SESSION_ACTIVE (Fase 4 punto 4, correzione 2026-09-12): true solo
+ * se e' stato il sistema a decidere il fallback e nessuno switch manuale l'ha
+ * ancora toccato - vedi config/env_reader.php per il dettaglio. Con
+ * FALLBACK_SESSION_ACTIVE spento (l'operatore ha scelto lui una modalita' nel
+ * frattempo, qualunque essa sia) il push si limita a saldare il debito e non
+ * cambia mai DB_POS_HOST di nascosto.
+ *
+ * Il DB locale (dove vivono le vendite in attesa) e' SEMPRE 127.0.0.1,
+ * connessione esplicita - non si usa mai "quello che dice DB_POS_HOST in
+ * questo momento", perche' con la correzione sopra puo' benissimo essere un
+ * server remoto diverso da quello del debito (es. l'operatore ha scelto
+ * Client verso un server B mentre restava un debito verso il vecchio
+ * server A: le vendite in sospeso stanno comunque in locale su 127.0.0.1).
+ *
+ * Se FALLBACK_ORIGIN_HOST manca (nessun debito noto) ma DB_POS_HOST punta
+ * gia' a un server remoto - un orfano pre-esistente da prima di questa
+ * correzione - quel server e' trattato come destinazione: si sincronizza
+ * soltanto, rientra comunque nel caso FALLBACK_SESSION_ACTIVE spento (nessun
+ * cambio di modalita' automatico).
  *
  * POST, nessun body. Risposte:
- *   200 {success:true,  pushed:N, skipped:M, server_online:true, back_to_network:true}
+ *   200 {success:true,  pushed:N, skipped:M, server_online:true, back_to_network:true|false}
  *   200 {success:false, pushed:k, remaining:R, server_online:true, error:"..."}  parziale, ritentare
  *   200 {success:false, server_online:false, pending:N}                          centrale ancora giu'
- *   409 {error:"..."}                                                            non in modalita' locale
+ *   409 {error:"..."}                                                            niente da sincronizzare / DB locale ko
  */
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/env_reader.php';
 require_once __DIR__ . '/../config/env_writer.php';
-require_once __DIR__ . '/../config/get_db_connection.php'; // $connectionDB -> DB locale (in fallback DB_POS_HOST=127.0.0.1)
+require_once __DIR__ . '/../config/app_config.php';
 require_once __DIR__ . '/../config/mercure.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -47,13 +66,43 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $env = loadPosEnvVars();
 $originHost = $env['fallback_origin_host'];
 
+// Nessun debito noto ma gia' in rete verso un server: orfano pre-esistente,
+// quel server e' la destinazione (vedi docblock sopra).
 if ($originHost === '') {
-    http_response_code(409);
-    echo json_encode(['error' => 'Questa cassa non e\' in modalita\' locale: niente da sincronizzare.']);
-    exit;
+    $currentHost = $env['host'];
+    $currentIsRemote = !in_array($currentHost, ['', '127.0.0.1', 'localhost', '::1'], true);
+    if ($currentIsRemote) {
+        $originHost = $currentHost;
+    } else {
+        http_response_code(409);
+        echo json_encode(['error' => 'Questa cassa non e\' in modalita\' locale: niente da sincronizzare.']);
+        exit;
+    }
 }
 
-$local = $connectionDB; // alias leggibile (DB locale del nodo)
+// Se torna in rete da solo a push completato: solo se era il sistema ad aver
+// deciso il fallback (nessuno switch manuale l'ha ancora toccato) e la cassa
+// e' ancora fisicamente locale in questo momento. Va letto ORA, prima che
+// qualunque scrittura successiva cambi $env.
+$autoReturnToNetwork = $env['fallback_session_active']
+    && in_array($env['host'], ['', '127.0.0.1', 'localhost', '::1'], true);
+
+// DB locale del nodo: sempre 127.0.0.1, connessione esplicita (vedi docblock:
+// DB_POS_HOST puo' puntare altrove in questo momento).
+try {
+    $local = mysqli_init();
+    $local->options(MYSQLI_OPT_CONNECT_TIMEOUT, 3);
+    if (!@$local->real_connect('127.0.0.1', $env['user'], $env['pass'], $env['db'])) {
+        http_response_code(409);
+        echo json_encode(['error' => 'DB locale non raggiungibile: niente da sincronizzare.']);
+        exit;
+    }
+    $local->set_charset('utf8mb4');
+} catch (mysqli_sql_exception $e) {
+    http_response_code(409);
+    echo json_encode(['error' => 'DB locale non raggiungibile: ' . $e->getMessage()]);
+    exit;
+}
 
 /** COUNT delle vendite ancora da spingere (per i messaggi di stato). */
 function pendingCount(mysqli $db): int
@@ -194,17 +243,27 @@ $remaining = pendingCount($local);
 
 // --- 3. Esito ---
 if ($fatalError === null && $remaining === 0) {
-    // Tutto spinto: torna in modalita' rete. Ordine speculare a
-    // enter_local_fallback.php: prima ripristina DB_POS_HOST, poi azzera il
-    // marker (se muore in mezzo, al giro dopo il marker c'e' ancora e questo
-    // endpoint - trovando 0 vendite pendenti - completa comunque).
-    setEnvValue($env['env_file'], 'DB_POS_HOST', $originHost);
+    // Affordance persistente spenta: non c'e' piu' nulla da sincronizzare.
+    setAppConfig($local, 'close_sync_pending', '');
+
+    // Il debito si salda SEMPRE. FALLBACK_SESSION_ACTIVE si spegne sempre
+    // insieme (se era gia' spento, l'operazione e' innocua): da un push
+    // completato non deve mai restare acceso un "ritorno automatico" residuo.
     setEnvValue($env['env_file'], 'FALLBACK_ORIGIN_HOST', '');
+    setEnvValue($env['env_file'], 'FALLBACK_SESSION_ACTIVE', '');
+
+    if ($autoReturnToNetwork) {
+        // Era il sistema ad aver deciso il fallback e nessuno l'ha ancora
+        // toccato: torna in modalita' rete da solo, cosi' com'era il piano
+        // fin dall'inizio.
+        setEnvValue($env['env_file'], 'DB_POS_HOST', $originHost);
+    }
+    // Altrimenti (l'operatore ha scelto lui una modalita' nel frattempo,
+    // qualunque essa sia): DB_POS_HOST non si tocca, resta esattamente
+    // com'era scelto.
 
     // Best-effort: avvisa le altre casse che lo stock e' cambiato. Non fatale
     // (publishProductsChanged non lancia e torna subito se l'hub non c'e').
-    // A questo punto l'env e' gia' ripristinato -> mercureHubUrl() punta al
-    // server e mercureSecretForHub() usa il segreto remoto, entrambi corretti.
     try {
         publishProductsChanged($server);
     } catch (Throwable $e) {
@@ -217,7 +276,7 @@ if ($fatalError === null && $remaining === 0) {
         'pushed' => $pushed,
         'skipped' => $skipped,
         'server_online' => true,
-        'back_to_network' => true,
+        'back_to_network' => $autoReturnToNetwork,
     ]);
     exit;
 }

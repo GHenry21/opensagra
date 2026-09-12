@@ -6,7 +6,7 @@
  */
 
 /**
- * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,mercure_jwt_secret_remote:string,print_bridge_casse:string,fallback_origin_host:string}
+ * @return array{host:string,user:string,pass:string,db:string,env_file:string,mercure_jwt_secret:string,mercure_jwt_secret_remote:string,print_bridge_casse:string,fallback_origin_host:string,fallback_session_active:bool}
  */
 function loadPosEnvVars(): array
 {
@@ -64,11 +64,25 @@ function loadPosEnvVars(): array
         // Quando il centrale e' irraggiungibile a lungo, api/enter_local_fallback.php
         // ci scrive l'IP del server (il vecchio DB_POS_HOST) e sposta DB_POS_HOST
         // su 127.0.0.1: da quel momento la cassa lavora sul MariaDB locale. La sua
-        // presenza segnala "sto girando in fallback": lo snapshot (bin/opensagra-
-        // snapshot.php) si ferma, print/print_receipt.php marca le vendite
-        // da_sincronizzare=1, e api/push_local_sales.php sa dove ricaricarle a
-        // chiusura cassa. Lo azzerano il push riuscito e lo switch manuale da
-        // conf_rete. Mai impostare a mano.
+        // presenza segnala "c'e' un debito verso questo server" (vendite ancora da
+        // inviare): lo snapshot (bin/opensagra-snapshot.php) si ferma finche' resta
+        // valorizzato, e api/push_local_sales.php sa dove ricaricarle. Si azzera
+        // SOLO quando il push le manda tutte - MAI da uno switch manuale (Fase 4
+        // punto 4, correzione 2026-09-12: altrimenti le vendite pendenti
+        // diventerebbero orfane, irraggiungibili dall'interfaccia). Mai impostare
+        // a mano.
         'fallback_origin_host' => $vars['FALLBACK_ORIGIN_HOST'] ?? '',
+        // Distinto da fallback_origin_host (che e' solo "c'e' un debito"): questo
+        // dice CHI ha deciso che il nodo lavora in locale in questo momento. Vero
+        // solo mentre e' stato il sistema a deciderlo (api/enter_local_fallback.php,
+        // crollo del centrale rilevato in automatico) e non ancora toccato da una
+        // scelta manuale. Si spegne su QUALUNQUE switch manuale da conf_rete
+        // (Indipendente o Client verso un host diverso), qualunque sia lo stato del
+        // debito - da quel momento decide l'operatore, non il sistema. Governa due
+        // cose: (a) se le vendite nuove vanno marcate da_sincronizzare=1
+        // (print/print_receipt.php), (b) se un debito saldato riporta il nodo in
+        // rete da solo o lascia la modalita' scelta dall'operatore invariata
+        // (api/push_local_sales.php). Mai impostare a mano.
+        'fallback_session_active' => ($vars['FALLBACK_SESSION_ACTIVE'] ?? '') === '1',
     ];
 }

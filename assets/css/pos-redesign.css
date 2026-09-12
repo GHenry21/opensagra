@@ -557,6 +557,65 @@ body.dark-mode .pos-icon-btn:hover {
   white-space: nowrap;
 }
 
+/* Fase 4 punto 4: badge persistente "N vendite da sincronizzare col centrale".
+   Occupa tutta la larghezza del footer sidebar, sotto la pillola di rete. */
+.pos-sync-pending {
+  flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 10px;
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--mc-danger) 16%, var(--mc-panel-muted));
+  border: 1px solid color-mix(in srgb, var(--mc-danger) 45%, transparent);
+  color: var(--mc-text);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* display:flex qui sopra vincerebbe su [hidden] della UA stylesheet. */
+.pos-sync-pending[hidden] {
+  display: none;
+}
+
+.pos-sync-pending__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--mc-danger);
+}
+
+.pos-sync-pending__text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.pos-sync-pending__btn {
+  flex: 1 0 100%;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff;
+  background: var(--mc-danger);
+}
+
+.pos-sync-pending__btn:hover {
+  background: color-mix(in srgb, var(--mc-danger) 85%, #000);
+}
+
+.pos-sync-pending__btn:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
 .pos-sidebar-overlay {
   display: none;
   position: fixed;

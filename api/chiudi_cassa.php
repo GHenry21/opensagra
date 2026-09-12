@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/env_reader.php';
+require_once __DIR__ . '/../config/app_config.php';
 
 // Stesse colonne auto-migrate anche in api/stampanti.php: qui si ripete la stessa
 // ALTER TABLE idempotente per non dipendere dall'ordine in cui le pagine vengono aperte.
@@ -68,6 +69,15 @@ try {
     if ($fallback_active) {
         $res = $connectionDB->query("SELECT COUNT(*) AS n FROM vendite WHERE da_sincronizzare = 1 AND pushed_at IS NULL");
         $pending_sync = $res ? (int)($res->fetch_assoc()['n'] ?? 0) : 0;
+
+        // Arma l'affordance persistente (badge in sidebar + card in conf_rete):
+        // da qui in poi "N vendite da sincronizzare" resta visibile su ogni
+        // pagina e sopravvive a un reload, finche' il push non le carica tutte.
+        // Prima della chiusura il marker resta spento -> nessun avviso durante
+        // il servizio. Lo azzera api/push_local_sales.php a push completo.
+        if ($pending_sync > 0) {
+            setAppConfig($connectionDB, 'close_sync_pending', '1');
+        }
     }
 
     // casse_stampanti non ha un vincolo UNIQUE su cassa_id (la deduplica è gestita

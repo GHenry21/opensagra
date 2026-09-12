@@ -21,6 +21,16 @@
     font-size: 16px
 }
 
+/* Fase 4 punto 4: card "vendite locali da sincronizzare" - bordo di richiamo. */
+.rete-card--warn {
+    border: 1px solid color-mix(in srgb, var(--mc-danger) 55%, transparent);
+    background: color-mix(in srgb, var(--mc-danger) 10%, var(--mc-panel));
+}
+
+.rete-card--warn .panel-title-icon {
+    color: var(--mc-danger)
+}
+
 .panel-title-row {
     display: flex;
     align-items: center;

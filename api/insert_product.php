@@ -3,9 +3,12 @@ require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/store_uploaded_file.php';
 require_once __DIR__ . '/../includes/placeholder-product.php';
 require_once __DIR__ . '/../config/mercure.php';
+require_once __DIR__ . '/../config/product_name.php';
 
 $category = isset($_POST['category']) ? trim((string) $_POST['category']) : '';
-$name = isset($_POST['name']) ? trim((string) $_POST['name']) : '';
+// Sempre MAIUSCOLO al salvataggio, anche se digitato in minuscolo (Fase 4
+// punto 4, 2026-09-12) - vedi config/product_name.php per il perche'.
+$name = isset($_POST['name']) ? normalizeProductNameForStorage((string) $_POST['name']) : '';
 $price = isset($_POST['price']) ? (float) $_POST['price'] : null;
 $quantityAvailable = isset($_POST['quantity_available']) && trim((string) $_POST['quantity_available']) !== ''
     ? (int) $_POST['quantity_available']
@@ -14,6 +17,12 @@ $quantityAvailable = isset($_POST['quantity_available']) && trim((string) $_POST
 // Validazione dati
 if ($category === '' || $name === '' || $price === null || ($quantityAvailable !== null && $quantityAvailable < 0)) {
     echo 'Dati prodotto non validi.';
+    $connectionDB->close();
+    exit;
+}
+
+if (productNameIsDuplicate($connectionDB, $name)) {
+    echo 'Esiste già un prodotto con questo nome (anche se scritto in modo leggermente diverso).';
     $connectionDB->close();
     exit;
 }

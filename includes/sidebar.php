@@ -108,6 +108,17 @@ $_hNavGroups = [
                  lo script della pillola qui sotto non lo tocca. -->
             <span id="pos-net-pill-eta" class="pos-net-pill__eta" hidden></span>
         </a>
+        <!-- Fase 4 punto 4: affordance persistente per il push delle vendite
+             fatte in fallback locale al server centrale. Nascosta durante il
+             servizio; compare (e sopravvive a un reload) solo dopo "Chiudi
+             Cassa" se restano vendite da sincronizzare. Popolata da
+             api/sync_status.php dallo script in fondo a questo file. -->
+        <div class="pos-sync-pending" id="pos-sync-pending" hidden>
+            <?= pos_icon('refresh-cw', ['class' => 'pos-sync-pending__icon']) ?>
+            <span class="pos-sync-pending__text" id="pos-sync-pending-text">Vendite da sincronizzare</span>
+            <button type="button" class="pos-sync-pending__btn" id="pos-sync-pending-btn"
+                data-push-url="<?= $_hRoot ?>api/push_local_sales.php">Sincronizza ora</button>
+        </div>
     </div>
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
@@ -193,43 +204,14 @@ $_hNavGroups = [
             if (chiudiCassaBtn) {
                 var pushUrl = chiudiCassaBtn.getAttribute('data-push-url');
 
-                // Fase 4 punto 4: se la cassa ha lavorato in fallback locale,
-                // spinge le vendite fatte in locale al server centrale. Chiamata
-                // dopo "Chiudi Cassa" e, in caso di centrale ancora giu' o push
-                // parziale, dal bottone "Sincronizza ora" del toast persistente.
+                // Il push vero e proprio vive in window.posSyncLocalSales (script
+                // in fondo a questo file, insieme al badge persistente): stessa
+                // routine per "Chiudi Cassa", per il bottone del toast e per il
+                // badge in sidebar.
                 function syncLocalSales(pendingHint) {
-                    fetch(pushUrl, { method: 'POST' })
-                        .then(function(r) { return r.json(); })
-                        .then(function(res) {
-                            if (res && res.success) {
-                                showToast(
-                                    'Vendite locali sincronizzate col server centrale (' + (res.pushed || 0) + ').',
-                                    'info',
-                                    { duration: 0 }
-                                );
-                                return;
-                            }
-                            var n = (res && (res.remaining != null ? res.remaining : res.pending)) || pendingHint || 0;
-                            showToast(
-                                n + ' vendite ancora da sincronizzare col server centrale.',
-                                'error',
-                                {
-                                    duration: 0,
-                                    action: { label: 'Sincronizza ora', onClick: function() { syncLocalSales(n); } }
-                                }
-                            );
-                        })
-                        .catch(function(err) {
-                            console.error('Sync vendite locali fallita:', err);
-                            showToast(
-                                'Sincronizzazione col server centrale non riuscita.',
-                                'error',
-                                {
-                                    duration: 0,
-                                    action: { label: 'Riprova', onClick: function() { syncLocalSales(pendingHint); } }
-                                }
-                            );
-                        });
+                    if (typeof window.posSyncLocalSales === 'function') {
+                        window.posSyncLocalSales(pushUrl, pendingHint);
+                    }
                 }
 
                 chiudiCassaBtn.addEventListener('click', function() {
@@ -322,5 +304,96 @@ $_hNavGroups = [
 
         refresh();
         setInterval(refresh, 20000);
+    })();
+
+    // Fase 4 punto 4: badge persistente "N vendite da sincronizzare" + routine
+    // di push condivisa. Il badge resta spento durante il servizio (marker
+    // 'close_sync_pending' scritto solo da api/chiudi_cassa.php) e compare su
+    // qualunque pagina, sopravvivendo a un reload, finche' restano vendite
+    // locali da ricaricare sul centrale.
+    (function() {
+        var _inPages = window.location.pathname.indexOf('/pages/') !== -1;
+        var _root = _inPages ? '../' : '';
+        var statusUrl = _root + 'api/sync_status.php';
+
+        var box = document.getElementById('pos-sync-pending');
+        var boxText = document.getElementById('pos-sync-pending-text');
+        var boxBtn = document.getElementById('pos-sync-pending-btn');
+        var _busy = false;
+
+        function refreshBadge() {
+            fetch(statusUrl, { headers: { 'Accept': 'application/json' } })
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    if (!box) { return; }
+                    var n = (s && s.pending_sync) || 0;
+                    // "armed" tiene il badge nascosto durante il servizio;
+                    // fallback_active da solo comparirebbe gia' alla prima vendita.
+                    var show = n > 0 && (s.armed || s.fallback_active === false);
+                    if (show) {
+                        boxText.textContent = n + (n === 1 ? ' vendita da sincronizzare' : ' vendite da sincronizzare') +
+                            ' col server centrale';
+                        box.hidden = false;
+                    } else {
+                        box.hidden = true;
+                    }
+                })
+                .catch(function() { /* offline o endpoint assente: non mostrare nulla */ });
+        }
+
+        // Routine di push condivisa (Chiudi Cassa, toast, badge). pushUrl arriva
+        // dal chiamante (data-push-url) o, in mancanza, dal bottone del badge.
+        window.posSyncLocalSales = function(pushUrl, pendingHint) {
+            pushUrl = pushUrl || (boxBtn && boxBtn.getAttribute('data-push-url'));
+            if (!pushUrl || _busy) { return; }
+            _busy = true;
+            if (boxBtn) { boxBtn.disabled = true; }
+            fetch(pushUrl, { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (res && res.success) {
+                        showToast(
+                            'Vendite locali sincronizzate col server centrale (' + (res.pushed || 0) + ').',
+                            'success',
+                            { duration: 0 }
+                        );
+                        if (box) { box.hidden = true; }
+                        return;
+                    }
+                    var n = (res && (res.remaining != null ? res.remaining : res.pending)) || pendingHint || 0;
+                    showToast(
+                        n + ' vendite ancora da sincronizzare col server centrale.',
+                        'error',
+                        {
+                            duration: 0,
+                            action: { label: 'Sincronizza ora', onClick: function() { window.posSyncLocalSales(pushUrl, n); } }
+                        }
+                    );
+                })
+                .catch(function(err) {
+                    console.error('Sync vendite locali fallita:', err);
+                    showToast(
+                        'Sincronizzazione col server centrale non riuscita.',
+                        'error',
+                        {
+                            duration: 0,
+                            action: { label: 'Riprova', onClick: function() { window.posSyncLocalSales(pushUrl, pendingHint); } }
+                        }
+                    );
+                })
+                .finally(function() {
+                    _busy = false;
+                    if (boxBtn) { boxBtn.disabled = false; }
+                    refreshBadge();
+                });
+        };
+
+        if (box && boxBtn) {
+            boxBtn.addEventListener('click', function() {
+                window.posSyncLocalSales(boxBtn.getAttribute('data-push-url'), null);
+            });
+            refreshBadge();
+            setInterval(refreshBadge, 20000);
+        }
     })();
 </script>

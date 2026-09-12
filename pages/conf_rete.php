@@ -50,6 +50,26 @@
                 </div>
             </section>
 
+            <!-- Fase 4 punto 4: vendite fatte in fallback locale, ancora da
+                 ricaricare sul server centrale. Visibile solo se ce ne sono. -->
+            <section class="rete-card rete-card--warn" id="syncPendingCard" hidden>
+                <div class="panel-title-row">
+                    <?= pos_icon('refresh-cw', ['class' => 'panel-title-icon']) ?>
+                    <h3>Vendite locali da sincronizzare</h3>
+                </div>
+                <p class="inline-muted" id="syncPendingText">
+                    Questa postazione ha lavorato in autonomia mentre il server centrale non era
+                    raggiungibile. Le vendite fatte in quel periodo sono salvate qui in locale e vanno
+                    ricaricate sul server centrale.
+                </p>
+                <div class="actions-row">
+                    <button class="btn-add" id="btnSyncNow">
+                        <?= pos_icon('refresh-cw') ?>
+                        Sincronizza ora
+                    </button>
+                </div>
+            </section>
+
             <section class="rete-card">
                 <div class="rete-mode-row">
                     <label class="rete-mode-option">
@@ -120,6 +140,86 @@
             const btnSave = document.getElementById('btnSaveRete');
             const statusDot = document.getElementById('reteStatusDot');
             const statusText = document.getElementById('reteStatusText');
+            const syncCard = document.getElementById('syncPendingCard');
+            const syncText = document.getElementById('syncPendingText');
+            const btnSyncNow = document.getElementById('btnSyncNow');
+
+            // Ultimo conteggio noto di vendite locali da sincronizzare: usato
+            // sia per mostrare la card, sia per avvisare prima di cambiare rete.
+            let pendingSync = 0;
+
+            // "YYYY-MM-DD HH:MM:SS" (dal DB) -> data/ora leggibile; Safari non
+            // parsa quel formato senza la "T".
+            function formatWhen(iso) {
+                const d = new Date(String(iso).replace(' ', 'T'));
+                if (isNaN(d.getTime())) {
+                    return iso;
+                }
+                return d.toLocaleString('it-IT', {
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            }
+
+            // Fase 4 punto 4: "Annulla" del toast dopo un ripristino automatico del
+            // catalogo - richiama il batch di sicurezza preso appena prima di quel
+            // ripristino (config/catalog_backup.php::restoreCatalogBackupBatch).
+            function undoCatalogRestore(safetyBatchId) {
+                fetch('../api/restore_catalog_backup.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ batch_id: safetyBatchId })
+                    })
+                    .then((r) => r.json())
+                    .then((data) => {
+                        if (!data || !data.success) {
+                            showToast((data && data.error) || 'Annullamento non riuscito.', 'error');
+                            return;
+                        }
+                        showToast('Fatto: il catalogo è tornato quello di un attimo fa.', 'success');
+                    })
+                    .catch(() => showToast('Errore di rete durante l\'annullamento.', 'error'));
+            }
+
+            function refreshSyncStatus() {
+                return fetch('../api/sync_status.php')
+                    .then((r) => r.json())
+                    .then((s) => {
+                        pendingSync = (s && s.pending_sync) || 0;
+                        if (pendingSync > 0) {
+                            const plural = pendingSync === 1 ? 'vendita' : 'vendite';
+                            let msg = `Questa postazione ha ${pendingSync} ${plural} fatte in autonomia mentre il ` +
+                                'server centrale non era raggiungibile, ancora da ricaricare sul server centrale.';
+                            if (s.origin_host) {
+                                msg += ` Server di destinazione: ${s.origin_host}.`;
+                            }
+                            syncText.textContent = msg;
+                            syncCard.hidden = false;
+                        } else {
+                            syncCard.hidden = true;
+                        }
+                    })
+                    .catch(() => { /* endpoint assente o offline: lascia la card com'è */ });
+            }
+            refreshSyncStatus();
+            setInterval(refreshSyncStatus, 15000);
+
+            if (btnSyncNow) {
+                btnSyncNow.addEventListener('click', function() {
+                    btnSyncNow.disabled = true;
+                    // Routine condivisa definita da includes/sidebar.php.
+                    if (typeof window.posSyncLocalSales === 'function') {
+                        window.posSyncLocalSales('../api/push_local_sales.php', pendingSync);
+                        setTimeout(function() {
+                            btnSyncNow.disabled = false;
+                            refreshSyncStatus();
+                            refreshStatus();
+                        }, 2500);
+                    } else {
+                        btnSyncNow.disabled = false;
+                    }
+                });
+            }
 
             function toggleHostField() {
                 hostFieldWrap.style.display = modeClient.checked ? '' : 'none';
@@ -174,10 +274,22 @@
                     // Controllo best-effort: se fallisce, il dialogo prosegue senza quel dettaglio.
                 }
 
+                // Fase 4 punto 4: cambiare rete azzera il marker di fallback, quindi
+                // se ci sono vendite locali non ancora sincronizzate va detto forte.
+                await refreshSyncStatus();
+                let syncWarning = '';
+                if (pendingSync > 0) {
+                    const plural = pendingSync === 1 ? 'vendita locale' : 'vendite locali';
+                    syncWarning = `\n\n⚠ Ci sono ${pendingSync} ${plural} non ancora sincronizzate col server centrale. ` +
+                        'Se cambi rete ora, dovrai ricaricarle con "Sincronizza ora" (il pulsante qui sopra) a centrale ' +
+                        'raggiungibile. Meglio sincronizzarle prima.';
+                }
+
                 const confirmMessage = (mode === 'indipendente'
                     ? 'Questo PC tornerà a usare il proprio database in locale, invece di quello del server a cui punta ora.'
                     : `Questo PC userà d'ora in poi il database del server all'indirizzo ${host}, invece del proprio database locale.`)
                     + externalWarning
+                    + syncWarning
                     + '\n\nContinuare?';
                 const confirmed = await showConfirm(confirmMessage, {
                     title: 'Conferma cambio rete',
@@ -207,6 +319,38 @@
                                 : `Collegato al server ${data.host}.`,
                             'success'
                         );
+                        // Fase 4 punto 4: il locale aveva un catalogo proprio non vuoto -
+                        // e' stato salvato prima di passare a client (verra' sovrascritto
+                        // dal centrale entro pochi secondi). Solo informativo, non blocca
+                        // nulla: nessuna pagina da visitare, il salvataggio e' gia' fatto.
+                        if (data.catalog_backup_id) {
+                            showToast(
+                                'Il catalogo locale che avevi è stato salvato: tornerà com\'era appena passerai di nuovo a Indipendente.',
+                                'info',
+                                { duration: 0 }
+                            );
+                        }
+                        // Fase 4 punto 4: switch pulito verso Indipendente - se c'era un
+                        // catalogo salvato da un passaggio a Client precedente, e' stato
+                        // rimesso a posto in automatico (righe intere, quantita' comprese).
+                        // "Annulla" richiama lo stesso safety_backup_id appena creato: non
+                        // si perde mai nulla, nemmeno il catalogo del centrale appena
+                        // sostituito.
+                        if (data.catalog_restored) {
+                            const when = formatWhen(data.catalog_restored.created_at);
+                            const safetyId = data.catalog_restored.safety_backup_id;
+                            showToast(
+                                `Il tuo catalogo di prima (${when}) è stato rimesso a posto.`,
+                                'info',
+                                {
+                                    duration: 0,
+                                    action: safetyId ? {
+                                        label: 'Annulla',
+                                        onClick: () => undoCatalogRestore(safetyId)
+                                    } : undefined
+                                }
+                            );
+                        }
                         refreshStatus();
                     })
                     .catch(() => showToast('Errore di rete durante il salvataggio.', 'error'))
