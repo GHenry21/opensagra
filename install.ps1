@@ -344,6 +344,19 @@ function Install-MariaDBEngine {
         Add-InstallChecklistItem 'MariaDB gia'' presente'
         return
     }
+    # Su una macchina davvero vergine winget puo' avere le sue fonti
+    # (source "winget"/"msstore") mai inizializzate o con l'indice vuoto -
+    # "install --id MariaDB.Server" fallisce allora con
+    # APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND (0x8A150014, "nessun
+    # pacchetto trovato") anche se l'id e' corretto (verificato che lo sia:
+    # `winget show --id MariaDB.Server -e` lo trova su una macchina normale).
+    # `source reset --force` riporta le fonti di default, `source update` ne
+    # rinfresca l'indice - entrambi no-op veloci e innocui se erano gia' a
+    # posto. Best-effort: se anche questo non basta, il controllo sotto lo fa
+    # comunque emergere con un errore chiaro invece di un semplice "non trovato".
+    Start-Process -FilePath 'winget' -ArgumentList @('source', 'reset', '--force') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+    Start-Process -FilePath 'winget' -ArgumentList @('source', 'update') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+
     # -WindowStyle Hidden: lanciato da un processo senza console (l'exe
     # impacchettato con ps2exe -noConsole), winget aprirebbe altrimenti una sua
     # finestra di console visibile ("download in corso...") - scoperto
