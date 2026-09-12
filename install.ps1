@@ -48,12 +48,32 @@ $ErrorActionPreference = 'Stop'
 $Script:LogPath = Join-Path $env:TEMP 'opensagra-install.log'
 try { "[$(Get-Date -Format o)] avvio install.ps1 (PID $PID)" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 
-# Senza questo, Invoke-WebRequest (qui e nello script ufficiale di FrankenPHP,
-# eseguito inline piu' sotto) disegna la sua progress bar di default che,
-# ospitato dentro l'host minimale di ps2exe (nessuna vera console), si
-# materializza come una finestrella separata "download in corso" - scoperto
-# testando l'installer impacchettato su una macchina pulita (2026-09-12).
+# Barra di avanzamento di Invoke-WebRequest disattivata (difesa in profondita',
+# non e' la causa delle finestrelle sotto - vedi il vero motivo appena sotto).
 $ProgressPreference = 'SilentlyContinue'
+
+# La causa REALE delle finestrelle "Downloading FrankenPHP...", "Extracting
+# to...", "...downloaded successfully" ecc. che si accumulano e bloccano tutto
+# finche' non si preme OK (confermato testando su una VM davvero vergine,
+# 2026-09-12): l'host minimale che ps2exe fornisce a un exe -noConsole non ha
+# una vera console - per Write-Host (nessuna riga da scrivere da qualche
+# parte) mostra un MessageBox bloccante, UNA VOLTA PER RIGA. Lo script
+# ufficiale di FrankenPHP (Install-FrankenPHP, piu' sotto, eseguito inline con
+# Invoke-Expression) ne chiama parecchi. Ridefinire Write-Host come funzione
+# locale vince sul cmdlet per tutto cio' che gira in questo scope - incluso il
+# codice di terze parti valutato con Invoke-Expression - quindi copre anche
+# quello senza doverlo modificare. Il testo finisce nel log invece di andare
+# perso o bloccare l'installazione.
+function Write-Host {
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments)] [object[]]$Object,
+        [System.ConsoleColor]$ForegroundColor,
+        [System.ConsoleColor]$BackgroundColor,
+        [switch]$NoNewline,
+        [string]$Separator = ' '
+    )
+    try { ($Object -join $Separator) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+}
 
 # ============================================================================
 # Configurazione
