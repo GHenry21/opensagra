@@ -36,7 +36,7 @@ func main() {
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
 		log.SetOutput(f)
 	}
-	log.Printf("wrapper: root=%s frankenphp=%s casse-bridge=%v", cfg.AppRoot, cfg.Frankenphp, cfg.BridgeCasse)
+	log.Printf("wrapper: root=%s frankenphp=%s bridge=%v", cfg.AppRoot, cfg.Frankenphp, cfg.BridgeEnabled)
 
 	// Diagnostica: i figli falliscono in modo poco chiaro se mancano i file
 	// per-macchina (non tracciati in git, li genera l'installer).

@@ -114,16 +114,16 @@ function getLinuxPrinters(array &$debug = []): array
 }
 
 /**
- * Id-topic che questo PC serve come ponte (primo valore di PRINT_BRIDGE_CASSE),
- * riportato nella discovery cosi' che conf_casse possa auto-compilare il campo.
+ * MERCURE_JWT_SECRET locale di QUESTO PC, riportato nella discovery cosi' che
+ * conf_casse.php possa salvarlo in casse_stampanti.bridge_jwt_secret (bridge
+ * punto-punto: la cassa pubblica direttamente sull'hub del ponte, invece che
+ * su quello derivato da DB_POS_HOST - vedi routingStampa() in
+ * print/print_receipt.php). Chiamata solo da un altro PC della LAN, filtrata a
+ * IP privati da remoteListPrinters() prima di arrivare qui.
  */
-function bridgeDiscoveryId(): string
+function bridgeDiscoverySecret(): string
 {
-    $list = trim((string) (loadPosEnvVars()['print_bridge_casse'] ?? ''));
-    if ($list === '') {
-        return '';
-    }
-    return trim(explode(',', $list)[0]);
+    return trim((string) (loadPosEnvVars()['mercure_jwt_secret'] ?? ''));
 }
 
 /**
@@ -161,7 +161,7 @@ function isPrivateLanHost(string $host): bool
  * Chiede a un'altra installazione opensagra della LAN il suo elenco stampanti
  * (server-to-server, niente browser). Assume lo stesso layout di path dell'app.
  *
- * @return array{printers?:string[],bridge_id?:string,source?:string,host?:string,error?:string}
+ * @return array{printers?:string[],bridge_jwt_secret?:string,source?:string,host?:string,error?:string}
  */
 function remoteListPrinters(string $host, string $os): array
 {
@@ -204,7 +204,7 @@ function remoteListPrinters(string $host, string $os): array
         }
         return [
             'printers' => array_values($decoded['printers']),
-            'bridge_id' => (string) ($decoded['bridge_id'] ?? ''),
+            'bridge_jwt_secret' => (string) ($decoded['bridge_jwt_secret'] ?? ''),
             'source' => 'remote',
             'host' => $host,
         ];
@@ -225,12 +225,19 @@ function handlePrinterDiscovery(string $action): void
     }
 
     if ($action === 'list_win_printers') {
-        echo json_encode(['printers' => getWindowsPrinters(), 'bridge_id' => bridgeDiscoveryId()]);
+        echo json_encode([
+            'printers' => getWindowsPrinters(),
+            'bridge_jwt_secret' => bridgeDiscoverySecret(),
+        ]);
         return;
     }
 
     // list_linux_printers
     $debug = [];
     $printers = getLinuxPrinters($debug);
-    echo json_encode(['printers' => $printers, 'bridge_id' => bridgeDiscoveryId(), 'debug' => $debug]);
+    echo json_encode([
+        'printers' => $printers,
+        'bridge_jwt_secret' => bridgeDiscoverySecret(),
+        'debug' => $debug,
+    ]);
 }

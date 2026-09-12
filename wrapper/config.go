@@ -4,22 +4,28 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
 // Config: tutto quello che serve al wrapper per lanciare i figli. Le chiavi
 // Mercure NON sono qui di proposito: il wrapper non firma né vede JWT, sono i
 // processi PHP a leggersi config/variabili.env da soli. Del file .env qui
-// interessa solo PRINT_BRIDGE_CASSE (quante istanze del bridge avviare) e le
-// credenziali DB per il check "N casse collegate" all'uscita.
+// interessa solo PRINT_BRIDGE_CASSE (se avviare il bridge) e le credenziali
+// DB per il check "N casse collegate" all'uscita.
 type Config struct {
-	AppRoot           string   // cartella con Caddyfile, bin/, config/
-	Frankenphp        string   // path assoluto a frankenphp(.exe)
-	LogDir            string   // dove finiscono i log dei figli + wrapper.log
-	AppURL            string   // URL dell'app vera ("Apri OpenSagra")
-	Autostarted       bool     // avviato dall'autostart (-autostarted): non aprire la finestra da solo
-	RegisterAutostart bool     // -register-autostart: scrivi la chiave Run e prosegui (usato dall'installer)
-	BridgeCasse       []string // PRINT_BRIDGE_CASSE, split su virgola
+	AppRoot           string // cartella con Caddyfile, bin/, config/
+	Frankenphp        string // path assoluto a frankenphp(.exe)
+	LogDir            string // dove finiscono i log dei figli + wrapper.log
+	AppURL            string // URL dell'app vera ("Apri OpenSagra")
+	Autostarted       bool   // avviato dall'autostart (-autostarted): non aprire la finestra da solo
+	RegisterAutostart bool   // -register-autostart: scrivi la chiave Run e prosegui (usato dall'installer)
+	// BridgeEnabled: PRINT_BRIDGE_CASSE non vuoto -> questo PC fa da ponte di
+	// stampa. Un solo processo bridge (topic Mercure fisso, punto-punto): non
+	// serve piu' un id per cassa, il valore stesso non conta piu', solo se e'
+	// vuoto o no (compatibilita' con installazioni che avevano gia' un id li'
+	// scritto).
+	BridgeEnabled bool
 
 	DBUser string
 	DBPass string
@@ -98,7 +104,7 @@ func loadConfig() (*Config, error) {
 		AppURL:            firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "http://localhost/"),
 		Autostarted:       *autoFlag,
 		RegisterAutostart: *regFlag,
-		BridgeCasse:       splitCsv(env["PRINT_BRIDGE_CASSE"]),
+		BridgeEnabled:     strings.TrimSpace(env["PRINT_BRIDGE_CASSE"]) != "",
 		dbHost:            valueOr(env["DB_POS_HOST"], "127.0.0.1"),
 		DBUser:            env["DB_POS_USER"],
 		DBPass:            env["DB_POS_PASS"],

@@ -64,20 +64,29 @@ try {
         'porta' => $payload['porta'] ?? null,
         'bridge_printer_type' => (string) ($payload['bridge_printer_type'] ?? ''),
         'bridge_topic' => (string) ($payload['bridge_topic'] ?? ''),
+        'bridge_host' => (string) ($payload['bridge_host'] ?? ''),
+        'bridge_jwt_secret' => (string) ($payload['bridge_jwt_secret'] ?? ''),
     ], $cassaId);
 
     $topic = $routing['topic'];
-    $topicId = substr($topic, strlen('print/cassa/'));
-    if ($topicId === '') {
-        throw new Exception('Manca l\'id-topic del ponte (bridge_topic / cassa_id).');
-    }
 
-    $raw = bnBuildTestRaw($cassaId, $topicId);
+    // Punto-punto: vedi routingStampa() in print/print_receipt.php. Qui i valori
+    // arrivano dal modal (non ancora salvati), non dal DB.
+    $bridgeHost = trim((string) ($payload['bridge_host'] ?? ''));
+    $bridgeSecret = trim((string) ($payload['bridge_jwt_secret'] ?? ''));
+    $bridgeHubUrl = ($bridgeHost !== '' && $bridgeSecret !== '') ? "https://{$bridgeHost}/.well-known/mercure" : '';
+
+    // Etichetta del ponte nello scontrino di prova: il topic e' sempre lo
+    // stesso (BRIDGE_P2P_TOPIC) - quel che identifica davvero il ponte e'
+    // l'IP se punto-punto, altrimenti e' semplicemente questo stesso PC.
+    $topicLabel = $bridgeHost !== '' ? $bridgeHost : 'questo PC (nessun bridge_host)';
+
+    $raw = bnBuildTestRaw($cassaId, $topicLabel);
     $published = publishMercureUpdate($topic, array_merge([
         'test' => true,
         'cassa_id' => $cassaId,
         'data_base64' => base64_encode($raw),
-    ], $routing['payload']));
+    ], $routing['payload']), $bridgeHubUrl, $bridgeHubUrl !== '' ? $bridgeSecret : '');
 
     if (!$published) {
         http_response_code(502);

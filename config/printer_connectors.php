@@ -78,15 +78,28 @@ function usbConnectorForTarget($nomeStamp)
 }
 
 /**
- * Per una riga BRIDGE_NATIVE calcola il topic Mercure e i campi stampante da
- * allegare al payload pubblicato. Nessuna dipendenza dal DB: identico tra
- * print/print_receipt.php, print/print_stat_receipt.php e il bottone di test.
+ * Topic fisso per il bridge nativo: bin/opensagra-print-bridge.php ascolta
+ * SEMPRE sul proprio hub Mercure locale (mai su uno condiviso derivato da
+ * DB_POS_HOST - vedi la sua intestazione), quindi non c'e' mai piu' di un
+ * ponte in ascolto sullo stesso hub - un id-topic per distinguere le casse
+ * non serve: una sola stampante o cento sullo stesso ponte, non fa differenza
+ * (la stampante fisica la sceglie il payload `printer`/`printer_type`, mai
+ * il topic).
+ */
+const BRIDGE_P2P_TOPIC = 'print/bridge';
+
+/**
+ * Per una riga BRIDGE_NATIVE calcola il topic Mercure (sempre BRIDGE_P2P_TOPIC)
+ * e i campi stampante da allegare al payload pubblicato. Nessuna dipendenza
+ * dal DB: identico tra print/print_receipt.php, print/print_stat_receipt.php
+ * e il bottone di test.
  *
- * - modello "a una riga" (bridge_printer_type valorizzato): la stampante fisica
- *   viaggia nel payload (`printer`/`printer_type`/`printer_port`), il ponte non
- *   tocca il DB; topic = `bridge_topic` (default cassa_id);
- * - modello legacy "a due righe" (bridge_printer_type vuoto): `nome_indirizzo`
- *   e' la cassa-ponte, nessuna stampante nel payload.
+ * - modello "a una riga" (bridge_printer_type valorizzato): la stampante
+ *   fisica del ponte viaggia nel payload (`printer`/`printer_type`/
+ *   `printer_port`), il ponte non tocca il DB;
+ * - modello legacy "a due righe" (bridge_printer_type vuoto): nessuna
+ *   stampante nel payload, il ponte la risolve dalla riga della cassa che ha
+ *   pubblicato (cassa_id, sempre nel payload).
  *
  * @return array{topic:string,payload:array<string,mixed>}
  */
@@ -95,7 +108,6 @@ function bridgeNativeRouting(array $printerSettings, string $cassa_id): array
     $printerType = trim((string) ($printerSettings['bridge_printer_type'] ?? ''));
 
     if ($printerType !== '') {
-        $topicId = trim((string) ($printerSettings['bridge_topic'] ?? '')) ?: $cassa_id;
         $payload = [
             'printer' => trim((string) ($printerSettings['nome_indirizzo'] ?? '')),
             'printer_type' => $printerType,
@@ -103,11 +115,10 @@ function bridgeNativeRouting(array $printerSettings, string $cassa_id): array
         if ($printerType === 'RETE') {
             $payload['printer_port'] = (int) ($printerSettings['porta'] ?: 9100);
         }
-        return ['topic' => 'print/cassa/' . $topicId, 'payload' => $payload];
+        return ['topic' => BRIDGE_P2P_TOPIC, 'payload' => $payload];
     }
 
-    $targetCassa = trim((string) ($printerSettings['nome_indirizzo'] ?? '')) ?: $cassa_id;
-    return ['topic' => 'print/cassa/' . $targetCassa, 'payload' => []];
+    return ['topic' => BRIDGE_P2P_TOPIC, 'payload' => []];
 }
 
 /**

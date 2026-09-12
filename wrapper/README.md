@@ -27,11 +27,13 @@ stampa). Deciso nel piano di migrazione, **sezione 3g** (revisione 2026-09-08).
 |---|---|---|
 | `frankenphp` | `frankenphp run --config <root>/Caddyfile` | il web server |
 | `relay` | `frankenphp php-cli bin/opensagra-realtime-relay.php` | inoltro Mercure server→client, solo in modalità rete |
-| `bridge:<cassa>` | `frankenphp php-cli bin/opensagra-print-bridge.php --cassa=<cassa>` | uno per id in `PRINT_BRIDGE_CASSE` |
+| `bridge` | `frankenphp php-cli bin/opensagra-print-bridge.php` | uno solo, se `PRINT_BRIDGE_CASSE` non è vuoto |
 
 Il wrapper **non tocca JWT/segreti Mercure**: sono i processi PHP a leggersi
 `config/variabili.env`. Del `.env` al wrapper interessa solo `PRINT_BRIDGE_CASSE`
-(quante istanze del bridge) e `DB_POS_*` (check "N casse collegate" all'uscita).
+(se avviare il bridge - un solo processo basta, punto-punto: il topic Mercure è
+fisso, non serve più un id per cassa) e `DB_POS_*` (check "N casse collegate"
+all'uscita).
 
 ## Contratto exit-code (il punto delicato)
 
@@ -41,10 +43,10 @@ Il wrapper **non tocca JWT/segreti Mercure**: sono i processi PHP a leggersi
   backoff `1s → 2s → … → 30s` (reset a 1s se era su da > 60s).
 - **`relay` / `bridge`** fanno `exit(0)` quando *non c'è niente da fare*:
   - relay: `DB_POS_HOST` è locale → non è un client;
-  - bridge: nessuna cassa, **oppure segreto Mercure non ancora sincronizzato da
-    `conf_rete`**.
-  `exit(0)` → **non martellare**: ricontrollo lento (`IdleRecheck`, 30–60 s), così
-  quando `conf_rete` scrive il segreto nel `.env` il bridge riparte da solo.
+  - bridge: `PRINT_BRIDGE_CASSE` vuoto, **oppure `MERCURE_JWT_SECRET` locale
+    assente** in `variabili.env` (il bridge ascolta sempre sul proprio hub
+    locale, punto-punto - non dipende più da `DB_POS_HOST`/`conf_rete`).
+  `exit(0)` → **non martellare**: ricontrollo lento (`IdleRecheck`, 30–60 s).
   `exit != 0` → crash vero → backoff.
 
 Il **Punto 4** (fallback locale una-via) vive tutto lato PHP/bridge: per il

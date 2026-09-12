@@ -162,24 +162,13 @@
                             <option value="BLUETOOTH">BLUETOOTH</option>
                         </select>
                     </div>
-                    <!-- BRIDGE NATIVO: i byte ESC/POS vengono pubblicati su Mercure e il
-                         processo opensagra-print-bridge sul PC-ponte li stampa. Modello
-                         "a una riga": qui si configura direttamente la stampante del ponte
-                         (tipo + nome/IP) e l'ID del ponte (topic Mercure); la discovery interroga il ponte via
-                         proxy server-to-server (niente QZ Tray, niente IP a runtime). -->
+                    <!-- BRIDGE NATIVO: i byte ESC/POS vengono pubblicati direttamente
+                         sull'hub Mercure del PC-ponte (bridge_host, punto-punto - stesso
+                         IP della discovery) e il processo opensagra-print-bridge in
+                         ascolto lì li stampa. Basta l'IP: un ponte gestisce quante
+                         stampanti vuole, la discovery sceglie quella giusta, nessun id
+                         separato da abbinare a mano sui due lati. -->
                     <template v-if="modalData.tipo_stampante === 'BRIDGE_NATIVE'">
-                        <div class="modal-field">
-                            <label for="modalBridgeTopic">ID del ponte</label>
-                            <input type="text" id="modalBridgeTopic" v-model.trim="modalData.bridge_topic"
-                                :placeholder="modalData.cassa_id || 'es. bridge_cucina'">
-                            <p class="modal-field-hint">
-                                Collega questa cassa al processo di stampa in esecuzione sul PC-ponte
-                                (lo stesso valore indicato all'avvio del bridge).
-                                Lascialo vuoto per usare l'ID di questa cassa: va bene quasi sempre.
-                                Metti lo stesso ID su più casse solo se devono stampare tutte
-                                sulla stessa stampante del ponte.
-                            </p>
-                        </div>
                         <div class="modal-field">
                             <label for="modalBridgePrinterType">Stampante del ponte *</label>
                             <select id="modalBridgePrinterType" v-model="modalData.bridge_printer_type"
@@ -189,7 +178,7 @@
                             </select>
                         </div>
                         <div class="modal-field" v-if="modalData.bridge_printer_type !== 'RETE'">
-                            <label for="modalBridgeIp">IP del PC-ponte (per la ricerca)</label>
+                            <label for="modalBridgeIp">IP del PC-ponte</label>
                             <div class="win-printer-wrap">
                                 <input type="text" id="modalBridgeIp" v-model.trim="modalData.bridge_host"
                                     placeholder="es. 192.168.1.50">
@@ -201,7 +190,9 @@
                                 </button>
                             </div>
                             <p class="modal-field-hint">
-                                Basta che opensagra sia avviato sul PC-ponte. L'IP serve solo ora, non in stampa.
+                                Basta che opensagra sia avviato sul PC-ponte. Questo IP viene
+                                usato anche in stampa: ogni scontrino verrà inviato qui
+                                direttamente, indipendentemente dallo stato di rete della cassa.
                             </p>
                         </div>
                         <div class="modal-field">
@@ -330,7 +321,7 @@
                     modalOpen: false,
                     isCreatingRecord: false,
                     currentEditIndex: null,
-                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, bridge_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
+                    modalData: { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, bridge_host: '', bridge_printer_type: '', bridge_jwt_secret: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 },
                     _windowsPrintersPromise: null,
                     _linuxPrintersPromise: null,
                     expandedRows: {}
@@ -653,8 +644,10 @@
                         const printers = (result && Array.isArray(result.printers)) ? result.printers : [];
                         this.bridgeNativePrinters = printers;
 
-                        if (result && result.bridge_id && !(this.modalData.bridge_topic || '').trim()) {
-                            this.modalData.bridge_topic = result.bridge_id;
+                        // Segreto Mercure locale del ponte: abilita la stampa punto-punto
+                        // (pubblica direttamente sul suo hub, indipendente da DB_POS_HOST).
+                        if (result && result.bridge_jwt_secret) {
+                            this.modalData.bridge_jwt_secret = result.bridge_jwt_secret;
                         }
 
                         if (!printers.length) {
@@ -741,7 +734,7 @@
                                 cassa_id: config.cassa_id,
                                 bridge_host: config.bridge_host || '',
                                 bridge_printer_type: config.bridge_printer_type || '',
-                                bridge_topic: config.bridge_topic || ''
+                                bridge_jwt_secret: config.bridge_jwt_secret || ''
                             })
                         });
 
@@ -777,7 +770,7 @@
                         porta: Number(this.modalData.porta || 0),
                         bridge_host: (this.modalData.bridge_host || '').trim(),
                         bridge_printer_type: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
-                        bridge_topic: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? ((this.modalData.bridge_topic || '').trim() || (this.modalData.cassa_id || '').trim()) : ''
+                        bridge_jwt_secret: this.modalData.tipo_stampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_jwt_secret || '') : ''
                     };
 
                     void this.testPrinterConfig(config);
@@ -794,9 +787,6 @@
                         if (!this.modalData.bridge_printer_type) {
                             this.modalData.bridge_printer_type = 'USB';
                         }
-                        if (!this.modalData.bridge_topic) {
-                            this.modalData.bridge_topic = (this.modalData.cassa_id || '').trim();
-                        }
                         if (this.modalData.bridge_printer_type === 'RETE' && !this.modalData.porta) {
                             this.modalData.porta = 9100;
                         }
@@ -811,9 +801,13 @@
                     this.currentEditIndex = index;
 
                     this.modalData = this.isCreatingRecord
-                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, bridge_host: '', bridge_printer_type: '', bridge_topic: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
+                        ? { cassa_id: '', tipo_stampante: 'USB', nome_indirizzo: '', porta: 0, bridge_host: '', bridge_printer_type: '', bridge_jwt_secret: '', abilita_contanti: true, abilita_carta: false, abilita_satispay: false, fondo_cassa: 0 }
                         : {
                             ...this.stampantiData[index],
+                            // Il segreto del bridge punto-punto non torna mai da 'list' (mai
+                            // esposto in UI): resta vuoto finche' non si ri-lancia la
+                            // discovery - salvare senza rilanciarla preserva quello gia' in DB.
+                            bridge_jwt_secret: '',
                             abilita_contanti: Number(this.stampantiData[index].abilita_contanti) === 1,
                             abilita_carta: Number(this.stampantiData[index].abilita_carta) === 1,
                             abilita_satispay: Number(this.stampantiData[index].abilita_satispay) === 1
@@ -832,9 +826,6 @@
                     if (this.modalData.tipo_stampante === 'BRIDGE_NATIVE') {
                         if (!this.modalData.bridge_printer_type) {
                             this.modalData.bridge_printer_type = 'USB';
-                        }
-                        if (!this.modalData.bridge_topic) {
-                            this.modalData.bridge_topic = (this.modalData.cassa_id || '').trim();
                         }
                         this.bridgeNativePrinters = [];
                         this.bridgeNativeSelectValue = this.modalData.nome_indirizzo ? '__manual__' : '';
@@ -872,11 +863,6 @@
                         return;
                     }
 
-                    if (tipoStampante === 'BRIDGE_NATIVE' && !(this.modalData.bridge_topic || '').trim() && !cassaId) {
-                        this.mostraMessaggio("Indica l'ID del ponte oppure l'ID cassa.", 'error');
-                        return;
-                    }
-
                     if (!this.modalData.abilita_contanti && !this.modalData.abilita_carta && !this.modalData.abilita_satispay) {
                         this.mostraMessaggio('Definire almeno un metodo di pagamento', 'error');
                         return;
@@ -884,27 +870,37 @@
 
                     const action = record && record.cassa_id ? 'update' : 'create';
 
+                    // bridge_jwt_secret: incluso solo se abbiamo un valore fresco da
+                    // discovery, o se si sta svuotando bridge_host (allora si azzera anche
+                    // il segreto). Se la chiave manca, l'API preserva quello gia' salvato -
+                    // altrimenti un salvataggio qualsiasi senza ri-discovery lo azzererebbe.
+                    const bridgeJwtSecret = (this.modalData.bridge_jwt_secret || '').trim();
+                    const payload = {
+                        action: action,
+                        cassa_id_old: record ? (record.cassa_id || null) : null,
+                        cassa_id: cassaId,
+                        tipo_stampante: tipoStampante,
+                        nome_indirizzo: nomeIndirizzo,
+                        porta: porta,
+                        bridge_host: bridgeHost,
+                        bridge_printer_type: tipoStampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
+                        bridge_topic: tipoStampante === 'BRIDGE_NATIVE' ? cassaId : '',
+                        abilita_contanti: this.modalData.abilita_contanti ? 1 : 0,
+                        abilita_carta: this.modalData.abilita_carta ? 1 : 0,
+                        abilita_satispay: this.modalData.abilita_satispay ? 1 : 0,
+                        fondo_cassa: Number(this.modalData.fondo_cassa) || 0
+                    };
+                    if (tipoStampante === 'BRIDGE_NATIVE' && (bridgeJwtSecret !== '' || bridgeHost === '')) {
+                        payload.bridge_jwt_secret = bridgeJwtSecret;
+                    }
+
                     try {
                         const data = await $.ajax({
                             url: "../api/stampanti.php",
                             type: "POST",
                             contentType: "application/json",
                             dataType: "json",
-                            data: JSON.stringify({
-                                action: action,
-                                cassa_id_old: record ? (record.cassa_id || null) : null,
-                                cassa_id: cassaId,
-                                tipo_stampante: tipoStampante,
-                                nome_indirizzo: nomeIndirizzo,
-                                porta: porta,
-                                bridge_host: bridgeHost,
-                                bridge_printer_type: tipoStampante === 'BRIDGE_NATIVE' ? (this.modalData.bridge_printer_type || '') : '',
-                                bridge_topic: tipoStampante === 'BRIDGE_NATIVE' ? ((this.modalData.bridge_topic || '').trim() || cassaId) : '',
-                                abilita_contanti: this.modalData.abilita_contanti ? 1 : 0,
-                                abilita_carta: this.modalData.abilita_carta ? 1 : 0,
-                                abilita_satispay: this.modalData.abilita_satispay ? 1 : 0,
-                                fondo_cassa: Number(this.modalData.fondo_cassa) || 0
-                            })
+                            data: JSON.stringify(payload)
                         });
 
                         if (data.error) {

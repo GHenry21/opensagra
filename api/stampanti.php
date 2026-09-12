@@ -44,6 +44,9 @@ function ensureBridgeNativeColumns($connectionDB) {
     // id-topic Mercure. Vuoti = vecchio modello "a due righe".
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER bridge_host");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_topic VARCHAR(50) NULL AFTER bridge_printer_type");
+    // Segreto Mercure locale del PC-ponte (bridge punto-punto): letto una tantum
+    // dalla discovery in conf_casse.php, mai restituito da 'list' - solo scritto.
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_jwt_secret VARCHAR(255) NULL AFTER bridge_topic");
 }
 
 function normalizePaymentFlag($value, $default) {
@@ -134,9 +137,18 @@ try {
             // id-topic Mercure. Solo per BRIDGE_NATIVE, altrimenti azzerati.
             $bridge_printer_type = trim($input['bridge_printer_type'] ?? '');
             $bridge_topic        = trim($input['bridge_topic'] ?? '');
+            // Segreto del bridge punto-punto: il client lo manda solo quando ha
+            // un valore fresco da discovery (o vuole svuotarlo) - se la chiave non
+            // c'e' proprio nel payload, l'update NON deve toccare quello gia'
+            // salvato (altrimenti un salvataggio qualsiasi da modal senza
+            // ri-discovery lo azzererebbe in silenzio).
+            $bridgeJwtSecretProvided = array_key_exists('bridge_jwt_secret', $input);
+            $bridge_jwt_secret = trim((string) ($input['bridge_jwt_secret'] ?? ''));
             if ($tipo_stampante !== 'BRIDGE_NATIVE') {
                 $bridge_printer_type = '';
                 $bridge_topic = '';
+                $bridge_jwt_secret = '';
+                $bridgeJwtSecretProvided = true;
             }
             $cassa_id_old   = trim($input['cassa_id_old'] ?? $cassa_id);
             $abilita_contanti = normalizePaymentFlag($input['abilita_contanti'] ?? null, 1);
@@ -184,8 +196,8 @@ try {
                     exit;
                 }
 
-                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("sssisssiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
+                $stmt = $connectionDB->prepare("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic, bridge_jwt_secret, abilita_contanti, abilita_carta, abilita_satispay, fondo_cassa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("sssissssiiid", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $bridge_jwt_secret, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa);
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Stampante aggiunta con successo.']);
@@ -196,8 +208,13 @@ try {
                 break;
 
             case 'update':
-                $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, bridge_host = ?, bridge_printer_type = ?, bridge_topic = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
-                $stmt->bind_param("sssisssiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
+                if ($bridgeJwtSecretProvided) {
+                    $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, bridge_host = ?, bridge_printer_type = ?, bridge_topic = ?, bridge_jwt_secret = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
+                    $stmt->bind_param("sssissssiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $bridge_jwt_secret, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
+                } else {
+                    $stmt = $connectionDB->prepare("UPDATE casse_stampanti SET cassa_id = ?, tipo_stampante = ?, nome_indirizzo = ?, porta = ?, bridge_host = ?, bridge_printer_type = ?, bridge_topic = ?, abilita_contanti = ?, abilita_carta = ?, abilita_satispay = ?, fondo_cassa = ? WHERE cassa_id = ?");
+                    $stmt->bind_param("sssisssiiids", $cassa_id, $tipo_stampante, $nome_indirizzo, $porta, $bridge_host, $bridge_printer_type, $bridge_topic, $abilita_contanti, $abilita_carta, $abilita_satispay, $fondo_cassa, $cassa_id_old);
+                }
 
                 if ($stmt->execute()) {
                     echo json_encode(['success' => true, 'message' => 'Configurazione aggiornata con successo.']);

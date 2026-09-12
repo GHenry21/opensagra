@@ -15,10 +15,11 @@ const snapshotChildName = "snapshot"
 // Contratto exit-code (vedi README):
 //   - frankenphp e' il server: AlwaysRestart. Qualsiasi uscita = riavvio con backoff.
 //   - relay/bridge fanno exit(0) quando "non c'e' niente da fare" (relay: non e'
-//     un client; bridge: nessuna cassa o segreto Mercure non ancora sincronizzato
-//     da conf_rete). exit(0) => NON martellare: si riprova dopo IdleRecheck, cosi'
-//     quando conf_rete scrive il segreto il bridge riparte da solo. exit!=0 =>
-//     crash vero => backoff.
+//     un client; bridge: nessuna cassa configurata, o MERCURE_JWT_SECRET locale
+//     assente in variabili.env - il bridge ascolta sempre sul proprio hub
+//     locale, punto-punto, non dipende piu' da DB_POS_HOST/conf_rete). exit(0)
+//     => NON martellare: si riprova dopo IdleRecheck. exit!=0 => crash vero =>
+//     backoff.
 func buildChildren(cfg *Config) []*Child {
 	// I bin sono script CLI eseguiti dall'interprete PHP dentro FrankenPHP:
 	//   frankenphp php-cli <script assoluto> [args]
@@ -54,13 +55,16 @@ func buildChildren(cfg *Config) []*Child {
 		},
 	}
 
-	for _, cassa := range cfg.BridgeCasse {
+	if cfg.BridgeEnabled {
+		// Punto-punto: un solo processo basta per PC, qualunque sia il numero di
+		// casse/stampanti servite - il topic Mercure e' fisso, la stampante fisica
+		// la sceglie il payload (vedi bin/opensagra-print-bridge.php).
 		children = append(children, &Child{
-			Name:        "bridge:" + cassa,
+			Name:        "bridge",
 			Dir:         cfg.AppRoot,
 			Bin:         cfg.Frankenphp,
-			Args:        phpCli("bin/opensagra-print-bridge.php", "--cassa="+cassa),
-			IdleRecheck: 30 * time.Second, // exit(0) = segreto non ancora sincronizzato: riprova presto
+			Args:        phpCli("bin/opensagra-print-bridge.php"),
+			IdleRecheck: 30 * time.Second, // exit(0) = MERCURE_JWT_SECRET locale assente: riprova presto
 		})
 	}
 	return children

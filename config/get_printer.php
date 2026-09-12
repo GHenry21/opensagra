@@ -22,8 +22,12 @@ function getPrinterSettings($connectionDB, $cassa_id)
     // vecchio modello "a due righe" (nome_indirizzo = cassa-ponte).
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_printer_type VARCHAR(20) NULL AFTER bridge_host");
     $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_topic VARCHAR(50) NULL AFTER bridge_printer_type");
+    // Segreto Mercure locale del PC-ponte (letto una tantum dalla discovery in
+    // conf_casse.php), per pubblicare punto-punto sul suo hub invece che su
+    // quello derivato da DB_POS_HOST - vedi routingStampa() in print_receipt.php.
+    $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_jwt_secret VARCHAR(255) NULL AFTER bridge_topic");
 
-    $query = "SELECT tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic
+    $query = "SELECT tipo_stampante, nome_indirizzo, porta, bridge_host, bridge_printer_type, bridge_topic, bridge_jwt_secret
                 FROM casse_stampanti
                WHERE cassa_id = ? ";
     $stmt = $connectionDB->prepare($query);
@@ -41,6 +45,7 @@ function getPrinterSettings($connectionDB, $cassa_id)
             'bridge_host' => trim((string) ($row['bridge_host'] ?? '')),
             'bridge_printer_type' => trim((string) ($row['bridge_printer_type'] ?? '')),
             'bridge_topic' => trim((string) ($row['bridge_topic'] ?? '')),
+            'bridge_jwt_secret' => trim((string) ($row['bridge_jwt_secret'] ?? '')),
         ];
     }
 

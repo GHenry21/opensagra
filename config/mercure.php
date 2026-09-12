@@ -123,22 +123,29 @@ function mintMercureJwt(array $publish = [], array $subscribe = [], int $ttlSeco
  * @param string $hubUrl  URL dell'hub. Vuoto (default) -> mercureHubUrl(), che
  *                        lo ricava da DB_POS_HOST. Passare un URL esplicito solo
  *                        per casi speciali (es. il relay che ripubblica
- *                        sull'hub LOCALE, 'https://localhost/.well-known/mercure').
+ *                        sull'hub LOCALE, 'https://localhost/.well-known/mercure',
+ *                        o la stampa punto-punto verso l'hub di un bridge_host).
  *                        Mai '127.0.0.1': il Caddyfile emette certificati solo
  *                        per gli hostname elencati nel site address
  *                        (localhost/IP-LAN/opensagra.local), non per il loopback
  *                        - connettersi con quell'IP causa un mismatch SNI e Caddy
  *                        chiude il TLS con un alert generico ("internal error").
+ * @param string $secret  Segreto per firmare il JWT. Vuoto (default) ->
+ *                        mercureSecretForHub($hubUrl) (comportamento automatico
+ *                        invariato). Passare un valore esplicito solo quando
+ *                        $hubUrl e' un hub terzo il cui segreto non e' ne' quello
+ *                        locale ne' quello "remoto" sincronizzato da conf_rete
+ *                        (es. bridge_jwt_secret di un PC-ponte punto-punto).
  * @return bool true se l'hub ha accettato la pubblicazione (HTTP 200)
  */
-function publishMercureUpdate(string $topic, $data, string $hubUrl = ''): bool
+function publishMercureUpdate(string $topic, $data, string $hubUrl = '', string $secret = ''): bool
 {
     if ($hubUrl === '') {
         $hubUrl = mercureHubUrl();
     }
 
     try {
-        $jwt = mintMercureJwt([$topic], [], 3600, mercureSecretForHub($hubUrl));
+        $jwt = mintMercureJwt([$topic], [], 3600, $secret !== '' ? $secret : mercureSecretForHub($hubUrl));
     } catch (Throwable $e) {
         return false;
     }

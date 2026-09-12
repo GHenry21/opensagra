@@ -27,16 +27,6 @@ func valueOr(v, def string) string {
 	return v
 }
 
-func splitCsv(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // readEnvFile: stesso parsing di config/env_reader.php (salta vuote e righe #,
 // split sul primo '=', taglia un eventuale commento inline, sbuccia apici/spazi).
 func readEnvFile(path string) map[string]string {

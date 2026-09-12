@@ -682,11 +682,22 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
         if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
             $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
             $routing = bridgeNativeRouting($printerSettings, $cassa_id);
+
+            // Punto-punto: se il ponte ha un bridge_host + bridge_jwt_secret
+            // configurati (discovery in conf_casse.php), si pubblica DIRETTAMENTE
+            // sul suo hub Mercure locale invece che su quello derivato da
+            // DB_POS_HOST - la stampa resta cosi' indipendente dallo stato di
+            // rete/fallback della cassa (vedi piano "bridge di stampa
+            // punto-punto"). Se non configurato, comportamento invariato.
+            $bridgeHost = trim((string) ($printerSettings['bridge_host'] ?? ''));
+            $bridgeSecret = trim((string) ($printerSettings['bridge_jwt_secret'] ?? ''));
+            $bridgeHubUrl = ($bridgeHost !== '' && $bridgeSecret !== '') ? "https://{$bridgeHost}/.well-known/mercure" : '';
+
             $published = publishMercureUpdate($routing['topic'], array_merge([
                 'id_vendita' => $id_vendita,
                 'cassa_id' => $cassa_id,
                 'data_base64' => base64_encode($rawReceipt),
-            ], $routing['payload']));
+            ], $routing['payload']), $bridgeHubUrl, $bridgeHubUrl !== '' ? $bridgeSecret : '');
 
             return [
                 'method' => 'bridge_native',

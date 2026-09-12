@@ -186,10 +186,16 @@ try {
     if (($printerSettings['tipo_stampante'] ?? '') === 'BRIDGE_NATIVE') {
         $rawReceipt = buildEscposRawStatReceipt($from, $to, $cassa, $vendite, $totale, $sconti, $dataOraEstr, $ultimaChiusura, $fondoCassa, $totaleAtteso);
         $routing = bridgeNativeRouting($printerSettings, $cassa_id);
+
+        // Punto-punto: vedi routingStampa() in print/print_receipt.php.
+        $bridgeHost = trim((string) ($printerSettings['bridge_host'] ?? ''));
+        $bridgeSecret = trim((string) ($printerSettings['bridge_jwt_secret'] ?? ''));
+        $bridgeHubUrl = ($bridgeHost !== '' && $bridgeSecret !== '') ? "https://{$bridgeHost}/.well-known/mercure" : '';
+
         $published = publishMercureUpdate($routing['topic'], array_merge([
             'cassa_id' => $cassa_id,
             'data_base64' => base64_encode($rawReceipt),
-        ], $routing['payload']));
+        ], $routing['payload']), $bridgeHubUrl, $bridgeHubUrl !== '' ? $bridgeSecret : '');
 
         echo json_encode([
             'success' => true,
