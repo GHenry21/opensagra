@@ -38,6 +38,13 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Senza questo, Invoke-WebRequest (qui e nello script ufficiale di FrankenPHP,
+# eseguito inline piu' sotto) disegna la sua progress bar di default che,
+# ospitato dentro l'host minimale di ps2exe (nessuna vera console), si
+# materializza come una finestrella separata "download in corso" - scoperto
+# testando l'installer impacchettato su una macchina pulita (2026-09-12).
+$ProgressPreference = 'SilentlyContinue'
+
 # ============================================================================
 # Configurazione
 # ============================================================================
@@ -83,7 +90,7 @@ function Show-InstallWindow {
     $xamlString = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OpenSagra" Width="460" Height="320"
+        Title="OpenSagra" Width="460" Height="360"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen" Topmost="True" ResizeMode="NoResize">
     <Border CornerRadius="16" Background="#FEFEFE" BorderBrush="#33222E2E" BorderThickness="1">
@@ -94,8 +101,14 @@ function Show-InstallWindow {
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <Border Grid.Row="0" CornerRadius="16,16,0,0" Background="#E0B020">
-                <TextBlock Text="Installazione OpenSagra" Foreground="#33260A" FontWeight="Bold"
-                           FontSize="14" VerticalAlignment="Center" Margin="18,0,0,0"/>
+                <Grid>
+                    <TextBlock Text="Installazione OpenSagra" Foreground="#33260A" FontWeight="Bold"
+                               FontSize="14" VerticalAlignment="Center" Margin="18,0,0,0"/>
+                    <Button x:Name="MinimizeButton" Content="&#8212;" Width="32" Height="32"
+                            HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0"
+                            Background="Transparent" BorderThickness="0" Foreground="#33260A"
+                            FontSize="14" FontWeight="Bold" Cursor="Hand"/>
+                </Grid>
             </Border>
             <StackPanel Grid.Row="1" Margin="28,20,28,20">
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
@@ -112,7 +125,9 @@ function Show-InstallWindow {
                     <TextBlock x:Name="StatusText" Text="Avvio..." FontSize="12" Foreground="#5F6773" HorizontalAlignment="Left"/>
                     <TextBlock x:Name="PctText" Text="0%" FontSize="12" FontWeight="Bold" Foreground="#33260A" HorizontalAlignment="Right"/>
                 </Grid>
-                <StackPanel x:Name="ChecklistPanel" Margin="0,18,0,0"/>
+                <ScrollViewer Margin="0,18,0,0" MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="ChecklistPanel"/>
+                </ScrollViewer>
             </StackPanel>
         </Grid>
     </Border>
@@ -139,6 +154,7 @@ function Show-InstallWindow {
         $syncHash.StatusText = $window.FindName('StatusText')
         $syncHash.PctText = $window.FindName('PctText')
         $syncHash.ChecklistPanel = $window.FindName('ChecklistPanel')
+        $window.FindName('MinimizeButton').Add_Click({ $window.WindowState = 'Minimized' }.GetNewClosure())
         $logoCtrl = $window.FindName('Logo')
         if (Test-Path $logoPath) {
             $logoCtrl.Source = [System.Windows.Media.Imaging.BitmapImage]::new((New-Object System.Uri($logoPath)))
@@ -217,30 +233,6 @@ function Test-Prerequisites {
     }
 }
 
-function Disable-LegacyXamppServices {
-    # Insidia #7 (piano, 2026-09-07): se la macchina ha (o ha avuto) XAMPP,
-    # i suoi servizi Windows (Apache2.4, mysql) possono essere rimasti
-    # StartType=Automatic anche dopo averli fermati dal pannello di
-    # controllo - fermare il processo non cambia il tipo di avvio del
-    # servizio. Scoperto con un riavvio reale: al boot successivo httpd.exe
-    # ha vinto la porta 80 su frankenphp.exe (Windows non impedisce il
-    # doppio bind se nessuno chiede l'esclusiva, ma solo uno riceve il
-    # traffico). Va disabilitato esplicitamente l'avvio, non solo fermato.
-    #
-    # `frankenphp`: su un'installazione OpenSagra precedente era un servizio
-    # WinSW. Ora lo gestisce il wrapper; il servizio va fermato e disabilitato,
-    # altrimenti si contende con il figlio del wrapper la porta admin 2019
-    # (e 80/443) e il wrapper mostra FrankenPHP "in errore".
-    $legacyServices = @('Apache2.4', 'mysql', 'frankenphp')
-    foreach ($name in $legacyServices) {
-        $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
-        if (-not $svc) { continue }
-        if ($svc.Status -ne 'Stopped') { Stop-Service -Name $name -Force }
-        if ($svc.StartType -ne 'Disabled') { Set-Service -Name $name -StartupType Disabled }
-    }
-    Add-InstallChecklistItem 'Servizi legacy (XAMPP / servizio FrankenPHP) verificati/disattivati'
-}
-
 function Install-VCRedist {
     # Scoperto testando su una VM davvero pulita (2026-09-07, mai emerso
     # prima perche' ogni macchina usata finora aveva gia' Visual Studio/altri
@@ -255,7 +247,7 @@ function Install-VCRedist {
     }
     $installerPath = "$env:TEMP\vc_redist.x64.exe"
     Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile $installerPath
-    Start-Process -FilePath $installerPath -ArgumentList '/install', '/quiet', '/norestart' -Wait
+    Start-Process -FilePath $installerPath -ArgumentList '/install', '/quiet', '/norestart' -WindowStyle Hidden -Wait
     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
     if (-not (Test-Path 'C:\Windows\System32\vcruntime140.dll')) {
         throw 'Installazione del Visual C++ Redistributable non riuscita.'
@@ -339,9 +331,24 @@ function Install-MariaDBEngine {
         Add-InstallChecklistItem 'MariaDB gia'' presente'
         return
     }
-    winget install --id MariaDB.Server -e --silent --accept-package-agreements --accept-source-agreements
+    # -WindowStyle Hidden: lanciato da un processo senza console (l'exe
+    # impacchettato con ps2exe -noConsole), winget aprirebbe altrimenti una sua
+    # finestra di console visibile ("download in corso...") - scoperto
+    # testando l'installer su una macchina pulita (2026-09-12).
+    # --custom aggiunge argomenti IN PIU' a quelli che winget passa gia' di
+    # default per --silent (non li sostituisce, a differenza di --override) -
+    # qui servono per escludere HeidiSQL dall'installazione via le property
+    # MSI del pacchetto (WiX): ADDLOCAL=ALL installa tutte le feature, REMOVE=
+    # HeidiSQL la toglie di nuovo. Non serve: la gestione DB passa da /db
+    # (AdminNeo, vedi tools/), non da un client desktop.
+    $wingetArgs = @(
+        'install', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity',
+        '--accept-package-agreements', '--accept-source-agreements',
+        '--custom', 'ADDLOCAL=ALL REMOVE=HeidiSQL'
+    )
+    $wingetResult = Start-Process -FilePath 'winget' -ArgumentList $wingetArgs -WindowStyle Hidden -Wait -PassThru
     if (-not (Test-Path "$Script:MariaDbDir\bin\mariadbd.exe")) {
-        throw 'Installazione di MariaDB non riuscita (percorso atteso non trovato - verificare la versione installata da winget).'
+        throw "Installazione di MariaDB non riuscita (winget exit code $($wingetResult.ExitCode) - percorso atteso non trovato, verificare la versione installata da winget)."
     }
     Add-InstallChecklistItem 'MariaDB installato'
 }
@@ -669,9 +676,6 @@ function Set-FirewallRules {
 try {
     Test-Prerequisites
     Show-InstallWindow
-
-    Set-InstallProgress -Percent 3 -Status 'Verifica di eventuali installazioni precedenti...'
-    Disable-LegacyXamppServices
 
     Set-InstallProgress -Percent 5 -Status 'Installazione di FrankenPHP...'
     Install-FrankenPHP

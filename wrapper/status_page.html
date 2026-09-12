@@ -235,7 +235,7 @@ async function refresh() {
   $("#mariadbRow").hidden = false;
   $("#mariadbDot").className = "dot " + (s.mariadb_up ? "ok" : "err");
   $("#mariadbDetail").textContent = s.mariadb_up
-    ? "attivo (servizio)"
+    ? "attivo (servizio)" + (s.mariadb_version ? " · MariaDB " + s.mariadb_version : "")
     : "fermo — riparte da servizi.msc / al riavvio del PC";
   $("#btnDb").hidden = !s.db_tool_url;
 
@@ -243,19 +243,23 @@ async function refresh() {
   const sig = JSON.stringify(s.procs);
   if (sig !== lastProcs) {
     lastProcs = sig;
-    $("#procList").innerHTML = s.procs.map(p => `
+    $("#procList").innerHTML = s.procs.map(p => {
+      const ver = p.name === "frankenphp" && s.frankenphp_version
+        ? ` · FrankenPHP ${s.frankenphp_version} · PHP ${s.php_version}` : "";
+      return `
       <div class="proc">
         <div class="dot ${dotClass(p.state, p.paused)}"></div>
         <div class="meta">
           <div class="name">${p.name}</div>
-          <div class="detail">${p.state}${p.pid ? " · PID " + p.pid : ""}${p.uptime ? " · " + p.uptime : ""}${p.detail ? " · " + p.detail : ""}</div>
+          <div class="detail">${p.state}${p.pid ? " · PID " + p.pid : ""}${p.uptime ? " · " + p.uptime : ""}${p.detail ? " · " + p.detail : ""}${ver}</div>
         </div>
         <div class="btns">
           <button data-op="${p.paused ? "resume" : "pause"}" data-name="${p.name}"
             title="${p.paused ? "Riprendi" : "Ferma"}">${ic(p.paused ? "play" : "pause", 13)}</button>
           <button data-op="restart" data-name="${p.name}" title="Riavvia">${ic("rotate-cw", 13)}</button>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     for (const b of $("#procList").querySelectorAll("button"))
       b.onclick = () => api(b.dataset.op, b.dataset.name);
 

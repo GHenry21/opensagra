@@ -103,15 +103,18 @@ type procJSON struct {
 }
 
 type statusJSON struct {
-	Role        string     `json:"role"`
-	ClientCount int        `json:"client_count"`
-	AppURL      string     `json:"app_url"`
-	Autostart   bool       `json:"autostart"`
-	AllPaused   bool       `json:"all_paused"`
-	MariadbUp   bool       `json:"mariadb_up"`
-	DbToolURL   string     `json:"db_tool_url"` // "" se /db non risponde
-	LogDir      string     `json:"log_dir"`
-	Procs       []procJSON `json:"procs"`
+	Role              string     `json:"role"`
+	ClientCount       int        `json:"client_count"`
+	AppURL            string     `json:"app_url"`
+	Autostart         bool       `json:"autostart"`
+	AllPaused         bool       `json:"all_paused"`
+	MariadbUp         bool       `json:"mariadb_up"`
+	MariadbVersion    string     `json:"mariadb_version"`    // "" se il DB non risponde
+	FrankenphpVersion string     `json:"frankenphp_version"` // "" se non ancora rilevata
+	PhpVersion        string     `json:"php_version"`
+	DbToolURL         string     `json:"db_tool_url"` // "" se /db non risponde
+	LogDir            string     `json:"log_dir"`
+	Procs             []procJSON `json:"procs"`
 }
 
 // cachedClientCount: activeClientCount() apre una connessione al DB; con la
@@ -169,15 +172,20 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if isThisMachineServer(h.cfg) {
 		role = "SERVER"
 	}
+	mdbUp, mdbVer := mariadbStatus(h.cfg)
+	fpVer, phpVer := frankenphpVersions(h.cfg)
 	out := statusJSON{
-		Role:        role,
-		ClientCount: h.cachedClientCount(),
-		AppURL:      h.cfg.AppURL,
-		Autostart:   autostartEnabled(),
-		AllPaused:   h.sup.allPaused(),
-		MariadbUp:   mariadbUp(h.cfg),
-		DbToolURL:   h.cachedDbToolURL(),
-		LogDir:      h.cfg.LogDir,
+		Role:              role,
+		ClientCount:       h.cachedClientCount(),
+		AppURL:            h.cfg.AppURL,
+		Autostart:         autostartEnabled(),
+		AllPaused:         h.sup.allPaused(),
+		MariadbUp:         mdbUp,
+		MariadbVersion:    mdbVer,
+		FrankenphpVersion: fpVer,
+		PhpVersion:        phpVer,
+		DbToolURL:         h.cachedDbToolURL(),
+		LogDir:            h.cfg.LogDir,
 	}
 	for _, name := range h.sup.names() {
 		st := h.sup.get(name)
