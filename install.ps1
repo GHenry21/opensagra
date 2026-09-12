@@ -720,6 +720,46 @@ function Start-Wrapper {
     }
 }
 
+function Register-LocalCaTrust {
+    # Tentativo di anticipare la finestra di sicurezza certificati di Windows
+    # ("vuoi installare questo certificato?") che Caddy/FrankenPHP fa apparire
+    # da solo alla prima connessione HTTPS reale (tls internal), generando E
+    # installando la CA locale tramite la stessa API di wizard che Windows
+    # presidia con quel dialogo - confermato testando su una VM pulita
+    # (2026-09-12). `frankenphp trust` e' il comando ufficiale pensato apposta
+    # per "il processo server gira come utente non privilegiato" (il nostro
+    # caso: il wrapper fa girare FrankenPHP de-elevato) - se arriva PRIMA che
+    # qualcuno apra l'app in un browser, con un po' di fortuna Caddy trova la
+    # CA gia' fidata e salta il proprio tentativo (quello con il dialogo).
+    # Best-effort: se non funziona, resta comunque il vecchio comportamento
+    # (un dialogo una-tantum alla prima apertura) - non fa fallire l'installer.
+    $frankenphp = Join-Path $Script:FrankenDir 'frankenphp.exe'
+    if (-not (Test-Path $frankenphp)) { return }
+
+    $adminUp = $false
+    for ($i = 0; $i -lt 20; $i++) {
+        try {
+            Invoke-WebRequest -Uri 'http://127.0.0.1:2019/config/' -TimeoutSec 2 -UseBasicParsing | Out-Null
+            $adminUp = $true
+            break
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+    if (-not $adminUp) {
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: admin API di Caddy (127.0.0.1:2019) non risponde dopo 20s, salto." | Out-File $Script:LogPath -Append -Encoding utf8
+        return
+    }
+
+    $output = & $frankenphp trust --address '127.0.0.1:2019' 2>&1
+    if ($output) { ($output | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
+    if ($LASTEXITCODE -eq 0) {
+        Add-InstallChecklistItem 'Certificato locale HTTPS fidato'
+    } else {
+        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo avvio (dettagli in $Script:LogPath)"
+    }
+}
+
 function Set-FirewallRules {
     # Regole per-porta esplicite, NON legate al programma: le regole
     # auto-generate da FrankenPHP/MariaDB non sono affidabili su rete
@@ -783,6 +823,7 @@ try {
 
     Set-InstallProgress -Percent 97 -Status 'Avvio di OpenSagra...'
     Start-Wrapper
+    Register-LocalCaTrust
 
     Close-InstallWindow -Success
 } catch {
