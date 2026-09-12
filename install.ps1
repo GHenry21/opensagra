@@ -70,7 +70,10 @@ $Script:ExcludeFromCopy = @(
     'private',
     # Script di packaging (make-installer.ps1 ecc.) - servono solo a costruire
     # opensagra-installer.exe, non fanno parte dell'app installata.
-    'packaging'
+    'packaging',
+    # Come install.ps1 stesso: materiale di gestione del pacchetto, non va
+    # servito dentro C:\opensagra.
+    'uninstall.ps1'
 )
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release

@@ -47,3 +47,6 @@ Thumbs.db
 # uno snapshot dell'intero repo + vendor/ + il wrapper compilato - grosso,
 # rigenerato ad ogni release, non va committato)
 /opensagra-installer.exe
+
+# Uninstaller a-un-file, prodotto da packaging\make-uninstaller.ps1
+/opensagra-uninstaller.exe
