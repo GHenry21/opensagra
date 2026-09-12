@@ -24,6 +24,15 @@ try {
         throw "install.ps1 non trovato nel pacchetto estratto ($dest) - pacchetto corrotto o incompleto."
     }
 
+    # Su una macchina con la ExecutionPolicy di default (Restricted - il caso
+    # normale su un Windows pulito/appena attivato, a differenza di
+    # un'immagine di sviluppo che spesso l'ha gia' rilassata) "& $installScript"
+    # sotto viene rifiutato con "L'esecuzione di script e' disabilitata nel
+    # sistema in uso" (scoperto testando su una VM davvero pulita, 2026-09-12).
+    # -Scope Process: vale solo per QUESTO processo del bootstrap, non tocca
+    # la policy della macchina/utente - non serve e non deve persistere.
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
     # Nota: install.ps1 chiama "exit 1" nel suo blocco catch, non lancia
     # un'eccezione .NET - se fallisce il PROCESSO finisce li' (exit termina
     # sempre il processo, anche invocato con &), $dest resta per il
