@@ -419,7 +419,8 @@ function Register-MariaDBService {
     }
     Push-Location "$Script:MariaDbDir\bin"
     try {
-        & .\mariadbd.exe --install MariaDB --defaults-file="$Script:MariaDbDir\data\my.ini"
+        $installOutput = & .\mariadbd.exe --install MariaDB --defaults-file="$Script:MariaDbDir\data\my.ini" 2>&1
+        if ($installOutput) { ($installOutput | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
         Start-Service MariaDB
         Set-Service MariaDB -StartupType Automatic
     } finally {
@@ -605,11 +606,27 @@ $httpsMercure
     Add-InstallChecklistItem 'Caddyfile generato (Mercure + gestore DB /db)'
 }
 
+# Invoke-PhpCli: esegue uno script PHP via frankenphp.exe catturandone TUTTO
+# l'output (stdout+stderr) nel log invece di lasciarlo cadere sull'output di
+# default di PowerShell. Bug reale (2026-09-12, dopo il fix di Write-Host):
+# frankenphp.exe e' un processo a console vero e proprio lanciato da un host
+# -noConsole (nessuna console da ereditare) - l'output non catturato dei suoi
+# script (crea_dbtable_and_user.php, le migrazioni, ecc.) finiva comunque
+# nell'host minimale di ps2exe, che mostra un MessageBox bloccante per riga
+# (stessa causa delle finestrelle di FrankenPHP, ma Write-Host li' non basta:
+# l'output NON catturato di un comando esterno passa da $Host.UI.WriteLine
+# via Out-Default, non dal cmdlet Write-Host che avevo ridefinito).
+function Invoke-PhpCli {
+    param([Parameter(Mandatory)][string]$ScriptPath)
+    $output = & "$Script:FrankenDir\frankenphp.exe" php-cli $ScriptPath 2>&1
+    if ($output) { ($output | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
+    return $LASTEXITCODE
+}
+
 function Invoke-DatabaseProvisioning {
     $script = Join-Path $Script:InstallPath 'config\crea_dbtable_and_user.php'
-    & "$Script:FrankenDir\frankenphp.exe" php-cli $script
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Provisioning del database fallito (vedi output sopra).'
+    if ((Invoke-PhpCli $script) -ne 0) {
+        throw "Provisioning del database fallito (dettagli in $Script:LogPath)."
     }
     Add-InstallChecklistItem 'Database creato/verificato'
 }
@@ -637,14 +654,13 @@ exit(`$ok ? 0 : 1);
 
     $env:OPENSAGRA_MERCURE_SECRET = $MercureSecret
     try {
-        & "$Script:FrankenDir\frankenphp.exe" php-cli $seedScript
-        $code = $LASTEXITCODE
+        $code = Invoke-PhpCli $seedScript
     } finally {
         Remove-Item Env:\OPENSAGRA_MERCURE_SECRET -ErrorAction SilentlyContinue
         Remove-Item $seedScript -Force -ErrorAction SilentlyContinue
     }
     if ($code -ne 0) {
-        throw 'Scrittura di MERCURE_JWT_SECRET in app_config fallita (vedi output sopra).'
+        throw "Scrittura di MERCURE_JWT_SECRET in app_config fallita (dettagli in $Script:LogPath)."
     }
     Add-InstallChecklistItem 'Segreto Mercure salvato in app_config (per i client)'
 }
@@ -653,9 +669,8 @@ function Invoke-Migrations {
     $migrationsDir = Join-Path $Script:InstallPath 'config\migrations'
     if (-not (Test-Path $migrationsDir)) { return }
     Get-ChildItem -Path $migrationsDir -Filter '*.php' | Sort-Object Name | ForEach-Object {
-        & "$Script:FrankenDir\frankenphp.exe" php-cli $_.FullName
-        if ($LASTEXITCODE -ne 0) {
-            throw "Migrazione fallita: $($_.Name)"
+        if ((Invoke-PhpCli $_.FullName) -ne 0) {
+            throw "Migrazione fallita: $($_.Name) (dettagli in $Script:LogPath)."
         }
     }
     Add-InstallChecklistItem 'Migrazioni database applicate'
