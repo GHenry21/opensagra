@@ -20,6 +20,16 @@
  * Ogni copia riuscita scrive app_config['snapshot_last_ok'] in locale: e' la
  * prova che enter_local_fallback.php pretende prima di autorizzare lo swap.
  *
+ * COPIA CALDA DEGLI ORDINI (Fase 4 punto 4, seguito 2026-09-14): a ogni giro
+ * leggero (~10s, indipendente dal catalogo sopra) copia anche gli ordini di
+ * OGGI in `vendite_mirror` - tabella locale separata, di sola lettura, mai
+ * guardata dalla logica di push/decremento. Serve solo al pannello "Ordini" di
+ * billing.php: durante un fallback, `vendite` locale ha solo le vendite fatte
+ * DA quel momento in poi (mai quelle precedenti, per design - vedi sotto),
+ * quindi senza questa copia il pannello le mostrerebbe come sparite. Nessuna
+ * condizione di "pronto/non pronto": e' solo una comodita' di consultazione,
+ * non autorizza nessuno swap (a differenza di snapshot_last_ok).
+ *
  * MUTUA ESCLUSIONE (critico): appena la cassa entra in fallback
  * (FALLBACK_ORIGIN_HOST valorizzato) questo processo si mette in pausa. Se
  * continuasse, al ritorno del centrale sovrascriverebbe i decrementi di scorta
@@ -77,6 +87,105 @@ function refTablesFingerprint(mysqli $server): string
         $parts[] = $row ? (string) (($row->fetch_assoc()['Checksum'] ?? '')) : '';
     }
     return implode(':', $parts);
+}
+
+function ensureOrdersMirrorTable(mysqli $local): void
+{
+    $local->query(
+        'CREATE TABLE IF NOT EXISTS vendite_mirror ('
+        . ' id INT NOT NULL PRIMARY KEY,'
+        . ' cassa_id VARCHAR(50) DEFAULT NULL,'
+        . ' data_ora DATETIME DEFAULT NULL,'
+        . ' totale DECIMAL(10,2) DEFAULT NULL,'
+        . ' sconto DECIMAL(10,2) DEFAULT NULL,'
+        . ' importo_pagato DECIMAL(10,2) DEFAULT NULL,'
+        . ' resto DECIMAL(10,2) DEFAULT NULL,'
+        . ' metodo_pagamento VARCHAR(50) DEFAULT NULL,'
+        . ' stornato INT(1) NOT NULL DEFAULT 0,'
+        . ' n_articoli INT NOT NULL DEFAULT 0'
+        . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+}
+
+/**
+ * Fingerprint economico degli ordini di OGGI sul server: `COUNT`+`MAX(id)`
+ * colgono i nuovi ordini, `SUM(stornato)` coglie anche uno storno fatto su un
+ * ordine gia' esistente (che da solo non cambierebbe ne' il conteggio ne' il
+ * max id). `vendite` non ha una colonna `updated_at` (a differenza di
+ * `stock`), quindi non si puo' riusare lo stesso trucco - da qui l'aggregato
+ * a parte invece del confronto di versione visto sopra.
+ */
+function ordersMirrorFingerprint(mysqli $server): string
+{
+    $row = $server->query(
+        'SELECT COUNT(*) AS c, COALESCE(MAX(id),0) AS max_id, COALESCE(SUM(stornato),0) AS storni'
+        . ' FROM vendite WHERE DATE(data_ora) = CURDATE()'
+    )->fetch_assoc();
+    return ($row['c'] ?? '0') . ':' . ($row['max_id'] ?? '0') . ':' . ($row['storni'] ?? '0');
+}
+
+/**
+ * Copia calda, di sola lettura, degli ordini di OGGI dal server in locale
+ * (`vendite_mirror`). Tabella separata dalla `vendite` locale "vera" (quella
+ * delle vendite fatte in fallback): mai un id in comune, zero rischio di
+ * confusione per api/push_local_sales.php, che non la guarda mai.
+ *
+ * Sostituzione integrale (`DELETE` + reinsert in un'unica transazione) e non
+ * lo stage-then-swap di snapshotTable(): questa tabella la creiamo e la
+ * gestiamo solo noi (nessun drift di schema possibile, a differenza delle
+ * tabelle applicative che seguono le migrazioni di opensagra), quindi non
+ * serve la protezione contro uno schema locale disallineato.
+ *
+ * @return int ordini copiati
+ */
+function syncOrdersMirror(mysqli $server, mysqli $local): int
+{
+    ensureOrdersMirrorTable($local);
+
+    $rows = [];
+    $res = $server->query(
+        'SELECT v.id, v.cassa_id, v.data_ora, v.totale, v.sconto, v.importo_pagato, v.resto,'
+        . '        v.metodo_pagamento, v.stornato,'
+        . '        (SELECT COALESCE(SUM(d.quantita), 0) FROM dettagli_vendita d WHERE d.vendita_id = v.id) AS n_articoli'
+        . '   FROM vendite v'
+        . '  WHERE DATE(v.data_ora) = CURDATE()'
+    );
+    if (!$res) {
+        throw new RuntimeException('SELECT vendite (mirror ordini) fallita: ' . $server->error);
+    }
+    while ($r = $res->fetch_assoc()) {
+        $rows[] = $r;
+    }
+
+    $local->begin_transaction();
+    try {
+        $local->query('DELETE FROM vendite_mirror');
+        if ($rows) {
+            $ins = $local->prepare(
+                'INSERT INTO vendite_mirror'
+                . ' (id, cassa_id, data_ora, totale, sconto, importo_pagato, resto, metodo_pagamento, stornato, n_articoli)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            if (!$ins) {
+                throw new RuntimeException('prepare INSERT vendite_mirror fallita: ' . $local->error);
+            }
+            foreach ($rows as $r) {
+                // mysqli::execute(array) dal PHP 8.1, come snapshotTable().
+                $ins->execute([
+                    $r['id'], $r['cassa_id'], $r['data_ora'], $r['totale'], $r['sconto'],
+                    $r['importo_pagato'], $r['resto'], $r['metodo_pagamento'], $r['stornato'], $r['n_articoli'],
+                ]);
+            }
+            $ins->close();
+        }
+        $local->commit();
+    } catch (Throwable $e) {
+        try { $local->rollback(); } catch (Throwable $ignored) {}
+        throw $e;
+    }
+
+    snapLog('copiati ' . count($rows) . ' ordini di oggi nel mirror locale');
+    return count($rows);
 }
 
 // "Impronta" dell'istanza MariaDB dietro una connessione. Serve a riconoscere
@@ -293,6 +402,7 @@ snapLog('avviato.');
 $lastFullAt = 0;
 $lastStockVersion = null;
 $lastRefFingerprint = null;
+$lastOrdersFingerprint = null;
 
 while (true) {
     $env = loadPosEnvVars();
@@ -378,6 +488,16 @@ while (true) {
             if ($didAny) {
                 markSnapshotOk($local, $now);
             }
+        }
+
+        // Copia calda degli ordini di oggi - indipendente dal catalogo sopra,
+        // gira a ogni giro leggero (mai legata a $doFull ne' a
+        // snapshot_last_ok: e' solo una comodita' di consultazione per il
+        // pannello "Ordini", non una condizione per autorizzare il fallback).
+        $ordersFingerprint = ordersMirrorFingerprint($server);
+        if ($lastOrdersFingerprint === null || $ordersFingerprint !== $lastOrdersFingerprint) {
+            syncOrdersMirror($server, $local);
+            $lastOrdersFingerprint = $ordersFingerprint;
         }
     } catch (Throwable $e) {
         snapLog('errore durante lo snapshot (tengo la copia precedente): ' . $e->getMessage());

@@ -164,6 +164,13 @@
             // Fase 4 punto 4: "Annulla" del toast dopo un ripristino automatico del
             // catalogo - richiama il batch di sicurezza preso appena prima di quel
             // ripristino (config/catalog_backup.php::restoreCatalogBackupBatch).
+            //
+            // Ricorsiva di proposito (corretto 2026-09-13, collaudo VM): ogni ripristino,
+            // "Annulla" incluso, salva SEMPRE un nuovo backup di sicurezza dello stato
+            // appena sostituito (config/catalog_backup.php lo fa già lato dati) - qui si
+            // riflette la stessa cosa lato interfaccia, cosi' non si resta mai bloccati
+            // dopo un solo "Annulla": ognuno apre la porta per tornare indietro di un
+            // altro passo ancora, all'infinito.
             function undoCatalogRestore(safetyBatchId) {
                 fetch('../api/restore_catalog_backup.php', {
                         method: 'POST',
@@ -176,7 +183,15 @@
                             showToast((data && data.error) || 'Annullamento non riuscito.', 'error');
                             return;
                         }
-                        showToast('Fatto: il catalogo è tornato quello di un attimo fa.', 'success');
+                        const nextSafetyId = data.safety_backup_id;
+                        showToast(
+                            'Fatto: il catalogo è tornato quello di un attimo fa.',
+                            'success',
+                            nextSafetyId ? {
+                                duration: 0,
+                                action: { label: 'Annulla', onClick: () => undoCatalogRestore(nextSafetyId) }
+                            } : undefined
+                        );
                     })
                     .catch(() => showToast('Errore di rete durante l\'annullamento.', 'error'));
             }
