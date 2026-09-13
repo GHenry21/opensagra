@@ -463,13 +463,18 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
         // (POST api/enter_local_fallback.php + reload). Silenzioso: l'operatore
         // continua a battere ordini. Override da localStorage['fallback_after_ms']
         // solo per i test (valori bassi). Gli Scalini 0/1 coprono gia' i buchi
-        // brevi, qui si mira ai buchi prolungati. 45s: sta sopra un riavvio del
-        // servizio MariaDB (~15-20s) e un blip WiFi, ma nel caso reale (PC
-        // server spento/crashato, che non torna da solo) l'operatore riparte in
-        // locale in ~45s invece di 1-2 min. Con l'heartbeat DB (dbHeartbeat)
-        // il cronometro parte entro ~10s dalla caduta, non fino a un giro di
-        // polling dopo. Override: localStorage['fallback_after_ms'] (test).
-        const FALLBACK_AFTER_MS_DEFAULT = 45000;
+        // brevi, qui si mira ai buchi prolungati. 15s = ~3 cicli dell'heartbeat DB
+        // (dbHeartbeat, ogni 5s) senza un solo contatto riuscito: sulle installazioni
+        // reali (poche casse su hardware modesto, LAN via cavo o WiFi senza traffico
+        // internet) un MariaDB centrale che si interrompe da solo e si riprende in
+        // pochi secondi non e' mai stato osservato, quindi la soglia lunga (prima
+        // 45s, pensata per assorbire un riavvio del servizio ~15-20s) non protegge
+        // da uno scenario reale qui - un guasto vero (PC server spento/crashato)
+        // supera comunque qualunque soglia ragionevole. _serverDownSince si azzera a
+        // ogni successo (di heartbeat, poll prodotti o checkout): un singolo
+        // controllo perso non basta a far scattare lo swap. Override:
+        // localStorage['fallback_after_ms'] (test).
+        const FALLBACK_AFTER_MS_DEFAULT = 15000;
 
         // Host DB al caricamento della pagina (Fase 4). Se qui eravamo un client
         // di rete (host remoto) e piu' tardi variabili.env risulta locale,
@@ -1472,16 +1477,18 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                         this._fallbackArming = false;
                     }
                 },
-                // Heartbeat DB: ogni ~10s chiede a db_status.php se il centrale
+                // Heartbeat DB: ogni ~5s chiede a db_status.php se il centrale
                 // risponde. Serve a far partire il cronometro del fallback anche
                 // quando nessuno sta vendendo e il polling prodotti e' rallentato
                 // a 60s perche' l'SSE e' sano (l'hub Mercure puo' restare su
-                // mentre il DB e' giu'). Solo sui client di rete.
+                // mentre il DB e' giu'). Solo sui client di rete. Intervallo
+                // dimezzato insieme a FALLBACK_AFTER_MS_DEFAULT: servono ~3 cicli
+                // di fila senza successo prima dello swap (vedi commento li').
                 startDbHeartbeat() {
                     if (this._dbHeartbeatTimer || !bootedAsNetworkClient()) {
                         return;
                     }
-                    this._dbHeartbeatTimer = setInterval(() => this.dbHeartbeat(), 10000);
+                    this._dbHeartbeatTimer = setInterval(() => this.dbHeartbeat(), 5000);
                 },
                 async dbHeartbeat() {
                     if (this._reloadingForNetMode || this._fallbackArming) {
@@ -1930,10 +1937,14 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     this.checkoutBusy = true;
                     // Scalino 0 (Fase 4): il "DB down" tipico a una sagra LAN dura
                     // pochi secondi. Ritentiamo LO STESSO payload con backoff per
-                    // ~20 s prima di dichiarare il fallimento, in modo esplicito e
+                    // ~10 s prima di dichiarare il fallimento, in modo esplicito e
                     // non distruttivo: il carrello resta intatto e l'operatore
                     // legge "vendita NON registrata" invece di uno spinner appeso.
-                    const deadline = Date.now() + 20000;
+                    // Allineato a FALLBACK_AFTER_MS_DEFAULT (15s): se il down e'
+                    // reale lo swap automatico arriva comunque a ricaricare la
+                    // pagina poco dopo, quindi non ha senso restare in questo loop
+                    // piu' a lungo della soglia globale.
+                    const deadline = Date.now() + 10000;
                     let delay = 1000;
 
                     try {
