@@ -299,10 +299,27 @@ function Remove-MariaDB {
     }
 
     if (Test-Path $Script:MariaDbDir) {
-        $wingetArgs = @(
-            'uninstall', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity'
-        )
-        Start-Process -FilePath 'winget' -ArgumentList $wingetArgs -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+        # `winget uninstall --silent` non garantisce un /quiet reale sul
+        # pacchetto MSI sottostante (visto testando: si apre comunque la
+        # finestra dell'uninstaller nativo di MariaDB) - si aggira del tutto
+        # winget e si chiama msiexec direttamente col SUO flag ufficiale
+        # (/quiet, sempre rispettato), risalendo al product code dal registro
+        # Uninstall di Windows.
+        $entry = Get-ItemProperty -Path @(
+            'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        ) -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'MariaDB*' } | Select-Object -First 1
+
+        if ($entry -and $entry.UninstallString -match '\{[0-9A-Fa-f-]+\}') {
+            $productCode = $Matches[0]
+            Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/x', $productCode, '/quiet', '/norestart') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+        } else {
+            # Fallback se non si trova la voce nel registro (installato in
+            # altro modo) - meglio winget silenzioso a meta' che niente.
+            $wingetArgs = @('uninstall', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity')
+            Start-Process -FilePath 'winget' -ArgumentList $wingetArgs -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+        }
+
         # L'MSI spesso lascia la cartella dati per sicurezza - il backup e'
         # gia' fatto sopra, quindi qui si puo' spazzare via senza remore.
         Remove-Item $Script:MariaDbDir -Recurse -Force -ErrorAction SilentlyContinue
