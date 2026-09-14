@@ -189,7 +189,7 @@ function Show-InstallWindow {
         $syncHash.ChecklistPanel = $window.FindName('ChecklistPanel')
         $window.FindName('MinimizeButton').Add_Click({ $window.WindowState = 'Minimized' }.GetNewClosure())
         $logoCtrl = $window.FindName('Logo')
-        if (Test-Path $logoPath) {
+        if ($logoPath -and (Test-Path $logoPath)) {
             $logoCtrl.Source = [System.Windows.Media.Imaging.BitmapImage]::new((New-Object System.Uri($logoPath)))
         }
         $syncHash.Ready = $true
