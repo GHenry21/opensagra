@@ -80,11 +80,6 @@ $_hNavGroups = [
             <?= pos_icon('network') ?>
             <span>Configurazione Rete</span>
         </a>
-        <a href="/db" target="_blank" rel="noopener noreferrer"
-            class="pos-sidebar__link">
-            <?= pos_icon('database-table') ?>
-            <span>Gestione Database</span>
-        </a>
     </nav>
     <div class="pos-sidebar__divider"></div>
     <div class="pos-sidebar__footer">
