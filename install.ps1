@@ -118,7 +118,11 @@ $Script:WrapperExeName = 'opensagra-wrapper.exe'
 
 function Show-InstallWindow {
     $Script:SyncHash = [hashtable]::Synchronized(@{ Ready = $false })
-    $logoPath = Join-Path $Script:SourcePath 'assets\logo.png'
+    # Difesa in profondita' (bug reale trovato in uninstall.ps1, stesso
+    # pattern qui): Join-Path con un path vuoto come primo argomento lancia
+    # da solo "Impossibile associare l'argomento al parametro 'Path'", prima
+    # ancora del Test-Path piu' sotto - vedi uninstall.ps1 per i dettagli.
+    $logoPath = if ($Script:SourcePath) { Join-Path $Script:SourcePath 'assets\logo.png' } else { $null }
 
     $xamlString = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -425,9 +429,21 @@ function Register-MariaDBService {
         Add-InstallChecklistItem 'Servizio MariaDB gia'' registrato'
         return
     }
+    # Bug reale (2026-09-14, mai emerso prima - vedi .NOTES in testa al file:
+    # "il ramo di installazione da zero non e' verificabile end-to-end senza
+    # una macchina pulita", ora finalmente testato su una VM davvero vergine):
+    # `mariadbd.exe --install` registra SOLO il servizio Windows (punta al
+    # binario + un my.ini che pero' non esiste ancora) - non inizializza mai
+    # la cartella dati (data\ resta vuota/assente). Il servizio si registra
+    # "con successo" ma poi non parte MAI (Start-Service fallisce, Event ID
+    # 7034 "arresto imprevisto"). `mariadb-install-db.exe --service=<nome>`
+    # e' il tool ufficiale che fa ENTRAMBE le cose in un solo passaggio (crea
+    # data\, my.ini, E registra il servizio) - verificato dal vivo su VM
+    # pulita: senza, Get-ChildItem su data\ e' vuoto; con, popolata
+    # correttamente e il servizio parte al primo colpo.
     Push-Location "$Script:MariaDbDir\bin"
     try {
-        $installOutput = & .\mariadbd.exe --install MariaDB --defaults-file="$Script:MariaDbDir\data\my.ini" 2>&1
+        $installOutput = & .\mariadb-install-db.exe --datadir="$Script:MariaDbDir\data" --service=MariaDB --port=3306 2>&1
         if ($installOutput) { ($installOutput | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
         Start-Service MariaDB
         Set-Service MariaDB -StartupType Automatic

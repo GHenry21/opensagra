@@ -52,7 +52,15 @@ $Script:ProgramDataDir = 'C:\ProgramData\opensagra'
 
 function Show-InstallWindow {
     $Script:SyncHash = [hashtable]::Synchronized(@{ Ready = $false })
-    $logoPath = Join-Path $PSScriptRoot 'assets\logo.png'
+    # Bug reale (2026-09-14, trovato testando l'exe compilato su una VM Hyper-V
+    # via PowerShell Direct): $PSScriptRoot e' una stringa VUOTA (non null) nel
+    # contesto dell'exe compilato con ps2exe - Join-Path con un path vuoto come
+    # primo argomento lancia da solo "Impossibile associare l'argomento al
+    # parametro 'Path' perche' e' una stringa vuota", PRIMA ancora di arrivare
+    # al Test-Path piu' sotto (che infatti era gia' protetto, ma troppo tardi:
+    # il crash vero era qui). Riprodotto anche in locale: Join-Path '' 'x' da'
+    # lo stesso identico errore.
+    $logoPath = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'assets\logo.png' } else { $null }
 
     $xamlString = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
