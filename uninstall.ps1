@@ -405,6 +405,9 @@ function Remove-FrankenPHP {
 
 function Remove-AppFiles {
     Remove-Item $Script:InstallPath -Recurse -Force -ErrorAction SilentlyContinue
+    # Collegamento sul desktop pubblico creato da install.ps1 (New-WrapperShortcut) -
+    # altrimenti resta un collegamento rotto dopo la disinstallazione.
+    Remove-Item (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'OpenSagra.lnk') -Force -ErrorAction SilentlyContinue
     Add-InstallChecklistItem 'File dell''app rimossi'
 }
 

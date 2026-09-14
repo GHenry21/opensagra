@@ -765,6 +765,25 @@ function Install-Wrapper {
     Add-InstallChecklistItem 'Wrapper/tray-app copiato'
 }
 
+function New-WrapperShortcut {
+    # Desktop PUBBLICO (CommonDesktopDirectory), non quello dell'utente
+    # corrente: l'installer gira elevato, e su una postazione condivisa (piu'
+    # utenti/turni sulla stessa cassa) il collegamento deve essere visibile a
+    # chiunque acceda, non solo a chi ha lanciato l'installazione. Idempotente
+    # per design: CreateShortcut+Save sovrascrive senza errori se rilanciato.
+    $target = Join-Path $Script:InstallPath $Script:WrapperExeName
+    if (-not (Test-Path $target)) { return }
+    $lnkPath = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'OpenSagra.lnk'
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($lnkPath)
+    $shortcut.TargetPath = $target
+    $shortcut.WorkingDirectory = $Script:InstallPath
+    $shortcut.IconLocation = $target  # icona gia' incorporata nell'exe (rsrc.rc)
+    $shortcut.Description = 'OpenSagra - pannello di controllo'
+    $shortcut.Save()
+    Add-InstallChecklistItem 'Collegamento sul desktop creato'
+}
+
 function Start-Wrapper {
     # Avvia il wrapper SUBITO e nel contesto NON elevato dell'utente
     # interattivo (l'installer gira elevato: Start-Process erediterebbe il
@@ -891,6 +910,7 @@ try {
 
     Set-InstallProgress -Percent 75 -Status 'Installazione del pannello OpenSagra...'
     Install-Wrapper
+    New-WrapperShortcut
 
     Set-InstallProgress -Percent 90 -Status 'Configurazione delle regole di rete...'
     Set-FirewallRules
