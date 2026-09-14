@@ -398,8 +398,16 @@ function Install-MariaDBEngine {
     # stringa dell'elemento (non attorno all'elemento nell'array) sono
     # l'unico modo per farle arrivare nella command line finale - verificato
     # con un dump degli argv ricevuti.
+    # --force: senza, "winget install" controlla prima se il pacchetto
+    # risulta gia' installato (secondo la sua tracciatura) e in quel caso
+    # tenta un UPGRADE invece di un'installazione pulita - con test ripetuti
+    # (installa/disinstalla piu' volte sulla stessa VM, o un "winget install
+    # mariadb" lanciato a mano in precedenza) puo' ancora pensare che ci sia
+    # gia', non trova versioni piu' nuove e fallisce con 0x8A15002B
+    # (APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE, "nessun aggiornamento
+    # applicabile") anche se in realta' MariaDB non e' presente sul disco.
     $wingetArgs = @(
-        'install', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity',
+        'install', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity', '--force',
         '--accept-package-agreements', '--accept-source-agreements',
         '--custom', '"ADDLOCAL=ALL REMOVE=HeidiSQL"'
     )
