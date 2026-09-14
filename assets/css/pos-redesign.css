@@ -27,6 +27,7 @@
   --mc-primary-text: #33260a;
   --mc-danger: #c73646;
   --mc-success: #0f9d5f;
+  --mc-warning: #b8790f;
   --mc-ring: rgba(224, 176, 32, 0.38);
 
   /* Toast tokens - Glass style with red/green */
@@ -73,6 +74,7 @@ body.dark-mode {
   --mc-primary-text: #221a03;
   --mc-danger: #da4656;
   --mc-success: #34c47e;
+  --mc-warning: #e0a838;
   --mc-ring: rgba(230, 187, 53, 0.35);
 
   --ui-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
@@ -471,6 +473,7 @@ body.dark-mode .pos-icon-btn:hover {
    grassetto come il badge Cassa ID, per farlo risaltare rispetto alle voci di
    navigazione normali. */
 #chiudiCassaBtn {
+  width: auto;
   flex-direction: row-reverse;
   justify-content: space-between;
   font-weight: 700;

@@ -111,6 +111,10 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
             <aside class="billing-panel cart-panel" id="bill" aria-label="Carrello e checkout">
                 <header class="cart-head">
                     <h2 class="cart-title">Carrello</h2>
+                    <button type="button" id="chiudiCassaBtn" class="pos-sidebar__link" @click="chiudiCassa">
+                        <?= pos_icon('logout') ?>
+                        <span>Chiudi Cassa</span>
+                    </button>
                 </header>
 
                 <section class="cart-items">
@@ -355,14 +359,18 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                 <p v-else-if="ordersList.length === 0" class="orders-empty">Nessun ordine.</p>
                 <ul v-else class="orders-list">
                     <li v-for="o in ordersList" :key="o.id" class="order-card"
-                        :class="{ 'order-card--void': o.stornato }">
+                        :class="{ 'order-card--void': o.stornato, 'order-card--print-issue': !o.stornato && o.stampa_errore }">
                         <div class="order-card__top">
                             <span class="order-card__num">#{{ o.id }}</span>
                             <span class="order-badge"
-                                :class="o.stornato ? 'order-badge--void' : 'order-badge--ok'">
-                                {{ o.stornato ? 'Stornato' : 'Attivo' }}
+                                :class="o.stornato ? 'order-badge--void' : (o.stampa_errore ? 'order-badge--warn' : 'order-badge--ok')"
+                                :title="o.stampa_errore || ''">
+                                {{ o.stornato ? 'Stornato' : (o.stampa_errore ? 'Non stampato' : 'Attivo') }}
                             </span>
                         </div>
+                        <p v-if="!o.stornato && o.stampa_errore" class="order-card__print-issue">
+                            Scontrino non stampato: {{ o.stampa_errore }}
+                        </p>
                         <div class="order-card__meta">
                             <span>{{ formatOrderDateTime(o.data_ora) }}</span>
                             <span>{{ o.metodo_pagamento || '—' }}</span>
@@ -397,10 +405,13 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     <div class="order-card__top">
                         <span class="order-card__num">#{{ selectedOrder.ordine.id }}</span>
                         <span class="order-badge"
-                            :class="selectedOrder.ordine.stornato ? 'order-badge--void' : 'order-badge--ok'">
-                            {{ selectedOrder.ordine.stornato ? 'Stornato' : 'Attivo' }}
+                            :class="selectedOrder.ordine.stornato ? 'order-badge--void' : (selectedOrder.ordine.stampa_errore ? 'order-badge--warn' : 'order-badge--ok')">
+                            {{ selectedOrder.ordine.stornato ? 'Stornato' : (selectedOrder.ordine.stampa_errore ? 'Non stampato' : 'Attivo') }}
                         </span>
                     </div>
+                    <p v-if="!selectedOrder.ordine.stornato && selectedOrder.ordine.stampa_errore" class="order-card__print-issue">
+                        Scontrino non stampato: {{ selectedOrder.ordine.stampa_errore }}
+                    </p>
                     <div class="order-card__meta">
                         <span>{{ formatOrderDateTime(selectedOrder.ordine.data_ora) }}</span>
                         <span>{{ selectedOrder.ordine.metodo_pagamento || '—' }}</span>
@@ -2143,8 +2154,13 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                                     throw new Error('ponte di stampa non raggiungibile');
                                 }
 
+                                // Ristampa riuscita: il server ha gia' azzerato vendite.stampa_errore
+                                // (routingStampa), aggiorniamo qui la copia locale per non aspettare
+                                // un giro di loadOrders prima che sparisca l'evidenziazione.
+                                order.stampa_errore = null;
                                 this.showToast('Ordine #' + order.id + ' ristampato. Metodo: ' + (response && response.method ? response.method : 'sconosciuto'), 'success');
                             } catch (bridgeErr) {
+                                order.stampa_errore = bridgeErr.message;
                                 this.showToast('Ristampa fallita: ' + bridgeErr.message, 'error');
                             }
                         })
@@ -2206,6 +2222,48 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     $.post('../api/open_drawer.php')
                         .done(() => this.showToast('Cassetto aperto!', 'success'))
                         .fail(() => this.showToast('Errore apertura cassetto.', 'error'));
+                },
+                chiudiCassa() {
+                    const cassaId = this.currentCassaId || localStorage.getItem('cassa_id') || '';
+
+                    fetch('../api/chiudi_cassa.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cassa_id: cassaId })
+                    })
+                        .then((response) => response.json())
+                        .then((data) => {
+                            if (!data || data.error) {
+                                this.showToast((data && data.error) || 'Errore durante la chiusura cassa.', 'error');
+                                return;
+                            }
+
+                            const euro = (value) => `${parseFloat(value || 0).toFixed(2).replace('.', ',')} €`;
+                            const ora = new Date(String(data.ultima_chiusura).replace(' ', 'T'));
+                            const oraLabel = Number.isNaN(ora.getTime())
+                                ? data.ultima_chiusura
+                                : `${String(ora.getHours()).padStart(2, '0')}:${String(ora.getMinutes()).padStart(2, '0')}`;
+
+                            window.showToast(
+                                `Chiusura cassa ${cassaId} ore ${oraLabel} · Fondo: ${euro(data.fondo_cassa)} · Contanti oggi: ${euro(data.totale_contanti)} · Atteso: ${euro(data.totale_atteso)}`,
+                                'info',
+                                { duration: 0, action: { label: 'Vai a statistiche', href: '../pages/stat_vendite.php' } }
+                            );
+
+                            // Fase 4 punto 4: cassa in fallback locale -> spingi le
+                            // vendite fatte in locale al server centrale (stessa
+                            // routine condivisa usata dalla sidebar per il badge
+                            // "vendite da sincronizzare").
+                            if (data.fallback_active || data.pending_sync > 0) {
+                                if (typeof window.posSyncLocalSales === 'function') {
+                                    window.posSyncLocalSales('../api/push_local_sales.php', data.pending_sync || 0);
+                                }
+                            }
+                        })
+                        .catch((error) => {
+                            console.error('Errore chiusura cassa:', error);
+                            this.showToast('Errore durante la chiusura cassa.', 'error');
+                        });
                 },
                 handleGlobalClick(event) {
                     if (!this.lineDiscountPopover || !this.lineDiscountPopover.visible) {

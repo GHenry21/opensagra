@@ -88,12 +88,6 @@ $_hNavGroups = [
     </nav>
     <div class="pos-sidebar__divider"></div>
     <div class="pos-sidebar__footer">
-        <button type="button" id="chiudiCassaBtn" class="pos-sidebar__link"
-            data-api-url="<?= $_hRoot ?>api/chiudi_cassa.php" data-stats-url="<?= $_hRoot ?>pages/stat_vendite.php"
-            data-push-url="<?= $_hRoot ?>api/push_local_sales.php">
-            <?= pos_icon('logout') ?>
-            <span>Chiudi Cassa</span>
-        </button>
         <div class="pos-sidebar__footer-row">
             <span id="pos-cassa-badge" class="pos-badge">Cassa: N/D</span>
             <button type="button" id="theme-switch-btn" class="pos-icon-btn" title="Tema" aria-label="Cambia tema">
@@ -200,71 +194,6 @@ $_hNavGroups = [
                 }
             });
 
-            var chiudiCassaBtn = document.getElementById('chiudiCassaBtn');
-            if (chiudiCassaBtn) {
-                var pushUrl = chiudiCassaBtn.getAttribute('data-push-url');
-
-                // Il push vero e proprio vive in window.posSyncLocalSales (script
-                // in fondo a questo file, insieme al badge persistente): stessa
-                // routine per "Chiudi Cassa", per il bottone del toast e per il
-                // badge in sidebar.
-                function syncLocalSales(pendingHint) {
-                    if (typeof window.posSyncLocalSales === 'function') {
-                        window.posSyncLocalSales(pushUrl, pendingHint);
-                    }
-                }
-
-                chiudiCassaBtn.addEventListener('click', function() {
-                    var apiUrl = this.getAttribute('data-api-url');
-                    var statsUrl = this.getAttribute('data-stats-url');
-                    var cassaId = '';
-                    try {
-                        cassaId = localStorage.getItem('cassa_id') || '';
-                    } catch (err) {
-                        cassaId = '';
-                    }
-
-                    fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ cassa_id: cassaId })
-                    })
-                        .then(function(response) {
-                            return response.json();
-                        })
-                        .then(function(data) {
-                            if (!data || data.error) {
-                                showToast((data && data.error) || 'Errore durante la chiusura cassa.', 'error');
-                                return;
-                            }
-
-                            var euro = function(value) {
-                                return (parseFloat(value || 0)).toFixed(2).replace('.', ',') + ' €';
-                            };
-                            var ora = new Date(String(data.ultima_chiusura).replace(' ', 'T'));
-                            var oraLabel = isNaN(ora.getTime())
-                                ? data.ultima_chiusura
-                                : String(ora.getHours()).padStart(2, '0') + ':' + String(ora.getMinutes()).padStart(2, '0');
-
-                            showToast(
-                                'Chiusura cassa ' + cassaId + ' ore ' + oraLabel + ' · Fondo: ' + euro(data.fondo_cassa) +
-                                ' · Contanti oggi: ' + euro(data.totale_contanti) + ' · Atteso: ' + euro(data.totale_atteso),
-                                'info',
-                                { duration: 0, action: { label: 'Vai a statistiche', href: statsUrl } }
-                            );
-
-                            // Fase 4 punto 4: cassa in fallback locale -> spingi
-                            // le vendite fatte in locale al server centrale.
-                            if (pushUrl && (data.fallback_active || data.pending_sync > 0)) {
-                                syncLocalSales(data.pending_sync || 0);
-                            }
-                        })
-                        .catch(function(error) {
-                            console.error('Errore chiusura cassa:', error);
-                            showToast('Errore durante la chiusura cassa.', 'error');
-                        });
-                });
-            }
         }
 
         // header.php (che definisce #posSidebarToggle) viene incluso dopo questo file,
