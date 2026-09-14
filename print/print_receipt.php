@@ -3,6 +3,7 @@ date_default_timezone_set('Europe/Rome');
 require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/get_printer.php';
 require_once __DIR__ . '/../config/mercure.php';
+require_once __DIR__ . '/../config/vendite_print_status.php';
 require __DIR__ . '/../vendor/autoload.php';
 
 use Mike42\Escpos\Printer;
@@ -699,6 +700,8 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
                 'data_base64' => base64_encode($rawReceipt),
             ], $routing['payload']), $bridgeHubUrl, $bridgeHubUrl !== '' ? $bridgeSecret : '');
 
+            recordPrintOutcome($connectionDB, $id_vendita, $published ? null : 'Ponte di stampa non raggiungibile');
+
             return [
                 'method' => 'bridge_native',
                 'topic' => $routing['topic'],
@@ -713,16 +716,25 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
         if (($printerSettings['tipo_stampante'] ?? '') === 'BLUETOOTH') {
             $rawReceipt = buildEscposRawReceipt($items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
 
+        recordPrintOutcome($connectionDB, $id_vendita, null);
+
         return [
             'method' => 'bluetooth_rawbt',
             'base64' => base64_encode($rawReceipt)
         ];
     }
          // CASO 3: DIRECT (USB Windows/Linux o Network)
-        $printer = getPrinter($connectionDB, $cassa_id);
-        printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
-        $printer->close();
-    
+        try {
+            $printer = getPrinter($connectionDB, $cassa_id);
+            printReceiptContent($printer, $items, $totale, $sconto, $pagato, $resto, $cassa_id, $id_vendita, $receiptConfig, true, $dataOra);
+            $printer->close();
+        } catch (Throwable $e) {
+            recordPrintOutcome($connectionDB, $id_vendita, $e->getMessage());
+            throw $e;
+        }
+
+        recordPrintOutcome($connectionDB, $id_vendita, null);
+
         return [
             'method' => 'direct'
         ];

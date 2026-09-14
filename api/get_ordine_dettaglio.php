@@ -1,6 +1,9 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/get_db_connection.php';
+require_once __DIR__ . '/../config/vendite_print_status.php';
+
+ensureVenditeStampaColumn($connectionDB);
 
 $id       = (int)($_GET['id'] ?? 0);
 $cassa_id = trim((string)($_GET['cassa_id'] ?? ''));
@@ -13,7 +16,7 @@ if ($id <= 0 || $cassa_id === '') {
 }
 
 $stmt = $connectionDB->prepare("
-    SELECT id, data_ora, totale, sconto, importo_pagato, resto, metodo_pagamento, stornato, cassa_id
+    SELECT id, data_ora, totale, sconto, importo_pagato, resto, metodo_pagamento, stornato, cassa_id, stampa_errore
     FROM vendite
     WHERE id = ? AND cassa_id = ?
     LIMIT 1
@@ -47,6 +50,9 @@ $ordine = [
     'metodo_pagamento' => $ordineRow['metodo_pagamento'] !== null ? (string)$ordineRow['metodo_pagamento'] : '',
     'stornato'         => (int)$ordineRow['stornato'],
     'cassa_id'         => (string)$ordineRow['cassa_id'],
+    'stampa_errore'    => $ordineRow['stampa_errore'] !== null && $ordineRow['stampa_errore'] !== ''
+        ? (string)$ordineRow['stampa_errore']
+        : null,
 ];
 
 $stmtD = $connectionDB->prepare("

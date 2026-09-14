@@ -2,6 +2,9 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/get_db_connection.php';
 require_once __DIR__ . '/../config/env_reader.php';
+require_once __DIR__ . '/../config/vendite_print_status.php';
+
+ensureVenditeStampaColumn($connectionDB);
 
 $cassa_id = trim((string)($_GET['cassa_id'] ?? ''));
 $limit    = (int)($_GET['limit'] ?? 20);
@@ -43,7 +46,7 @@ function fetchOrdersFrom(mysqli $db, string $table, string $cassaId, ?int $searc
 
     $sql = "
         SELECT v.id, v.data_ora, v.totale, v.sconto, v.importo_pagato, v.resto,
-               v.metodo_pagamento, v.stornato, $nArticoliExpr AS n_articoli
+               v.metodo_pagamento, v.stornato, v.stampa_errore, $nArticoliExpr AS n_articoli
         FROM `$table` v
         WHERE v.cassa_id = ?
     ";
@@ -86,6 +89,9 @@ function fetchOrdersFrom(mysqli $db, string $table, string $cassaId, ?int $searc
             'metodo_pagamento' => $row['metodo_pagamento'] !== null ? (string)$row['metodo_pagamento'] : '',
             'stornato'         => (int)$row['stornato'],
             'n_articoli'       => (int)$row['n_articoli'],
+            'stampa_errore'    => $row['stampa_errore'] !== null && $row['stampa_errore'] !== ''
+                ? (string)$row['stampa_errore']
+                : null,
         ];
     }
     $stmt->close();

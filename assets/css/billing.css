@@ -1793,6 +1793,11 @@ body.dark-mode .pay-pill__icon--satispay {
   opacity: 0.6;
 }
 
+.order-card--print-issue {
+  border-color: color-mix(in srgb, var(--mc-warning) 55%, var(--mc-border));
+  background: linear-gradient(170deg, color-mix(in srgb, var(--mc-warning) 10%, var(--mc-card)), var(--mc-panel-muted));
+}
+
 .order-card__top {
   display: flex;
   align-items: center;
@@ -1821,6 +1826,18 @@ body.dark-mode .pay-pill__icon--satispay {
 .order-badge--void {
   background: color-mix(in srgb, var(--mc-danger) 18%, transparent);
   color: var(--mc-danger);
+}
+
+.order-badge--warn {
+  background: color-mix(in srgb, var(--mc-warning) 20%, transparent);
+  color: var(--mc-warning);
+}
+
+.order-card__print-issue {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mc-warning);
 }
 
 .order-card__meta {

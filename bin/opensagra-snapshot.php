@@ -105,6 +105,10 @@ function ensureOrdersMirrorTable(mysqli $local): void
         . ' n_articoli INT NOT NULL DEFAULT 0'
         . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     );
+    // Aggiunta successiva alla CREATE TABLE originale (vedi ensureReceiptConfigTable
+    // in print_receipt.php per lo stesso pattern): ALTER idempotente, cosi' le
+    // installazioni con la tabella gia' creata la ricevono senza drop/recreate.
+    $local->query('ALTER TABLE vendite_mirror ADD COLUMN IF NOT EXISTS stampa_errore VARCHAR(255) NULL AFTER n_articoli');
 }
 
 /**
@@ -145,7 +149,7 @@ function syncOrdersMirror(mysqli $server, mysqli $local): int
     $rows = [];
     $res = $server->query(
         'SELECT v.id, v.cassa_id, v.data_ora, v.totale, v.sconto, v.importo_pagato, v.resto,'
-        . '        v.metodo_pagamento, v.stornato,'
+        . '        v.metodo_pagamento, v.stornato, v.stampa_errore,'
         . '        (SELECT COALESCE(SUM(d.quantita), 0) FROM dettagli_vendita d WHERE d.vendita_id = v.id) AS n_articoli'
         . '   FROM vendite v'
         . '  WHERE DATE(v.data_ora) = CURDATE()'
@@ -163,8 +167,8 @@ function syncOrdersMirror(mysqli $server, mysqli $local): int
         if ($rows) {
             $ins = $local->prepare(
                 'INSERT INTO vendite_mirror'
-                . ' (id, cassa_id, data_ora, totale, sconto, importo_pagato, resto, metodo_pagamento, stornato, n_articoli)'
-                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . ' (id, cassa_id, data_ora, totale, sconto, importo_pagato, resto, metodo_pagamento, stornato, n_articoli, stampa_errore)'
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             if (!$ins) {
                 throw new RuntimeException('prepare INSERT vendite_mirror fallita: ' . $local->error);
@@ -174,6 +178,7 @@ function syncOrdersMirror(mysqli $server, mysqli $local): int
                 $ins->execute([
                     $r['id'], $r['cassa_id'], $r['data_ora'], $r['totale'], $r['sconto'],
                     $r['importo_pagato'], $r['resto'], $r['metodo_pagamento'], $r['stornato'], $r['n_articoli'],
+                    $r['stampa_errore'] ?? null,
                 ]);
             }
             $ins->close();
