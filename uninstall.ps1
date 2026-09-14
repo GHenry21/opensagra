@@ -32,6 +32,42 @@ $ErrorActionPreference = 'Stop'
 $Script:LogPath = Join-Path $env:TEMP 'opensagra-uninstall.log'
 try { "[$(Get-Date -Format o)] avvio uninstall.ps1 (PID $PID)" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 
+# Invoke-NativeCaptured: esegue un eseguibile a console (mariadbd.exe,
+# mariadb-dump.exe, ecc.) catturandone stdout/stderr SENZA passare da
+# console. Bug reale (2026-09-14, trovato su una VM Hyper-V vera): `& exe
+# args 2>&1` da un processo -noConsole (l'exe compilato con ps2exe) puo'
+# restare bloccato a tempo indeterminato - Windows alloca un conhost.exe
+# "orfano" per il figlio (nessuna console da ereditare) e qualcosa
+# nell'interazione tra quella console e la cattura di PowerShell si impianta,
+# non e' un crash ne' un errore, il processo resta li' a CPU zero. Start-
+# Process con -RedirectStandardOutput/-RedirectStandardError usa pipe/file
+# veri, mai una console. Quota anche gli argomenti con spazi al loro interno
+# (bug reale separato, gia' visto con --custom di winget e --datadir di
+# mariadb-install-db.exe - Start-Process -ArgumentList non lo fa da solo).
+function Invoke-NativeCaptured {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+    $ArgumentList = $ArgumentList | ForEach-Object {
+        if ($_ -match '\s' -and $_ -notmatch '^".*"$') { "`"$_`"" } else { $_ }
+    }
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
+            -WindowStyle Hidden -Wait -PassThru
+        $out = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
+        $combined = (@($out, $err) -join "`n").Trim()
+        if ($combined) { $combined | Out-File $Script:LogPath -Append -Encoding utf8 }
+        [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $out }
+    } finally {
+        Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ============================================================================
 # Configurazione (stessi valori di install.ps1 - l'uninstaller deve poter
 # girare anche dopo che C:\opensagra e' stato rimosso, quindi non li legge da
@@ -260,11 +296,22 @@ function Backup-Database {
         throw "DB_POS_USER non trovato in $envPath - impossibile fare un backup sicuro prima di rimuovere MariaDB."
     }
 
+    # Redirect diretto (non Invoke-NativeCaptured: qui lo stdout E' il dump
+    # vero, non testo da loggare) ma stessa cautela sulla console - vedi nota
+    # su Invoke-NativeCaptured piu' in alto nel file.
     $backupPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "opensagra-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').sql"
-    & $dumpExe "--user=$dbUser" "--password=$dbPass" '--host=127.0.0.1' 'opensagra_pos' > $backupPath
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $backupPath) -or (Get-Item $backupPath).Length -eq 0) {
+    $dumpErrFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $p = Start-Process -FilePath $dumpExe -ArgumentList @("--user=$dbUser", "--password=$dbPass", '--host=127.0.0.1', 'opensagra_pos') `
+            -RedirectStandardOutput $backupPath -RedirectStandardError $dumpErrFile -WindowStyle Hidden -Wait -PassThru
+        $dumpErr = Get-Content $dumpErrFile -Raw -ErrorAction SilentlyContinue
+        if ($dumpErr) { $dumpErr.TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
+    } finally {
+        Remove-Item $dumpErrFile -Force -ErrorAction SilentlyContinue
+    }
+    if ($p.ExitCode -ne 0 -or -not (Test-Path $backupPath) -or (Get-Item $backupPath).Length -eq 0) {
         Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
-        throw 'Backup del database fallito (vedi output sopra) - disinstallazione interrotta prima di toccare MariaDB.'
+        throw "Backup del database fallito (dettagli in $Script:LogPath) - disinstallazione interrotta prima di toccare MariaDB."
     }
     Add-InstallChecklistItem "Database salvato in $backupPath"
 }
@@ -302,7 +349,7 @@ function Remove-MariaDB {
         if ($svc.Status -ne 'Stopped') { Stop-Service -Name 'MariaDB' -Force }
         $mariadbd = Join-Path $Script:MariaDbDir 'bin\mariadbd.exe'
         if (Test-Path $mariadbd) {
-            & $mariadbd --remove MariaDB | Out-Null
+            Invoke-NativeCaptured -FilePath $mariadbd -ArgumentList @('--remove', 'MariaDB') | Out-Null
         }
     }
 

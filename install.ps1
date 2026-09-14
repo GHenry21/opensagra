@@ -75,6 +75,48 @@ function Write-Host {
     try { ($Object -join $Separator) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 }
 
+# Invoke-NativeCaptured: esegue un eseguibile a console (frankenphp.exe,
+# mariadb-install-db.exe, ecc.) catturandone stdout/stderr SENZA passare da
+# console. Bug reale (2026-09-14, trovato su una VM Hyper-V vera - sia con un
+# lancio automatizzato che con un vero doppio click dell'utente): `& exe args
+# 2>&1` da un processo -noConsole (l'exe compilato con ps2exe) puo' restare
+# bloccato a tempo indeterminato - Windows alloca un conhost.exe "orfano" per
+# il figlio (nessuna console da ereditare) e qualcosa nell'interazione tra
+# quella console e la cattura di PowerShell si impianta, non e' un crash ne'
+# un errore, il processo resta li' a CPU zero. Capitato sia con
+# mariadb-install-db.exe (mai arrivato a registrare il servizio) sia con
+# frankenphp.exe php-cli (il controllo estensioni PHP). Start-Process con
+# -RedirectStandardOutput/-RedirectStandardError usa pipe/file veri, mai una
+# console - stesso meccanismo gia' usato con successo per winget/msiexec.
+function Invoke-NativeCaptured {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+    # Start-Process -ArgumentList non quota da solo un elemento con spazi al
+    # suo interno (bug reale trovato con --custom di winget e --datadir di
+    # mariadb-install-db.exe - qualunque path sotto "Program Files" o uno
+    # username con spazi lo scatena) - quota qui una volta sola, cosi' nessuna
+    # chiamata futura rischia di dimenticarsene.
+    $ArgumentList = $ArgumentList | ForEach-Object {
+        if ($_ -match '\s' -and $_ -notmatch '^".*"$') { "`"$_`"" } else { $_ }
+    }
+    $outFile = [System.IO.Path]::GetTempFileName()
+    $errFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile `
+            -WindowStyle Hidden -Wait -PassThru
+        $out = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
+        $combined = (@($out, $err) -join "`n").Trim()
+        if ($combined) { $combined | Out-File $Script:LogPath -Append -Encoding utf8 }
+        [pscustomobject]@{ ExitCode = $p.ExitCode; Output = $out }
+    } finally {
+        Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ============================================================================
 # Configurazione
 # ============================================================================
@@ -354,7 +396,8 @@ log_errors = On
     # Gate di verifica - vedi Appendice A: -m non funziona su php-cli, si passa da uno script file
     $checkScript = "$env:TEMP\opensagra-check-php.php"
     "<?php echo implode(',', get_loaded_extensions());" | Out-File -FilePath $checkScript -Encoding ascii -Force
-    $loaded = (& "$Script:FrankenDir\frankenphp.exe" php-cli $checkScript) -split ','
+    $checkResult = Invoke-NativeCaptured -FilePath "$Script:FrankenDir\frankenphp.exe" -ArgumentList @('php-cli', $checkScript)
+    $loaded = $checkResult.Output -split ','
     $missing = $Script:RequiredExtensions | Where-Object { $loaded -notcontains $_ }
     Remove-Item $checkScript -Force -ErrorAction SilentlyContinue
     if ($missing) {
@@ -441,15 +484,14 @@ function Register-MariaDBService {
     # data\, my.ini, E registra il servizio) - verificato dal vivo su VM
     # pulita: senza, Get-ChildItem su data\ e' vuoto; con, popolata
     # correttamente e il servizio parte al primo colpo.
-    Push-Location "$Script:MariaDbDir\bin"
-    try {
-        $installOutput = & .\mariadb-install-db.exe --datadir="$Script:MariaDbDir\data" --service=MariaDB --port=3306 2>&1
-        if ($installOutput) { ($installOutput | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
-        Start-Service MariaDB
-        Set-Service MariaDB -StartupType Automatic
-    } finally {
-        Pop-Location
+    $initResult = Invoke-NativeCaptured -FilePath "$Script:MariaDbDir\bin\mariadb-install-db.exe" -ArgumentList @(
+        "--datadir=$Script:MariaDbDir\data", '--service=MariaDB', '--port=3306'
+    )
+    if ($initResult.ExitCode -ne 0) {
+        throw "Inizializzazione di MariaDB fallita (exit code $($initResult.ExitCode) - dettagli in $Script:LogPath)."
     }
+    Start-Service MariaDB
+    Set-Service MariaDB -StartupType Automatic
     Add-InstallChecklistItem 'Servizio MariaDB registrato e avviato'
 }
 
@@ -630,21 +672,14 @@ $httpsMercure
     Add-InstallChecklistItem 'Caddyfile generato (Mercure + gestore DB /db)'
 }
 
-# Invoke-PhpCli: esegue uno script PHP via frankenphp.exe catturandone TUTTO
-# l'output (stdout+stderr) nel log invece di lasciarlo cadere sull'output di
-# default di PowerShell. Bug reale (2026-09-12, dopo il fix di Write-Host):
-# frankenphp.exe e' un processo a console vero e proprio lanciato da un host
-# -noConsole (nessuna console da ereditare) - l'output non catturato dei suoi
-# script (crea_dbtable_and_user.php, le migrazioni, ecc.) finiva comunque
-# nell'host minimale di ps2exe, che mostra un MessageBox bloccante per riga
-# (stessa causa delle finestrelle di FrankenPHP, ma Write-Host li' non basta:
-# l'output NON catturato di un comando esterno passa da $Host.UI.WriteLine
-# via Out-Default, non dal cmdlet Write-Host che avevo ridefinito).
+# Invoke-PhpCli: esegue uno script PHP via frankenphp.exe. Wrapper sottile su
+# Invoke-NativeCaptured (vedi la nota li' per il perche' - qui serviva anche
+# per evitare che l'output finisse sull'host minimale di ps2exe come
+# MessageBox bloccante per riga, oltre al rischio di restare impantanato).
 function Invoke-PhpCli {
     param([Parameter(Mandatory)][string]$ScriptPath)
-    $output = & "$Script:FrankenDir\frankenphp.exe" php-cli $ScriptPath 2>&1
-    if ($output) { ($output | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
-    return $LASTEXITCODE
+    $result = Invoke-NativeCaptured -FilePath "$Script:FrankenDir\frankenphp.exe" -ArgumentList @('php-cli', $ScriptPath)
+    return $result.ExitCode
 }
 
 function Invoke-DatabaseProvisioning {
@@ -775,9 +810,8 @@ function Register-LocalCaTrust {
         return
     }
 
-    $output = & $frankenphp trust --address '127.0.0.1:2019' 2>&1
-    if ($output) { ($output | Out-String).TrimEnd() | Out-File $Script:LogPath -Append -Encoding utf8 }
-    if ($LASTEXITCODE -eq 0) {
+    $trustResult = Invoke-NativeCaptured -FilePath $frankenphp -ArgumentList @('trust', '--address', '127.0.0.1:2019')
+    if ($trustResult.ExitCode -eq 0) {
         Add-InstallChecklistItem 'Certificato locale HTTPS fidato'
     } else {
         Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo avvio (dettagli in $Script:LogPath)"
