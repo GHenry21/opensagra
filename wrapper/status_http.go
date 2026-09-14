@@ -115,6 +115,11 @@ type statusJSON struct {
 	DbToolURL         string     `json:"db_tool_url"` // "" se /db non risponde
 	LogDir            string     `json:"log_dir"`
 	Procs             []procJSON `json:"procs"`
+
+	WrapperVersion  string `json:"wrapper_version"`
+	UpdateAvailable bool   `json:"update_available"`
+	LatestVersion   string `json:"latest_version"` // valorizzata solo se UpdateAvailable
+	UpdateURL       string `json:"update_url"`     // pagina della release su GitHub
 }
 
 // cachedClientCount: activeClientCount() apre una connessione al DB; con la
@@ -174,6 +179,7 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	mdbUp, mdbVer := mariadbStatus(h.cfg)
 	fpVer, phpVer := frankenphpVersions(h.cfg)
+	updAvailable, updLatest, updURL := checkForUpdate()
 	out := statusJSON{
 		Role:              role,
 		ClientCount:       h.cachedClientCount(),
@@ -186,6 +192,10 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		PhpVersion:        phpVer,
 		DbToolURL:         h.cachedDbToolURL(),
 		LogDir:            h.cfg.LogDir,
+		WrapperVersion:    WrapperVersion,
+		UpdateAvailable:   updAvailable,
+		LatestVersion:     updLatest,
+		UpdateURL:         updURL,
 	}
 	for _, name := range h.sup.names() {
 		st := h.sup.get(name)
@@ -258,6 +268,10 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 		openURL(h.cfg.AppURL)
 	case "open-db":
 		if u := h.cachedDbToolURL(); u != "" {
+			openURL(u)
+		}
+	case "open-update":
+		if _, _, u := checkForUpdate(); u != "" {
 			openURL(u)
 		}
 	case "open-logs":

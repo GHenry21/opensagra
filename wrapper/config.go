@@ -70,7 +70,7 @@ func loadConfig() (*Config, error) {
 		rootFlag = flag.String("root", "", "cartella radice dell'app (default: risalendo dall'eseguibile fino a un Caddyfile)")
 		fpFlag   = flag.String("frankenphp", "", "path a frankenphp.exe (default: autorilevato)")
 		logFlag  = flag.String("logdir", "", "cartella dei log (default: <eseguibile>/logs)")
-		urlFlag  = flag.String("appurl", "", "URL dell'app per \"Apri OpenSagra\" (default: http://localhost/)")
+		urlFlag  = flag.String("appurl", "", "URL dell'app per \"Apri OpenSagra\" (default: https://localhost/)")
 		autoFlag = flag.Bool("autostarted", false, "avviato dall'autostart: non aprire la finestra di stato all'avvio")
 		regFlag  = flag.Bool("register-autostart", false, "scrivi la chiave di autostart poi prosegui (usato dall'installer)")
 	)
@@ -101,7 +101,7 @@ func loadConfig() (*Config, error) {
 		AppRoot:           root,
 		Frankenphp:        fp,
 		LogDir:            firstNonEmpty(*logFlag, filepath.Join(exeDir, "logs")),
-		AppURL:            firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "http://localhost/"),
+		AppURL:            firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "https://localhost/"),
 		Autostarted:       *autoFlag,
 		RegisterAutostart: *regFlag,
 		BridgeEnabled:     strings.TrimSpace(env["PRINT_BRIDGE_CASSE"]) != "",
