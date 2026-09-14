@@ -484,8 +484,24 @@ function Register-MariaDBService {
     # data\, my.ini, E registra il servizio) - verificato dal vivo su VM
     # pulita: senza, Get-ChildItem su data\ e' vuoto; con, popolata
     # correttamente e il servizio parte al primo colpo.
+    # Bug reale separato (2026-09-14, confermato su piu' cicli install-
+    # uninstall-reinstall su VM pulita, anche dopo riavvio): il pacchetto MSI
+    # di MariaDB (installato via winget) crea GIA' da solo una cartella
+    # data\ con dentro dei file di default, anche senza passare le property
+    # SERVICENAME/DATADIR - mariadb-install-db.exe pretende una cartella
+    # nuova o vuota, altrimenti si rifiuta con "Data directory ... is not
+    # empty. Only new or empty existing directories are accepted for
+    # --datadir" e l'installazione resta bloccata li' in silenzio (l'errore
+    # finisce solo nel log, non fa fallire visibilmente lo script). La
+    # svuotiamo prima di inizializzarla noi - a questo punto della funzione
+    # il servizio non esiste ancora, quindi non c'e' nulla da preservare.
+    $dataDir = Join-Path $Script:MariaDbDir 'data'
+    if (Test-Path $dataDir) {
+        Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     $initResult = Invoke-NativeCaptured -FilePath "$Script:MariaDbDir\bin\mariadb-install-db.exe" -ArgumentList @(
-        "--datadir=$Script:MariaDbDir\data", '--service=MariaDB', '--port=3306'
+        "--datadir=$dataDir", '--service=MariaDB', '--port=3306'
     )
     if ($initResult.ExitCode -ne 0) {
         throw "Inizializzazione di MariaDB fallita (exit code $($initResult.ExitCode) - dettagli in $Script:LogPath)."
