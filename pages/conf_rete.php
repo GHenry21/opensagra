@@ -122,8 +122,10 @@
                     indicando l'indirizzo IP di questo PC: <?= $localIp ? " <code>{$localIp}</code>" : '' ?>.
                 </p>
                 <p class="inline-muted">
-                    Attenzione: se questo PC si spegne o esce dalla rete, tutte le casse collegate a lui
-                    smettono di funzionare finché non torna online.
+                    Attenzione: se questo PC si spegne o esce dalla rete, le casse collegate a lui passano
+                    da sole a lavorare in locale dopo una breve attesa (in genere entro una trentina di
+                    secondi) — nessuna vendita viene persa. Per tornare a usare questo PC come server basta
+                    riselezionare "Client" dalla loro pagina Configurazione Rete quando è di nuovo raggiungibile.
                 </p>
             </section>
         </div>
