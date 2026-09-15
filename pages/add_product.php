@@ -98,9 +98,13 @@
                     </label>
                 </div>
                 <div class="product-bulk-actions">
-                    <button type="button" :disabled="loadingTemplate" @click="loadTemplate">
-                        {{ loadingTemplate ? 'Caricamento...' : 'Carica menù default' }}
+                    <button type="button" @click="exportStock">
+                        Esporta stock
                     </button>
+                    <button type="button" :disabled="importingStock" @click="triggerImportFile">
+                        {{ importingStock ? 'Importazione...' : 'Importa da file' }}
+                    </button>
+                    <input type="file" ref="importFileInput" accept=".csv" style="display:none" @change="handleImportFileSelected">
                     <button type="button" class="btn-delete" :disabled="selectedActiveProductIds.length === 0" v-if="selectedActiveProductIds.length > 0" @click="deleteSelectedProducts">
                         Elimina selezionati ({{ selectedActiveProductIds.length }})
                     </button>
@@ -228,7 +232,7 @@
                     sortDirection: 'asc',
                     selectedProductIds: [],
                     restoringProducts: false,
-                    loadingTemplate: false,
+                    importingStock: false,
                     quantityPopoverProductId: null,
                     quantityPopoverValue: ''
                 };
@@ -368,31 +372,52 @@
                         this.loadProducts();
                     });
                 },
-                loadTemplate() {
-                    if (!confirm('Il template aggiungerà i prodotti di esempio all’elenco esistente. Confermi?')) {
+                exportStock() {
+                    window.location.href = '../api/export_stock.php';
+                },
+                triggerImportFile() {
+                    if (this.$refs.importFileInput) {
+                        this.$refs.importFileInput.click();
+                    }
+                },
+                handleImportFileSelected(event) {
+                    const file = event.target.files && event.target.files[0] ? event.target.files[0] : null;
+                    if (!file) {
                         return;
                     }
 
-                    this.loadingTemplate = true;
-                    this.setTableStatus('Caricamento template in corso...', false);
+                    if (!confirm('Il file selezionato aggiornerà i prodotti esistenti (per id o nome) e aggiungerà quelli nuovi. Nessun prodotto esistente verrà eliminato. Confermi?')) {
+                        event.target.value = '';
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    this.importingStock = true;
+                    this.setTableStatus('Importazione file in corso...', false);
                     $.ajax({
-                        url: '../api/get_template.php',
+                        url: '../api/import_stock.php',
                         type: 'POST',
+                        data: formData,
+                        contentType: false,
+                        processData: false,
                         dataType: 'json',
                         success: (response) => {
                             if (!response || !response.ok) {
-                                this.setTableStatus(response && response.message ? response.message : 'Errore caricamento template.', true);
+                                this.setTableStatus(response && response.message ? response.message : 'Errore durante l’importazione.', true);
                                 return;
                             }
-                            this.setTableStatus(response.message || 'Template caricato con successo.', false);
+                            this.setTableStatus(response.message || 'Importazione completata.', false);
                             this.reloadData();
                         },
                         error: (xhr) => {
                             const response = this.parseJsonSafe(xhr && xhr.responseText ? xhr.responseText : '');
-                            this.setTableStatus(response && response.message ? response.message : 'Errore di rete durante caricamento template.', true);
+                            this.setTableStatus(response && response.message ? response.message : 'Errore di rete durante l’importazione.', true);
                         },
                         complete: () => {
-                            this.loadingTemplate = false;
+                            this.importingStock = false;
+                            event.target.value = '';
                         }
                     });
                 },

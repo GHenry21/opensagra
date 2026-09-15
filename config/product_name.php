@@ -61,3 +61,27 @@ function productNameIsDuplicate(mysqli $db, string $name, int $excludeId = 0): b
     }
     return false;
 }
+
+/**
+ * Id del prodotto esistente con lo stesso nome (confronto normalizzato come
+ * productNameIsDuplicate), o null se nessun prodotto corrisponde. Usato
+ * dall'import CSV per fare upsert per nome quando la riga non ha un id.
+ */
+function findProductIdByName(mysqli $db, string $name): ?int
+{
+    $compareKey = productNameCompareKey($name);
+    try {
+        $res = $db->query('SELECT id, name FROM stock');
+    } catch (Throwable $e) {
+        return null;
+    }
+    if (!$res) {
+        return null;
+    }
+    while ($row = $res->fetch_assoc()) {
+        if (productNameCompareKey((string) $row['name']) === $compareKey) {
+            return (int) $row['id'];
+        }
+    }
+    return null;
+}
