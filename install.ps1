@@ -320,7 +320,21 @@ function Install-VCRedist {
     # C++ Redistributable. Senza, frankenphp.exe non fallisce con un errore
     # PHP leggibile - il processo intero non parte, exit code -1073741515
     # (0xC0000135, STATUS_DLL_NOT_FOUND di Windows), nessun output.
-    if (Test-Path 'C:\Windows\System32\vcruntime140.dll') {
+    # Bug reale (2026-09-15, VM Windows 23H2 con software preesistente):
+    # vcruntime140.dll puo' gia' esistere ma essere una versione troppo
+    # vecchia per la build di PHP di FrankenPHP - log reale: "VCRUNTIME140.dll
+    # 14.32 is not compatible with this PHP build linked with 14.44". Un
+    # controllo di sola esistenza non lo scopre (il file "c'e'", ma non basta).
+    # Confronto sui campi numerici di VersionInfo, non sulla stringa (puo'
+    # avere formati diversi a seconda del sistema) - il major resta 14 da
+    # un decennio (e' nel nome stesso della dll), quindi basta il minor.
+    $dllPath = 'C:\Windows\System32\vcruntime140.dll'
+    function Test-VCRedistVersion {
+        if (-not (Test-Path $dllPath)) { return $false }
+        $v = (Get-Item $dllPath).VersionInfo
+        return ($v.FileMajorPart -gt 14) -or ($v.FileMajorPart -eq 14 -and $v.FileMinorPart -ge 44)
+    }
+    if (Test-VCRedistVersion) {
         Add-InstallChecklistItem 'Visual C++ Redistributable gia'' presente'
         return
     }
@@ -328,8 +342,8 @@ function Install-VCRedist {
     Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile $installerPath
     Start-Process -FilePath $installerPath -ArgumentList '/install', '/quiet', '/norestart' -WindowStyle Hidden -Wait
     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-    if (-not (Test-Path 'C:\Windows\System32\vcruntime140.dll')) {
-        throw 'Installazione del Visual C++ Redistributable non riuscita.'
+    if (-not (Test-VCRedistVersion)) {
+        throw 'Installazione del Visual C++ Redistributable non riuscita (o versione ancora insufficiente dopo l''installazione).'
     }
     Add-InstallChecklistItem 'Visual C++ Redistributable installato'
 }
@@ -411,58 +425,54 @@ function Install-MariaDBEngine {
         Add-InstallChecklistItem 'MariaDB gia'' presente'
         return
     }
-    # Su una macchina davvero vergine winget puo' avere le sue fonti
-    # (source "winget"/"msstore") mai inizializzate o con l'indice vuoto -
-    # "install --id MariaDB.Server" fallisce allora con
-    # APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND (0x8A150014, "nessun
-    # pacchetto trovato") anche se l'id e' corretto (verificato che lo sia:
-    # `winget show --id MariaDB.Server -e` lo trova su una macchina normale).
-    # `source reset --force` riporta le fonti di default, `source update` ne
-    # rinfresca l'indice - entrambi no-op veloci e innocui se erano gia' a
-    # posto. Best-effort: se anche questo non basta, il controllo sotto lo fa
-    # comunque emergere con un errore chiaro invece di un semplice "non trovato".
-    Start-Process -FilePath 'winget' -ArgumentList @('source', 'reset', '--force') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
-    Start-Process -FilePath 'winget' -ArgumentList @('source', 'update') -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
-
-    # -WindowStyle Hidden: lanciato da un processo senza console (l'exe
-    # impacchettato con ps2exe -noConsole), winget aprirebbe altrimenti una sua
-    # finestra di console visibile ("download in corso...") - scoperto
-    # testando l'installer su una macchina pulita (2026-09-12).
-    # --custom aggiunge argomenti IN PIU' a quelli che winget passa gia' di
-    # default per --silent (non li sostituisce, a differenza di --override) -
-    # qui servono per escludere HeidiSQL dall'installazione via le property
-    # MSI del pacchetto (WiX): ADDLOCAL=ALL installa tutte le feature, REMOVE=
-    # HeidiSQL la toglie di nuovo. Non serve: la gestione DB passa da /db
-    # (AdminNeo, vedi tools/), non da un client desktop.
+    # winget ha dato, in test successivi e indipendenti, quattro problemi
+    # diversi: fonti mai inizializzate su una VM vergine
+    # (NO_APPLICATIONS_FOUND), tentativo di upgrade invece di installazione
+    # pulita se pensa che il pacchetto ci sia gia' (UPDATE_NOT_APPLICABLE),
+    # quotatura fragile di --custom (Start-Process -ArgumentList non quota da
+    # solo un elemento con spazi al suo interno), e su una macchina con
+    # winget molto vecchio/mai aggiornato (versione MSIX App Installer
+    # datata, es. v1.2, mai passata da Microsoft Store) un crash vero e
+    # proprio (access violation) - confermato dal vivo, non un problema dei
+    # nostri argomenti. Si scarica l'MSI ufficiale direttamente dal sito
+    # MariaDB e si installa con msiexec, come gia' fatto per il Visual C++
+    # Redistributable e per la disinstallazione di MariaDB - zero dipendenza
+    # da winget.
     #
-    # Bug reale (2026-09-12, causa di "MariaDB non trovato" su ogni VM
-    # pulita pur con l'id giusto): Start-Process -ArgumentList con un array
-    # NON quota da solo un elemento con spazi al suo interno - 'ADDLOCAL=ALL
-    # REMOVE=HeidiSQL' arrivava a winget spezzato in DUE argomenti separati
-    # (--custom prendeva solo "ADDLOCAL=ALL", "REMOVE=HeidiSQL" diventava un
-    # argomento randagio che confondeva la ricerca del pacchetto ->
-    # APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND). Le virgolette DENTRO la
-    # stringa dell'elemento (non attorno all'elemento nell'array) sono
-    # l'unico modo per farle arrivare nella command line finale - verificato
-    # con un dump degli argv ricevuti.
-    # --force: senza, "winget install" controlla prima se il pacchetto
-    # risulta gia' installato (secondo la sua tracciatura) e in quel caso
-    # tenta un UPGRADE invece di un'installazione pulita - con test ripetuti
-    # (installa/disinstalla piu' volte sulla stessa VM, o un "winget install
-    # mariadb" lanciato a mano in precedenza) puo' ancora pensare che ci sia
-    # gia', non trova versioni piu' nuove e fallisce con 0x8A15002B
-    # (APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE, "nessun aggiornamento
-    # applicabile") anche se in realta' MariaDB non e' presente sul disco.
-    $wingetArgs = @(
-        'install', '--id', 'MariaDB.Server', '-e', '--silent', '--disable-interactivity', '--force',
-        '--accept-package-agreements', '--accept-source-agreements',
-        '--custom', '"ADDLOCAL=ALL REMOVE=HeidiSQL"'
-    )
-    $wingetResult = Start-Process -FilePath 'winget' -ArgumentList $wingetArgs -WindowStyle Hidden -Wait -PassThru
-    if (-not (Test-Path "$Script:MariaDbDir\bin\mariadbd.exe")) {
-        throw "Installazione di MariaDB non riuscita (winget exit code $($wingetResult.ExitCode) - percorso atteso non trovato, verificare la versione installata da winget)."
+    # "12.3" e' fissato di proposito (deve combaciare con $Script:MariaDbDir,
+    # 'C:\Program Files\MariaDB 12.3' - un major diverso installerebbe
+    # altrove) - dentro quella riga LTS si prende sempre l'ultima patch
+    # disponibile tramite l'API REST ufficiale di downloads.mariadb.org.
+    $releaseInfo = Invoke-RestMethod -Uri 'https://downloads.mariadb.org/rest-api/mariadb/12.3/' -TimeoutSec 15
+    $latestVersion = $releaseInfo.releases.PSObject.Properties.Name |
+        Sort-Object { [version]$_ } -Descending | Select-Object -First 1
+    if (-not $latestVersion) {
+        throw "Impossibile determinare l'ultima versione di MariaDB 12.3 (l'API di downloads.mariadb.org non ha risposto come atteso)."
     }
-    Add-InstallChecklistItem 'MariaDB installato'
+    $msiFile = $releaseInfo.releases.$latestVersion.files | Where-Object {
+        $_.package_type -eq 'MSI Package' -and $_.os -eq 'Windows' -and $_.cpu -eq 'x86_64'
+    } | Select-Object -First 1
+    if (-not $msiFile) {
+        throw "Nessun installer MSI Windows x86_64 trovato per MariaDB $latestVersion."
+    }
+
+    $msiPath = Join-Path $env:TEMP "mariadb-$latestVersion-winx64.msi"
+    Invoke-WebRequest -Uri ($msiFile.file_download_url -replace '^http://', 'https://') -OutFile $msiPath
+
+    # ADDLOCAL=ALL installa tutte le feature, REMOVE=HeidiSQL la toglie di
+    # nuovo - la gestione DB passa da /db (AdminNeo, vedi tools/), non da un
+    # client desktop. Property MSI come elementi SEPARATI dell'array: a
+    # differenza di --custom di winget, msiexec non ha bisogno di nessun
+    # trucco di quotatura, ogni property e' gia' un token a se stante.
+    $msiResult = Invoke-NativeCaptured -FilePath 'msiexec.exe' -ArgumentList @(
+        '/i', $msiPath, '/quiet', '/norestart', 'ADDLOCAL=ALL', 'REMOVE=HeidiSQL'
+    )
+    Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
+
+    if (-not (Test-Path "$Script:MariaDbDir\bin\mariadbd.exe")) {
+        throw "Installazione di MariaDB non riuscita (msiexec exit code $($msiResult.ExitCode)) - percorso atteso non trovato: $Script:MariaDbDir."
+    }
+    Add-InstallChecklistItem "MariaDB $latestVersion installato"
 }
 
 function Register-MariaDBService {
