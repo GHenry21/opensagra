@@ -61,7 +61,7 @@ Poi esegui le eventuali nuove migrazioni in `config/migrations/` ed esegui `fran
 
 - `pages/` — le pagine dell'app (cassa, configurazione, statistiche…)
 - `api/` — endpoint chiamati via AJAX dalle pagine
-- `print/` — logica di stampa scontrini (diretta USB/rete, bridge QZ, Bluetooth)
+- `print/` — logica di stampa scontrini (diretta USB/rete, bridge, Bluetooth)
 - `config/` — connessione DB, migrazioni, script di provisioning
 - `assets/` — CSS/JS/immagini statiche
 - `includes/` — componenti PHP condivisi (es. registro icone)
