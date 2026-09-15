@@ -453,7 +453,9 @@ try {
 
     Close-InstallWindow -Success
 } catch {
-    Write-Error $_
+    # NIENTE Write-Error qui - vedi install.ps1 per il perche' (sotto
+    # $ErrorActionPreference='Stop' diventa esso stesso terminante e salta
+    # il resto di questo catch, incluso il fallback che mostra l'errore).
     try { ($_ | Out-String) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 
     $wasReady = $Script:SyncHash -and $Script:SyncHash.Ready

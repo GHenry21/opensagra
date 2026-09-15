@@ -353,8 +353,28 @@ function Install-FrankenPHP {
         Add-InstallChecklistItem 'FrankenPHP gia'' presente'
         return
     }
-    # Comando ufficiale, verificato in Fase 2 (docs, riga ~118)
-    Invoke-Expression (Invoke-RestMethod 'https://frankenphp.dev/install.ps1')
+    # Bug reale (2026-09-16, VM Windows con installazioni ripetute): lo
+    # script ufficiale di frankenphp.dev (eseguito inline con
+    # Invoke-Expression, comando verificato in Fase 2) usa Expand-Archive,
+    # che dentro l'exe compilato con ps2exe a volte non riesce a caricare il
+    # modulo Microsoft.PowerShell.Archive ("...could not be loaded") - lo
+    # stesso modulo si carica senza problemi in una sessione PowerShell
+    # normale sulla stessa macchina. Stessa famiglia di bug gia' vista con
+    # Write-Host e l'allocazione di console per i processi figli: l'host
+    # minimale di ps2exe si comporta diversamente da una sessione vera per
+    # certe operazioni. Si scarica ed estrae lo zip direttamente con le API
+    # .NET (stesso meccanismo gia' usato in packaging/installer-bootstrap.ps1
+    # per il proprio payload) - bypassa sia lo script di terze parti sia
+    # Expand-Archive del tutto.
+    $zipPath = Join-Path $env:TEMP "frankenphp-windows-$PID.zip"
+    Invoke-WebRequest -Uri 'https://github.com/php/frankenphp/releases/latest/download/frankenphp-windows-x86_64.zip' -OutFile $zipPath
+    # Se una cartella parziale resta da un tentativo precedente interrotto,
+    # va svuotata prima - stesso motivo del fix sulla data\ di MariaDB.
+    if (Test-Path $Script:FrankenDir) { Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Force -Path $Script:FrankenDir | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $Script:FrankenDir)
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
     if (-not (Test-Path "$Script:FrankenDir\frankenphp.exe")) {
         throw 'Installazione di FrankenPHP non riuscita.'
     }
@@ -931,7 +951,14 @@ try {
 
     Close-InstallWindow -Success
 } catch {
-    Write-Error $_
+    # NIENTE Write-Error qui: sotto $ErrorActionPreference='Stop' (globale,
+    # in vigore anche dentro un catch) Write-Error diventa esso stesso un
+    # errore TERMINANTE - scoperto dal vivo (2026-09-16): interrompeva il
+    # resto DI QUESTO STESSO catch (il log su file, il MessageBox di
+    # fallback, l'exit pulito qui sotto non giravano mai), l'eccezione
+    # scappava fino al bootstrap esterno che la loggava lui, lasciando il
+    # processo installer bloccato senza che l'utente vedesse nulla. In un
+    # exe -noConsole comunque non c'e' nessuna console a cui scrivere.
     try { ($_ | Out-String) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 
     # Se la finestra WPF non e' mai arrivata a "Ready" (es. l'errore e'
