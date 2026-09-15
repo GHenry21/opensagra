@@ -16,13 +16,8 @@ import (
 // ad ogni release.
 const WrapperVersion = "0.1.0"
 
-// UpdateRepo: repo GitHub "owner/nome" da cui leggere le release. PLACEHOLDER
-// - il progetto non e' ancora pubblicato su GitHub (nessun remote configurato
-// al momento in cui questo file e' stato scritto). Aggiornare qui non appena
-// il repo esiste davvero, altrimenti il controllo fallisce silenziosamente
-// (nessuna release trovata, nessun problema per l'utente - vedi
-// checkForUpdate, fallisce chiudendosi in un no-op).
-const UpdateRepo = "REPO_OWNER/REPO_NAME"
+// UpdateRepo: repo GitHub "owner/nome" da cui leggere le release.
+const UpdateRepo = "GHenry21/opensagra"
 
 // L'UNICO punto di tutto il wrapper che tocca la rete pubblica (Internet) -
 // tutto il resto e' solo-LAN/loopback. Cache lunga apposta: nessun bisogno

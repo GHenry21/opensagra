@@ -65,7 +65,14 @@ func main() {
 		if alive, statusURL := readLock(cfg.LogDir); alive {
 			log.Printf("wrapper: un'altra istanza e' gia' viva - apro la sua finestra di stato (%s)", statusURL)
 			if statusURL != "" {
-				openURL(statusURL)
+				// Stessa finestra app-mode (senza barra/tab) dell'avvio
+				// normale, non un tab qualunque del browser di default -
+				// e' quello che ci si aspetta cliccando il collegamento sul
+				// desktop mentre il wrapper e' gia' in esecuzione.
+				cmd := appWindowCmd(statusURL, filepath.Join(cfg.LogDir, ".statuswin"))
+				if cmd == nil || cmd.Start() != nil {
+					openURL(statusURL)
+				}
 			}
 			return
 		}
