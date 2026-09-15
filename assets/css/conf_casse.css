@@ -820,7 +820,7 @@
          }
 
          .row-toggle-btn {
-             color: var(--mc-text-soft);
+             color: var(--mc-text-soft) !important;
          }
 
          .row-toggle-icon {
