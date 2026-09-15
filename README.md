@@ -1,6 +1,6 @@
 # opensagra
 
-App di cassa (POS) open source per sagre e feste paesane italiane: gestione prodotti/categorie, vendita a banco, scontrini termici (USB, rete, bridge via QZ Tray, Bluetooth), statistiche vendite, gestione multi-cassa.
+App di cassa (POS) open source per sagre e feste paesane italiane: gestione prodotti/categorie, vendita a banco, scontrini termici (USB, rete, bridge di stampa nativo via Mercure, Bluetooth), statistiche vendite, gestione multi-cassa.
 
 Basata su **FrankenPHP** (server web + PHP in un unico eseguibile, con HTTPS automatico) e **MariaDB**. Attualmente **solo Windows** è supportato dall'installer automatico; l'app in sé (PHP puro + MariaDB) non ha dipendenze specifiche da Windows.
 
@@ -12,10 +12,12 @@ Basata su **FrankenPHP** (server web + PHP in un unico eseguibile, con HTTPS aut
    ```powershell
    .\install.ps1
    ```
-4. L'installer fa tutto da solo, senza domande: scarica e configura FrankenPHP, MariaDB, le estensioni PHP necessarie, crea il database, registra i servizi Windows, apre le regole firewall e installa QZ Tray (per la stampa in bridge — se non ti serve, puoi disinstallarlo dopo come un programma qualsiasi). A fine installazione l'app è raggiungibile su `http://localhost` e `https://localhost`.
+4. L'installer fa tutto da solo, senza domande: scarica e configura FrankenPHP, MariaDB, le estensioni PHP necessarie, crea il database, registra i servizi Windows e apre le regole firewall. A fine installazione l'app è raggiungibile su `http://localhost` e `https://localhost`.
 5. Per configurare l'architettura di rete (cassa singola o centralizzata con più postazioni), apri la pagina **Configurazione Rete** dall'app dopo il primo avvio.
 
-Prerequisiti: Windows 10/11, connessione a internet (per scaricare FrankenPHP/MariaDB/QZ Tray al primo avvio), PowerShell con esecuzione script consentita (l'installer stesso richiede privilegi di amministratore per registrare servizi e regole firewall).
+Prerequisiti: Windows 10/11, connessione a internet (per scaricare FrankenPHP/MariaDB al primo avvio), PowerShell con esecuzione script consentita (l'installer stesso richiede privilegi di amministratore per registrare servizi e regole firewall).
+
+Guida utente per chi userà le casse, con screenshot reali dell'app: [`docs/GUIDA-UTENTE.md`](docs/GUIDA-UTENTE.md).
 
 ## Sviluppo / contribuire
 
@@ -64,14 +66,14 @@ Poi esegui le eventuali nuove migrazioni in `config/migrations/` ed esegui `fran
 - `config/` — connessione DB, migrazioni, script di provisioning
 - `assets/` — CSS/JS/immagini statiche
 - `includes/` — componenti PHP condivisi (es. registro icone)
-- `cert/` — certificato pubblico usato per la firma verso QZ Tray (la chiave privata non è in git, va bundlata a parte nel pacchetto di installazione)
+- `cert/` — certificato CA locale (`caddy-root-ca.crt`) da installare sui dispositivi client per l'HTTPS, vedi [`docs/GUIDA-UTENTE.md`](docs/GUIDA-UTENTE.md#11-la-connessione-è-sempre-protetta-https)
 - `docs/PIANO-MIGRAZIONE-FRANKENPHP.md` — piano/diario tecnico dettagliato della migrazione da XAMPP a FrankenPHP, con tutti i problemi reali incontrati e come sono stati risolti
 - `e2e/` — test end-to-end Playwright (manuali, non in CI)
 
-## Stampa e QZ Tray
+## Stampa
 
-L'app supporta più modalità di stampa (`config/get_printer.php`): stampante di rete, USB diretta (Windows/Linux), Bluetooth (Android via RawBT) e **bridge via QZ Tray** — quest'ultima serve solo quando una stampante USB deve essere condivisa da più postazioni diverse da quella a cui è collegata fisicamente. Se non ti serve questo scenario, QZ Tray si può disinstallare senza conseguenze sugli altri metodi di stampa.
+L'app supporta più modalità di stampa (`config/get_printer.php`): stampante di rete, USB diretta (Windows/Linux), Bluetooth (Android via RawBT) e **bridge di stampa nativo** (`BRIDGE_NATIVE`, via Mercure) — quest'ultima serve solo quando una stampante USB deve essere condivisa da più postazioni diverse da quella a cui è collegata fisicamente. Dettagli e tabella degli scenari in [`docs/GUIDA-UTENTE.md`](docs/GUIDA-UTENTE.md#6-configurazione-casse-e-stampanti).
 
 ## Licenza
 
-Vedi il file di licenza del progetto. QZ Tray (componente di terze parti, installato ma non incorporato nel codice) è distribuito sotto licenza LGPL 2.1 dal suo autore (QZ Industries, LLC).
+Vedi il file di licenza del progetto.
