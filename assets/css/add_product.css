@@ -396,18 +396,28 @@
     display: block;
     width: var(--add-product-quantity-input-width) !important;
     min-width: var(--add-product-quantity-input-width) !important;
-    height: var(--add-product-control-height);
-    padding: 0 4px;
+    height: var(--add-product-control-height) !important;
+    padding: 0 4px !important;
     border: 0;
-    border-radius: 999px;
-    background: var(--mc-card);
-    color: var(--mc-text);
-    text-align: center
+    border-radius: 8px !important;
+    background: var(--mc-card) !important;
+    color: var(--mc-text) !important;
+    text-align: center;
+    font-weight: 700;
+    line-height: 1;
+    outline: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .05)
 }
 
 .add-product-layout .quantity-direct-control input.edit-sort,
 .add-product-layout .quantity-direct-control input.edit-quantity {
-    border: 1.5px solid color-mix(in srgb, var(--mc-primary) 80%, var(--mc-border))
+    border: 1.5px solid var(--mc-primary, #0b4a8b) !important
+}
+
+.quantity-direct-control .edit-sort:focus,
+.quantity-direct-control .edit-quantity:focus {
+    border-color: var(--mc-primary, #0b4a8b);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-primary) 20%, transparent)
 }
 
 .quantity-direct-control .edit-sort,
@@ -426,22 +436,27 @@
 
 .management-page button.quantity-step-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle) {
     flex: 0 0 var(--add-product-step-width);
-    width: var(--add-product-step-width);
-    min-width: var(--add-product-step-width);
-    height: var(--add-product-control-height);
-    padding: 0;
-    border: none;
-    border-radius: var(--ui-radius-sm);
-    background: none;
-    color: var(--mc-text);
-    font-size: 18px;
+    width: var(--add-product-step-width) !important;
+    min-width: var(--add-product-step-width) !important;
+    height: var(--add-product-control-height) !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    background: none !important;
+    color: var(--mc-text) !important;
+    font-size: 26px;
     font-weight: 700;
     line-height: 1;
-    cursor: pointer
+    cursor: pointer;
+    transition: background-color .15s ease, opacity .15s ease
 }
 
-.management-page button.quantity-step-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):hover {  
-    background-color: color-mix(in srgb, var(--mc-primary) 8%, transparent) !important;
+.management-page button.quantity-step-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):hover {
+    background-color: color-mix(in srgb, var(--mc-primary) 8%, transparent) !important
+}
+
+.management-page button.quantity-step-btn:not(.pos-icon-btn):not(.pos-mobile-actions-toggle):active {
+    background-color: color-mix(in srgb, var(--mc-primary) 16%, transparent) !important
 }
 
 .editable-table th:nth-child(6),

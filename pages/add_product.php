@@ -146,16 +146,16 @@
                                 </td>
                                 <td class="sort-order-column">
                                     <div class="quantity-direct-control">
-                                        <button type="button" class="quantity-step-btn" style="font-size: 26px" aria-label="Diminuisci ordine" @pointerdown="startStepHold(product, -1, 'sort')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, -1, 'sort')">−</button>
+                                        <button type="button" class="quantity-step-btn" aria-label="Diminuisci ordine" @pointerdown="startStepHold(product, -1, 'sort')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, -1, 'sort')">−</button>
                                         <input type="number" min="0" step="1" class="edit-sort" v-model="product.editSort" aria-label="Ordine">
-                                        <button type="button" class="quantity-step-btn" style="font-size: 26px" aria-label="Aumenta ordine" @pointerdown="startStepHold(product, 1, 'sort')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, 1, 'sort')">+</button>
+                                        <button type="button" class="quantity-step-btn" aria-label="Aumenta ordine" @pointerdown="startStepHold(product, 1, 'sort')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, 1, 'sort')">+</button>
                                     </div>
                                 </td>
                                 <td class="availability-column">
                                     <div class="quantity-direct-control">
-                                        <button type="button" class="quantity-step-btn" style="font-size: 26px" aria-label="Diminuisci quantità" @pointerdown="startStepHold(product, -1, 'quantity')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, -1, 'quantity')">−</button>
+                                        <button type="button" class="quantity-step-btn" aria-label="Diminuisci quantità" @pointerdown="startStepHold(product, -1, 'quantity')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, -1, 'quantity')">−</button>
                                         <input type="number" min="0" step="1" class="edit-quantity" v-model="product.editQuantityAvailable" placeholder="∞" aria-label="Disponibilità">
-                                        <button type="button" class="quantity-step-btn" style="font-size: 26px" aria-label="Aumenta quantità" @pointerdown="startStepHold(product, 1, 'quantity')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, 1, 'quantity')">+</button>
+                                        <button type="button" class="quantity-step-btn" aria-label="Aumenta quantità" @pointerdown="startStepHold(product, 1, 'quantity')" @pointerup="stopStepHold" @pointerleave="stopStepHold" @pointercancel="stopStepHold" @click="handleStepClick(product, 1, 'quantity')">+</button>
                                         <div v-if="quantityPopoverProductId === Number(product.id)" class="quantity-popover" @click.stop>
                                             <label :for="`quantity-popover-${product.id}`">Disponibilità</label>
                                             <input :id="`quantity-popover-${product.id}`" v-model.trim="quantityPopoverValue" type="number" min="0" step="1" placeholder="∞" @keydown.esc="closeQuantityPopover">
