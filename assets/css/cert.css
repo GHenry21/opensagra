@@ -1,0 +1,113 @@
+body.cert-page {
+    background: var(--mc-bg);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+}
+
+.cert-shell {
+    width: 100%;
+    max-width: 460px;
+    display: grid;
+    gap: 14px;
+    align-content: start;
+}
+
+.cert-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 4px;
+    font-size: 20px;
+    color: var(--mc-text);
+}
+
+.cert-title-icon {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    color: var(--mc-primary);
+}
+
+.cert-card {
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in srgb, var(--mc-panel) 94%, transparent);
+    box-shadow: var(--ui-shadow-strong);
+    padding: 16px;
+}
+
+.cert-card h2 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--mc-text);
+}
+
+.panel-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.panel-title-icon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    color: var(--mc-primary);
+}
+
+.inline-muted {
+    margin: 8px 0 0;
+    color: var(--mc-text-soft);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.actions-row {
+    margin-top: 14px;
+    display: flex;
+    gap: 10px;
+}
+
+.cert-actions-row {
+    justify-content: flex-start;
+}
+
+/* .btn-add su pos-redesign.css e' pensato per <button> (height/padding
+   arrivano da un selettore "button:not(...)" separato): qui e' un link
+   (serve l'attributo "download"), quindi la forma va ridichiarata. */
+.cert-actions-row a.btn-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 14px;
+    border-radius: var(--ui-radius-sm);
+    border: 1px solid var(--mc-border);
+    color: #ffffff;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.cert-actions-row a.btn-add svg {
+    flex-shrink: 0;
+}
+
+.cert-howto {
+    margin-top: 12px;
+}
+
+.cert-howto summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--mc-text-soft);
+}
+
+.cert-howto p {
+    margin-top: 8px;
+}
+
+.cert-skip {
+    margin-top: 12px;
+}

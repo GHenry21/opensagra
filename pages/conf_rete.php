@@ -14,6 +14,7 @@
     <title>Configurazione Rete</title>
     <script src="../assets/js/jquery-3.6.0.min.js"></script>
     <script src="../assets/js/theme.js"></script>
+    <script src="../assets/js/qrcode.min.js"></script>
 </head>
 
 <body class="management-page canvas-page sidebar-page">
@@ -31,6 +32,20 @@
         $localLabel = $localIp
             ? htmlspecialchars($localIp) . ($localHostname ? ' (' . htmlspecialchars($localHostname) . ')' : '')
             : ($localHostname ? htmlspecialchars($localHostname) : null);
+        // URL della pagina cert/ (../cert/ da qui) risolto in assoluto sull'IP di rete:
+        // e' quello che finisce nel QR, quindi deve funzionare per un cellulare che
+        // parte da zero, non solo relativo alla pagina corrente. In HTTP puro (non
+        // HTTPS) apposta: e' il primo contatto di un dispositivo che non si fida
+        // ancora del certificato, quindi non deve mostrare l'avviso "sito non sicuro"
+        // proprio nel passo pensato per risolverlo.
+        // dirname() due volte per risalire da pages/conf_rete.php alla radice
+        // dell'app. Passaggio intermedio con str_replace: su Windows, quando non
+        // resta più nulla da risalire, dirname() ripiega su "\" (il separatore
+        // dell'OS) invece di "/" anche per un path in stile URL come questo,
+        // e rtrim('/') da solo non lo ripulirebbe.
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
+        $appBasePath = rtrim(str_replace('\\', '/', dirname($scriptDir)), '/');
+        $certUrl = $localIp ? ('http://' . $localIp . $appBasePath . '/cert/link.php') : null;
         ?>
         <div class="rete-shell">
             <section class="rete-card">
@@ -128,6 +143,25 @@
                     riselezionare "Client" dalla loro pagina Configurazione Rete quando è di nuovo raggiungibile.
                 </p>
             </section>
+
+            <?php if ($certUrl): ?>
+            <section class="rete-card">
+                <div class="panel-title-row">
+                    <?= pos_icon('qr-code', ['class' => 'panel-title-icon']) ?>
+                    <h3>Collega un cellulare o tablet</h3>
+                </div>
+                <p class="inline-muted">
+                    Inquadra questo codice con la fotocamera del cellulare: si apre una pagina per
+                    scaricare il certificato di sicurezza di questo PC e poi aprire OpenSagra. Va
+                    fatto una sola volta per dispositivo, così il browser non segnala più il sito
+                    come "non sicuro".
+                </p>
+                <div class="cert-qr-row">
+                    <div id="certQrCode" class="cert-qr-box"></div>
+                    <p class="inline-muted cert-qr-url"><?= htmlspecialchars($certUrl) ?></p>
+                </div>
+            </section>
+            <?php endif; ?>
         </div>
     </main>
     </div>
@@ -235,6 +269,18 @@
                     } else {
                         btnSyncNow.disabled = false;
                     }
+                });
+            }
+
+            const certQrCode = document.getElementById('certQrCode');
+            if (certQrCode) {
+                new QRCode(certQrCode, {
+                    text: <?= json_encode($certUrl) ?>,
+                    width: 150,
+                    height: 150,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
                 });
             }
 

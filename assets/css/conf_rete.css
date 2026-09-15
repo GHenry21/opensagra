@@ -209,6 +209,30 @@ label.rete-mode-option {
     justify-content: flex-end
 }
 
+.cert-qr-row {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap
+}
+
+.cert-qr-box {
+    width: 150px;
+    height: 150px;
+    flex-shrink: 0;
+    padding: 8px;
+    background: #fff;
+    border-radius: 8px;
+    /* Il QR resta leggibile anche in dark mode: sfondo bianco fisso, non var(--mc-panel). */
+    box-shadow: var(--ui-shadow-soft)
+}
+
+.cert-qr-url {
+    margin: 0;
+    word-break: break-all
+}
+
 @media (max-width: 700px) {
     .rete-mode-row {
         grid-template-columns: 1fr
