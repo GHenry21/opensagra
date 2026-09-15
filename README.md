@@ -6,16 +6,15 @@ Basata su **FrankenPHP** (server web + PHP in un unico eseguibile, con HTTPS aut
 
 ## Installazione (utente finale, Windows)
 
-1. Scarica il pacchetto di release (contiene `install.ps1` e tutto il codice dell'app).
-2. Apri PowerShell **come amministratore** nella cartella del pacchetto.
-3. Esegui:
-   ```powershell
-   .\install.ps1
-   ```
-4. L'installer fa tutto da solo, senza domande: scarica e configura FrankenPHP, MariaDB, le estensioni PHP necessarie, crea il database, registra i servizi Windows e apre le regole firewall. A fine installazione l'app è raggiungibile su `http://localhost` e `https://localhost`.
+1. Scarica **`opensagra-installer.exe`** — un unico file, contiene già tutto il necessario (non serve scaricare nient'altro a parte quello che l'installer stesso scaricherà al volo: FrankenPHP, MariaDB).
+2. Fai doppio click. Windows chiederà conferma un paio di volte (UAC + eventuali popup di sicurezza): accetta sempre.
+3. Da lì in poi non c'è più nulla da fare: una finestra mostra l'avanzamento mentre l'installer scarica e configura da solo FrankenPHP, MariaDB, le estensioni PHP necessarie, crea il database, registra il servizio MariaDB, avvia il wrapper (che gestisce FrankenPHP) e apre le regole firewall. Ci vogliono alcuni minuti, dipende dalla connessione internet.
+4. A fine installazione l'app è già raggiungibile su `http://localhost` e `https://localhost`.
 5. Per configurare l'architettura di rete (cassa singola o centralizzata con più postazioni), apri la pagina **Configurazione Rete** dall'app dopo il primo avvio.
 
-Prerequisiti: Windows 10/11, connessione a internet (per scaricare FrankenPHP/MariaDB al primo avvio), PowerShell con esecuzione script consentita (l'installer stesso richiede privilegi di amministratore per registrare servizi e regole firewall).
+Prerequisiti: Windows 10/11, connessione a internet (per scaricare FrankenPHP/MariaDB al primo avvio).
+
+Per chi lavora sul codice invece che installare l'app: l'installer è generato da `packaging/make-installer.ps1` a partire da `install.ps1`, che resta eseguibile anche da solo (`.\install.ps1` da PowerShell come amministratore) — utile per debug o per rigenerare un'installazione senza ripassare dall'`.exe`.
 
 Guida utente per chi userà le casse, con screenshot reali dell'app: [`docs/GUIDA-UTENTE.md`](docs/GUIDA-UTENTE.md).
 
