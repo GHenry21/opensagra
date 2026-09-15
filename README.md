@@ -1,4 +1,4 @@
-# opensagra
+# OpenSagra
 
 App di cassa (POS) open source per sagre e feste paesane italiane: gestione prodotti/categorie, vendita a banco, scontrini termici (USB, rete, bridge di stampa nativo via Mercure, Bluetooth), statistiche vendite, gestione multi-cassa.
 
@@ -61,7 +61,7 @@ Poi esegui le eventuali nuove migrazioni in `config/migrations/` ed esegui `fran
 
 - `pages/` — le pagine dell'app (cassa, configurazione, statistiche…)
 - `api/` — endpoint chiamati via AJAX dalle pagine
-- `print/` — logica di stampa scontrini (diretta USB/rete, bridge QZ, Bluetooth)
+- `print/` — logica di stampa scontrini (diretta USB/rete, bridge, Bluetooth)
 - `config/` — connessione DB, migrazioni, script di provisioning
 - `assets/` — CSS/JS/immagini statiche
 - `includes/` — componenti PHP condivisi (es. registro icone)
