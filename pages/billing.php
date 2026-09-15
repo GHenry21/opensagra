@@ -26,21 +26,6 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
     <div class="pos-main-panel">
     <?php include __DIR__ . '/../includes/header.php'; ?>
     <div id="app">
-        <!-- Fase 4 punto 3: avviso "il server sta per fermarsi" (topic Mercure
-             cluster/announce). Barra fissa in alto, chiudibile a mano; sparisce
-             da sola quando il server torna a mandare eventi. -->
-        <div v-if="serverAnnounce" class="server-announce" role="alert">
-            <span class="server-announce__icon" aria-hidden="true"><?= pos_icon('network') ?></span>
-            <span class="server-announce__text">
-                Il server sta per fermarsi<template v-if="serverAnnounce.etaSeconds"> (~{{ serverAnnounce.etaSeconds }}s)</template>.
-                Le vendite potrebbero non essere salvate finché non torna operativo.
-                <template v-if="serverAnnounce.message"> {{ serverAnnounce.message }}</template>
-            </span>
-            <button type="button" class="server-announce__close" aria-label="Nascondi avviso"
-                @click="clearServerAnnounce">
-                <?= pos_icon('x') ?>
-            </button>
-        </div>
         <main class="billing-shell" :class="{ 'product-picker-open': isProductPickerOpen }">
             <section class="billing-panel products-panel" id="products" aria-label="Catalogo prodotti"
                 :class="{ 'is-open': isProductPickerOpen, 'is-closing': isProductPickerClosing }"
@@ -584,8 +569,12 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     // la ripresa dopo l'await non deve aprire un EventSource orfano.
                     _destroyed: false,
                     // Avviso "il server sta per fermarsi" (Fase 4 punto 3): null
-                    // oppure { kind, message, etaSeconds, at }. Vedi handleClusterAnnounce.
+                    // oppure { kind, at }. Mostrato come toast persistente
+                    // (window.showToast), non piu' una barra fissa. Vedi
+                    // handleClusterAnnounce. _serverAnnounceDismiss e' la funzione
+                    // di chiusura del toast attivo, restituita da showToast().
                     serverAnnounce: null,
+                    _serverAnnounceDismiss: null,
                     _announceTimer: null,
                     // Scalino 0 (Fase 4): alzato per tutta la durata di un checkout,
                     // finestra di retry inclusa. Blocca un secondo invio (pulsante
@@ -1707,6 +1696,8 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                 // Fase 4 punto 3: avviso di stato del cluster ricevuto via
                 // Mercure (topic 'cluster/announce', pubblicato dal server con
                 // bin/opensagra-announce.php / dal wrapper allo shutdown).
+                // Mostrato come toast persistente (non una barra fissa): meno
+                // invasivo, coerente con gli altri avvisi dell'app (toast.js).
                 handleClusterAnnounce(payload) {
                     if (!payload || payload.kind === 'back') {
                         this.clearServerAnnounce();
@@ -1715,14 +1706,23 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     if (payload.kind !== 'shutdown') {
                         return; // kind non gestito
                     }
-                    this.serverAnnounce = {
-                        kind: 'shutdown',
-                        message: typeof payload.message === 'string' ? payload.message : '',
-                        etaSeconds: Number(payload.eta_seconds) || 0,
-                        at: Date.now()
-                    };
+                    this.clearServerAnnounce(); // via un eventuale toast precedente prima di mostrarne uno aggiornato
+                    const etaSeconds = Number(payload.eta_seconds) || 0;
+                    const message = typeof payload.message === 'string' ? payload.message : '';
+                    let text = 'Il server sta per fermarsi';
+                    if (etaSeconds) {
+                        text += ' (~' + etaSeconds + 's)';
+                    }
+                    text += '. Le vendite potrebbero non essere salvate finché non torna operativo.';
+                    if (message) {
+                        text += ' ' + message;
+                    }
+                    if (typeof window.showToast === 'function') {
+                        this._serverAnnounceDismiss = window.showToast(text, 'error', { duration: 0 });
+                    }
+                    this.serverAnnounce = { kind: 'shutdown', at: Date.now() };
                     // Rete di sicurezza: se il "back" non arriva mai (server
-                    // sparito per sempre, relay giu'), il banner non resta
+                    // sparito per sempre, relay giu'), il toast non resta
                     // eterno. 10 min e poi si toglie da solo.
                     if (this._announceTimer) {
                         clearTimeout(this._announceTimer);
@@ -1730,6 +1730,10 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     this._announceTimer = setTimeout(() => this.clearServerAnnounce(), 600000);
                 },
                 clearServerAnnounce() {
+                    if (this._serverAnnounceDismiss) {
+                        this._serverAnnounceDismiss();
+                        this._serverAnnounceDismiss = null;
+                    }
                     this.serverAnnounce = null;
                     if (this._announceTimer) {
                         clearTimeout(this._announceTimer);

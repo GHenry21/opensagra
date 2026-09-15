@@ -2,8 +2,9 @@
 // cluster/announce). Verifica end-to-end contro il server di sviluppo
 // (https://localhost): billing.php sottoscrive il topic sullo stesso
 // EventSource dei prodotti, un annuncio pubblicato dal CLI
-// bin/opensagra-announce.php fa comparire la barra .server-announce, e
-// kind=back / il tasto x / un evento non-announce la fanno sparire.
+// bin/opensagra-announce.php fa comparire un toast persistente (window.
+// showToast, non piu' una barra .server-announce dal 2026-09-14), e
+// kind=back / la x del toast / un evento non-announce lo fanno sparire.
 //
 // NB: cluster/announce e' un topic BROADCAST: un annuncio raggiunge ogni
 // billing.php aperto sul server, anche una cassa reale in uso. Per questo il
@@ -57,35 +58,43 @@ test.afterAll(() => {
   try { announce('--kind=back'); } catch (e) { /* hub giu': pazienza */ }
 });
 
-test('kind=shutdown fa comparire la barra con eta e messaggio; kind=back la rimuove', async ({ browser }) => {
+test('kind=shutdown fa comparire il toast con eta e messaggio; kind=back lo rimuove', async ({ browser }) => {
   const { context, page } = await openCassa(browser);
-  const banner = page.locator('.server-announce');
+  // Filtrato per testo: RT_TEST non e' una cassa reale, quindi
+  // loadPaymentMethods() mostra gia' di suo un toast.error persistente
+  // ("non e' associata a nessuna stampante...") indipendente dall'announce -
+  // un selettore .toast.error nudo lo intercetterebbe per sbaglio.
+  const toast = page.locator('#message .toast.error', { hasText: 'sta per fermarsi' });
 
-  await expect(banner).toHaveCount(0);
+  await expect(toast).toHaveCount(0);
 
   announce('--kind=shutdown', '--eta=30', '--message=Manutenzione serale');
 
-  await expect(banner).toBeVisible({ timeout: 6000 });
-  await expect(banner).toContainText('sta per fermarsi');
-  await expect(banner).toContainText('30s');
-  await expect(banner).toContainText('Manutenzione serale');
+  await expect(toast).toBeVisible({ timeout: 6000 });
+  await expect(toast).toContainText('sta per fermarsi');
+  await expect(toast).toContainText('30s');
+  await expect(toast).toContainText('Manutenzione serale');
 
   announce('--kind=back');
 
-  await expect(banner).toHaveCount(0, { timeout: 6000 });
+  await expect(toast).toHaveCount(0, { timeout: 6000 });
 
   await context.close();
 });
 
-test('il tasto x nasconde la barra', async ({ browser }) => {
+test('la x del toast lo nasconde', async ({ browser }) => {
   const { context, page } = await openCassa(browser);
-  const banner = page.locator('.server-announce');
+  // Filtrato per testo: RT_TEST non e' una cassa reale, quindi
+  // loadPaymentMethods() mostra gia' di suo un toast.error persistente
+  // ("non e' associata a nessuna stampante...") indipendente dall'announce -
+  // un selettore .toast.error nudo lo intercetterebbe per sbaglio.
+  const toast = page.locator('#message .toast.error', { hasText: 'sta per fermarsi' });
 
   announce('--kind=shutdown');
-  await expect(banner).toBeVisible({ timeout: 6000 });
+  await expect(toast).toBeVisible({ timeout: 6000 });
 
-  await page.locator('.server-announce__close').click();
-  await expect(banner).toHaveCount(0);
+  await toast.locator('.toast-close-btn').click();
+  await expect(toast).toHaveCount(0);
 
   announce('--kind=back');
   await context.close();
@@ -93,20 +102,24 @@ test('il tasto x nasconde la barra', async ({ browser }) => {
 
 test('un secondo annuncio shutdown dopo un back ricompare (nuova sottoscrizione viva)', async ({ browser }) => {
   const { context, page } = await openCassa(browser);
-  const banner = page.locator('.server-announce');
+  // Filtrato per testo: RT_TEST non e' una cassa reale, quindi
+  // loadPaymentMethods() mostra gia' di suo un toast.error persistente
+  // ("non e' associata a nessuna stampante...") indipendente dall'announce -
+  // un selettore .toast.error nudo lo intercetterebbe per sbaglio.
+  const toast = page.locator('#message .toast.error', { hasText: 'sta per fermarsi' });
 
   announce('--kind=shutdown');
-  await expect(banner).toBeVisible({ timeout: 6000 });
+  await expect(toast).toBeVisible({ timeout: 6000 });
   announce('--kind=back');
-  await expect(banner).toHaveCount(0, { timeout: 6000 });
+  await expect(toast).toHaveCount(0, { timeout: 6000 });
 
   // stessa pagina, stessa connessione SSE: deve ricevere ancora
   announce('--kind=shutdown', '--eta=10');
-  await expect(banner).toBeVisible({ timeout: 6000 });
-  await expect(banner).toContainText('10s');
+  await expect(toast).toBeVisible({ timeout: 6000 });
+  await expect(toast).toContainText('10s');
 
   announce('--kind=back');
-  await expect(banner).toHaveCount(0, { timeout: 6000 });
+  await expect(toast).toHaveCount(0, { timeout: 6000 });
 
   await context.close();
 });
