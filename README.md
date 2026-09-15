@@ -1,4 +1,4 @@
-# opensagra
+# OpenSagra
 
 App di cassa (POS) open source per sagre e feste paesane italiane: gestione prodotti/categorie, vendita a banco, scontrini termici (USB, rete, bridge di stampa nativo via Mercure, Bluetooth), statistiche vendite, gestione multi-cassa.
 
