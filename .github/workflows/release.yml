@@ -1,0 +1,75 @@
+name: Release
+
+# Compila l'intero pacchetto (wrapper + opensagra-installer.exe +
+# opensagra-uninstaller.exe) e li allega a una Release quando si pusha un tag
+# "v*" - stessa identica pipeline usata in locale (wrapper/build.ps1 +
+# packaging/make-installer.ps1 + make-uninstaller.ps1), nessuna logica
+# duplicata qui dentro: se cambia il modo di impacchettare, cambia solo li'.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {} # per testare la pipeline senza dover taggare davvero
+
+permissions:
+  contents: write # per creare la Release e allegarci gli asset
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Installa il modulo ps2exe
+        shell: pwsh
+        run: |
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Scope CurrentUser -Force -AllowClobber
+
+      - name: Compila l'installer (compila anche il wrapper al suo interno)
+        shell: pwsh
+        run: .\packaging\make-installer.ps1
+
+      - name: Compila il disinstaller
+        shell: pwsh
+        run: .\packaging\make-uninstaller.ps1
+
+      - name: Info versione (verifica rapida)
+        shell: pwsh
+        run: |
+          foreach ($f in 'opensagra-installer.exe', 'opensagra-uninstaller.exe') {
+            $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($f)
+            "$f - $($v.ProductName) v$($v.FileVersion) - $((Get-Item $f).Length) byte"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opensagra-installers
+          path: |
+            opensagra-installer.exe
+            opensagra-uninstaller.exe
+          retention-days: 30
+
+      - name: Pubblica la Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            opensagra-installer.exe
+            opensagra-uninstaller.exe
+          generate_release_notes: true
