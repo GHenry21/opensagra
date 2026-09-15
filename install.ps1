@@ -610,7 +610,7 @@ function New-CaddyConfig {
     # (Insidia #8): l'adattatore con un gateway di default e' quello reale.
     $lanIp = $null
     try {
-        $lanIp = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null } |
+        $lanIp = (Get-NetIPConfiguration | Where-Object { $null -ne $_.IPv4DefaultGateway } |
             Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -ExpandProperty IPAddress)
     } catch {
         $lanIp = $null
