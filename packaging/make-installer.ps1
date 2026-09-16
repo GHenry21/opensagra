@@ -81,6 +81,16 @@ try {
     $srcLabel = if ($isDirty) { "$headSha+modifiche non committate" } else { $headSha }
     Write-Host "     $($fileList.Count) file dal working tree ($srcLabel)" -ForegroundColor DarkGray
 
+    # Versione del codice app per config/.installed_version (letta da
+    # install.ps1) - dal tag esatto su HEAD quando la CI gira su un push di
+    # tag (release.yml), altrimenti un pacchetto di test locale ("0.0.0-dev",
+    # coerente col fallback di install.ps1 se VERSION manca del tutto).
+    $exactTag = git -C $RepoRoot describe --tags --exact-match HEAD 2>$null
+    $releaseVersion = if ($LASTEXITCODE -eq 0 -and $exactTag) { $exactTag.Trim() -replace '^v', '' } else { '0.0.0-dev' }
+    Write-Host "     versione app: $releaseVersion" -ForegroundColor DarkGray
+    $versionFile = Join-Path $Work 'VERSION'
+    Set-Content -Path $versionFile -Value $releaseVersion -NoNewline -Encoding ascii
+
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::Open($payloadZip, 'Create')
     try {
@@ -94,6 +104,8 @@ try {
             $zip, $wrapperExe, 'wrapper/opensagra-wrapper.exe') | Out-Null
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $uninstallerExe, 'opensagra-uninstaller.exe') | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $versionFile, 'VERSION') | Out-Null
 
         $vendorDir = Join-Path $RepoRoot 'vendor'
         if (Test-Path $vendorDir) {

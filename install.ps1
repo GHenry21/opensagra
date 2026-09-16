@@ -128,11 +128,17 @@ $Script:MariaDbDir = 'C:\Program Files\MariaDB 12.3'
 $Script:UploadTmpDir = 'C:\ProgramData\opensagra\php_upload_tmp'
 $Script:RequiredExtensions = @('mysqli', 'mbstring', 'gd', 'zip', 'intl', 'curl', 'openssl', 'iconv', 'dom', 'fileinfo')
 
-# Versione di QUESTO pacchetto di release (wrapper, installer, uninstaller e
-# codice app compilati/costruiti tutti insieme dallo stesso tag - vedi
-# release.yml). Tenerla allineata a WrapperVersion in wrapper/update_check.go
-# e ai -version di packaging\make-installer.ps1 / make-uninstaller.ps1.
-$Script:AppVersion = '1.0.0'
+# Versione del CODICE APP di questo pacchetto di release: letta dal file
+# VERSION che packaging\make-installer.ps1 genera nel payload (dal tag git
+# esatto su cui gira la CI - vedi release.yml), NON piu' un valore scritto a
+# mano qui. Un valore hardcoded si disallineava facilmente dal tag reale ad
+# ogni release (visto succedere su VM: installazione pulita di v1.0.2 che
+# scriveva comunque ".installed_version" = "1.0.0", facendo credere per
+# sempre che un aggiornamento fosse disponibile). '0.0.0-dev' e' il
+# fallback per pacchetti di test costruiti a mano senza un tag esatto su HEAD.
+$Script:AppVersion = if (Test-Path (Join-Path $PSScriptRoot 'VERSION')) {
+    (Get-Content (Join-Path $PSScriptRoot 'VERSION') -Raw).Trim()
+} else { '0.0.0-dev' }
 
 # Cartelle/file del pacchetto di release da NON copiare nell'installazione
 # (materiale di sviluppo, non serve a chi usa l'app)
@@ -151,7 +157,10 @@ $Script:ExcludeFromCopy = @(
     'packaging',
     # Come install.ps1 stesso: materiale di gestione del pacchetto, non va
     # servito dentro C:\opensagra.
-    'uninstall.ps1'
+    'uninstall.ps1',
+    # Letto sopra per valorizzare $Script:AppVersion - e' metadato del
+    # pacchetto, non un file dell'app.
+    'VERSION'
 )
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
