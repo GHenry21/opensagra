@@ -30,6 +30,11 @@ jobs:
         with:
           php-version: "8.3"
           tools: composer
+          # Stesse estensioni che install.ps1 configura nel php.ini di
+          # FrankenPHP sulla macchina finale - servono qui solo per far
+          # passare il controllo dei requisiti di Composer (mike42/escpos-php
+          # vuole ext-intl), il codice PHP non gira affatto in questo job.
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
 
       - name: composer install (rigenera vendor/, non e' nel repo)
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
