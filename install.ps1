@@ -128,6 +128,12 @@ $Script:MariaDbDir = 'C:\Program Files\MariaDB 12.3'
 $Script:UploadTmpDir = 'C:\ProgramData\opensagra\php_upload_tmp'
 $Script:RequiredExtensions = @('mysqli', 'mbstring', 'gd', 'zip', 'intl', 'curl', 'openssl', 'iconv', 'dom', 'fileinfo')
 
+# Versione di QUESTO pacchetto di release (wrapper, installer, uninstaller e
+# codice app compilati/costruiti tutti insieme dallo stesso tag - vedi
+# release.yml). Tenerla allineata a WrapperVersion in wrapper/update_check.go
+# e ai -version di packaging\make-installer.ps1 / make-uninstaller.ps1.
+$Script:AppVersion = '1.0.0'
+
 # Cartelle/file del pacchetto di release da NON copiare nell'installazione
 # (materiale di sviluppo, non serve a chi usa l'app)
 $Script:ExcludeFromCopy = @(
@@ -556,6 +562,12 @@ function Copy-AppFiles {
     } | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $Script:InstallPath -Recurse -Force
     }
+    # Marcatore letto dal wrapper (installedVersion in update_check.go) per
+    # sapere quale versione del CODICE app e' installata - un aggiornamento
+    # leggero (self_update.go) lo aggiorna da solo, senza ricompilare il
+    # wrapper. Non tracciato da git (e' generato qui), quindi un
+    # aggiornamento leggero successivo non lo tocca per errore.
+    $Script:AppVersion | Out-File (Join-Path $Script:InstallPath 'config\.installed_version') -Encoding ascii -Force -NoNewline
     Add-InstallChecklistItem 'File dell''app copiati'
 }
 

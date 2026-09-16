@@ -50,3 +50,8 @@ Thumbs.db
 
 # Uninstaller a-un-file, prodotto da packaging\make-uninstaller.ps1
 /opensagra-uninstaller.exe
+
+# Pacchetto di aggiornamento leggero (solo codice app + vendor/), prodotto da
+# packaging\make-update.ps1 - allegato alle release solo quando wrapper/
+# installer/uninstaller non sono cambiati (vedi release.yml)
+/opensagra-update.zip

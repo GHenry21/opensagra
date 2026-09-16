@@ -42,7 +42,7 @@ $ps2exeArgs = @{
     title        = 'Disinstallazione OpenSagra'
     product      = 'OpenSagra'
     description  = 'Uninstaller'
-    version      = '0.1.0.0'
+    version      = '1.0.0.0'
 }
 if (Test-Path $iconPath) { $ps2exeArgs.iconFile = $iconPath }
 

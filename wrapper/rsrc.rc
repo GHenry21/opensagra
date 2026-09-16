@@ -15,8 +15,8 @@ CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "opensagra.manifest"
 
 /* Info versione (proprieta' file -> Dettagli). */
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION    0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION    1,0,0,0
+ PRODUCTVERSION 1,0,0,0
  FILEOS         VOS__WINDOWS32
  FILETYPE       VFT_APP
 BEGIN
@@ -26,11 +26,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName",      "OpenSagra"
       VALUE "FileDescription",  "OpenSagra - pannello di controllo"
-      VALUE "FileVersion",      "0.1.0"
+      VALUE "FileVersion",      "1.0.0"
       VALUE "InternalName",     "opensagra-wrapper"
       VALUE "OriginalFilename", "opensagra-wrapper.exe"
       VALUE "ProductName",      "OpenSagra"
-      VALUE "ProductVersion",   "0.1.0"
+      VALUE "ProductVersion",   "1.0.0"
     END
   END
   BLOCK "VarFileInfo"

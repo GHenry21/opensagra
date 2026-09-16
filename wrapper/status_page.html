@@ -230,6 +230,8 @@ function dotClass(state, paused) {
 }
 
 let lastProcs = "";
+let lastStatus = null;
+let lastUpdateError = "";
 async function refresh() {
   let s;
   try { s = await (await fetch("/api/status")).json(); }
@@ -240,11 +242,22 @@ async function refresh() {
   // Unico punto in cui il wrapper tocca Internet (GitHub) - solo lettura,
   // cache lunga lato server. Il pallino compare solo se c'e' davvero una
   // versione piu' recente.
+  lastStatus = s;
   $("#btnUpdate").hidden = !s.wrapper_version;
-  $("#btnUpdate").title = s.update_available
-    ? `Nuova versione disponibile: v${s.latest_version} (installata: v${s.wrapper_version})`
-    : `OpenSagra v${s.wrapper_version}`;
+  if (s.updating) {
+    $("#btnUpdate").title = "Aggiornamento in corso...";
+  } else if (s.update_available) {
+    $("#btnUpdate").title = s.update_zip_url
+      ? `Nuova versione disponibile: v${s.latest_version} (installata: v${s.wrapper_version}) - clic per aggiornare`
+      : `Nuova versione disponibile: v${s.latest_version} - richiede reinstallazione completa`;
+  } else {
+    $("#btnUpdate").title = `OpenSagra v${s.wrapper_version}`;
+  }
   $("#updateDot").hidden = !s.update_available;
+  if (s.update_error && s.update_error !== lastUpdateError) {
+    lastUpdateError = s.update_error;
+    confirmBox("Aggiornamento non riuscito", s.update_error);
+  }
 
   const clientsLabel = n => n === 1 ? "1 cassa collegata" : n + " casse collegate";
   const anyErr = s.procs.some(p => p.state === "in errore");
@@ -314,7 +327,16 @@ async function refreshLog() {
 
 $("#btnApp").onclick = () => api("open-app");
 $("#btnDb").onclick = () => api("open-db");
-$("#btnUpdate").onclick = () => api("open-update");
+$("#btnUpdate").onclick = async () => {
+  const s = lastStatus;
+  if (!s || s.updating) return;
+  if (!s.update_available) return; // solo tooltip con la versione, nessuna azione
+  if (!s.update_zip_url) { api("open-update"); return; } // richiede reinstallazione completa
+  const notes = (s.update_notes || "").trim();
+  const body = `Versione installata: v${s.wrapper_version}\nNuova versione: v${s.latest_version}` +
+    (notes ? `\n\n${notes}` : "");
+  if (await confirmBox(`Aggiornare a v${s.latest_version}?`, body)) api("apply-update");
+};
 $("#btnLogs").onclick = () => api("open-logs");
 $("#btnRestartAll").onclick = () => api("restart-all");
 $("#btnPause").onclick = async () => {

@@ -37,6 +37,8 @@ type statusServer struct {
 	dbToolURL   string
 	dbToolAt    time.Time
 	winOpen     bool // finestra app-mode gia' aperta
+	updating    bool // ApplyUpdate() in corso (asincrono, vedi handleAction "apply-update")
+	updateErr   string
 }
 
 func newStatusServer(ctx context.Context, cfg *Config, sup *Supervisor) *statusServer {
@@ -116,10 +118,14 @@ type statusJSON struct {
 	LogDir            string     `json:"log_dir"`
 	Procs             []procJSON `json:"procs"`
 
-	WrapperVersion  string `json:"wrapper_version"`
+	WrapperVersion  string `json:"wrapper_version"`  // versione del CODICE app installato (vedi installedVersion)
 	UpdateAvailable bool   `json:"update_available"`
-	LatestVersion   string `json:"latest_version"` // valorizzata solo se UpdateAvailable
-	UpdateURL       string `json:"update_url"`     // pagina della release su GitHub
+	LatestVersion   string `json:"latest_version"`  // valorizzata solo se UpdateAvailable
+	UpdateURL       string `json:"update_url"`      // pagina della release su GitHub
+	UpdateZipURL    string `json:"update_zip_url"`  // "" se questa release richiede una reinstallazione completa
+	UpdateNotes     string `json:"update_notes"`    // note della release, da mostrare prima di confermare
+	Updating        bool   `json:"updating"`        // true mentre ApplyUpdate() e' in corso
+	UpdateError     string `json:"update_error"`    // ultimo errore di ApplyUpdate(), se c'e'
 }
 
 // cachedClientCount: activeClientCount() apre una connessione al DB; con la
@@ -179,7 +185,10 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	mdbUp, mdbVer := mariadbStatus(h.cfg)
 	fpVer, phpVer := frankenphpVersions(h.cfg)
-	updAvailable, updLatest, updURL := checkForUpdate()
+	upd := checkForUpdate(h.cfg)
+	h.mu.Lock()
+	updating, updateErr := h.updating, h.updateErr
+	h.mu.Unlock()
 	out := statusJSON{
 		Role:              role,
 		ClientCount:       h.cachedClientCount(),
@@ -192,10 +201,14 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		PhpVersion:        phpVer,
 		DbToolURL:         h.cachedDbToolURL(),
 		LogDir:            h.cfg.LogDir,
-		WrapperVersion:    WrapperVersion,
-		UpdateAvailable:   updAvailable,
-		LatestVersion:     updLatest,
-		UpdateURL:         updURL,
+		WrapperVersion:    installedVersion(h.cfg),
+		UpdateAvailable:   upd.Available,
+		LatestVersion:     upd.Latest,
+		UpdateURL:         upd.HTMLURL,
+		UpdateZipURL:      upd.ZipURL,
+		UpdateNotes:       upd.Changelog,
+		Updating:          updating,
+		UpdateError:       updateErr,
 	}
 	for _, name := range h.sup.names() {
 		st := h.sup.get(name)
@@ -271,9 +284,35 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 			openURL(u)
 		}
 	case "open-update":
-		if _, _, u := checkForUpdate(); u != "" {
+		if u := checkForUpdate(h.cfg).HTMLURL; u != "" {
 			openURL(u)
 		}
+	case "apply-update":
+		h.mu.Lock()
+		alreadyRunning := h.updating
+		if !alreadyRunning {
+			h.updating = true
+			h.updateErr = ""
+		}
+		h.mu.Unlock()
+		if alreadyRunning {
+			writeJSON(w, map[string]any{"ok": false, "error": "aggiornamento gia' in corso"})
+			return
+		}
+		info := checkForUpdate(h.cfg)
+		go func() {
+			err := ApplyUpdate(h.cfg, info)
+			h.mu.Lock()
+			h.updating = false
+			if err != nil {
+				h.updateErr = err.Error()
+			}
+			h.mu.Unlock()
+			if err == nil {
+				h.sup.restartAll() // il codice nuovo va caricato - stesso effetto di "Riavvia tutto"
+				go announceBackWhenUp(h.ctx, h.sup, h.cfg)
+			}
+		}()
 	case "open-logs":
 		revealPath(h.cfg.LogDir)
 	case "autostart-on":

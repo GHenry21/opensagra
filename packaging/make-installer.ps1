@@ -130,7 +130,7 @@ try {
         title        = 'Installazione OpenSagra'
         product      = 'OpenSagra'
         description  = "Installer (da $srcLabel)"
-        version      = '0.1.0.0'
+        version      = '1.0.0.0'
         embedFiles   = @{ '%TEMP%\opensagra-installer-payload.zip' = $payloadZip }
     }
     if (Test-Path $iconPath) { $ps2exeArgs.iconFile = $iconPath }

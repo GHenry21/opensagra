@@ -20,6 +20,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # serve tutta la storia dei tag per il confronto con la release precedente, sotto
 
       - uses: actions/setup-go@v5
         with:
@@ -58,13 +60,50 @@ jobs:
             "$f - $($v.ProductName) v$($v.FileVersion) - $((Get-Item $f).Length) byte"
           }
 
+      # Un aggiornamento leggero (opensagra-update.zip, vedi packaging/make-update.ps1
+      # e wrapper/self_update.go) sostituisce solo il codice app senza reinstallare -
+      # e' sicuro offrirlo SOLO se questa release non tocca wrapper/, install.ps1,
+      # uninstall.ps1 o packaging/ rispetto al tag precedente. Se manca un tag
+      # precedente (prima release) si va sempre di reinstallazione completa: non c'e'
+      # niente con cui confrontarsi.
+      - name: Determina se serve il pacchetto di aggiornamento leggero
+        id: diff
+        shell: powershell
+        run: |
+          $currentTag = if ("${{ github.ref_type }}" -eq 'tag') { "${{ github.ref_name }}" } else { $null }
+          $allTags = git tag --sort=-v:refname
+          $prevTag = $allTags | Where-Object { $_ -ne $currentTag } | Select-Object -First 1
+
+          if (-not $prevTag) {
+            Write-Host "Nessun tag precedente trovato: prima release, nessun aggiornamento leggero."
+            "needsFull=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host "Confronto con il tag precedente: $prevTag"
+            $changed = git diff --name-only "$prevTag" HEAD -- wrapper/ install.ps1 uninstall.ps1 packaging/
+            if ($changed) {
+              Write-Host "File rilevanti cambiati rispetto a ${prevTag}:"
+              $changed | ForEach-Object { Write-Host "  $_" }
+              "needsFull=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            } else {
+              Write-Host "Nessuna modifica a wrapper/installer/uninstaller rispetto a $prevTag - allego anche l'aggiornamento leggero."
+              "needsFull=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            }
+          }
+
+      - name: Compila il pacchetto di aggiornamento leggero
+        if: steps.diff.outputs.needsFull == 'false'
+        shell: powershell
+        run: .\packaging\make-update.ps1
+
       - uses: actions/upload-artifact@v4
         with:
           name: opensagra-installers
           path: |
             opensagra-installer.exe
             opensagra-uninstaller.exe
+            opensagra-update.zip
           retention-days: 30
+          if-no-files-found: ignore
 
       - name: Pubblica la Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -73,4 +112,5 @@ jobs:
           files: |
             opensagra-installer.exe
             opensagra-uninstaller.exe
+            opensagra-update.zip
           generate_release_notes: true
