@@ -118,6 +118,9 @@ $_hNavGroups = [
             <button type="button" class="pos-sync-pending__btn" id="pos-sync-pending-btn"
                 data-push-url="<?= $_hRoot ?>api/push_local_sales.php">Sincronizza ora</button>
         </div>
+        <!-- Versione app installata (v. $_hAppVersion in cima al file) -
+             aggiornata sia da un'installazione completa sia da un
+             aggiornamento leggero, mai a mano. -->
         <?php if ($_hAppVersion !== null): ?>
         <span class="pos-version" title="Versione app installata">OpenSagra v<?= htmlspecialchars($_hAppVersion) ?></span>
         <?php endif; ?>
