@@ -1,5 +1,15 @@
 <?php
 require_once __DIR__ . '/icons.php';
+
+// Versione app installata, scritta da install.ps1 e aggiornata da ogni
+// aggiornamento leggero applicato dal wrapper (wrapper/self_update.go) -
+// vedi config/.installed_version. Non e' la versione del wrapper stesso.
+$_hAppVersion = null;
+$_hVersionFile = __DIR__ . '/../config/.installed_version';
+if (is_file($_hVersionFile)) {
+    $_hAppVersion = trim((string) file_get_contents($_hVersionFile)) ?: null;
+}
+
 $_hInPages = str_contains($_SERVER['PHP_SELF'] ?? '', '/pages/');
 $_hRoot = $_hInPages ? '../' : '';
 $_hPages = $_hInPages ? '' : 'pages/';
@@ -108,6 +118,9 @@ $_hNavGroups = [
             <button type="button" class="pos-sync-pending__btn" id="pos-sync-pending-btn"
                 data-push-url="<?= $_hRoot ?>api/push_local_sales.php">Sincronizza ora</button>
         </div>
+        <?php if ($_hAppVersion !== null): ?>
+        <span class="pos-version">OpenSagra v<?= htmlspecialchars($_hAppVersion) ?></span>
+        <?php endif; ?>
     </div>
 </aside>
 <div class="pos-sidebar-overlay" id="posSidebarOverlay"></div>
