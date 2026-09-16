@@ -383,17 +383,32 @@ function Remove-MariaDB {
 }
 
 function Remove-FrankenPHP {
-    # La CA locale di Caddy/FrankenPHP va rimossa dal trust store PRIMA di
-    # cancellare la cartella che la contiene, altrimenti resta un certificato
-    # radice fidato "orfano" (nessun file corrispondente sul disco).
+    # La CA locale di Caddy/FrankenPHP andrebbe rimossa dal trust store PRIMA
+    # di cancellare la cartella che la contiene, altrimenti resta un
+    # certificato radice fidato "orfano" (nessun file corrispondente sul
+    # disco) - innocuo (non e' associato a nessun sito che l'utente visiti
+    # davvero), ma non pulito. Bug reale (2026-09-16): rimuovere un
+    # certificato da CurrentUser\Root si e' bloccato a tempo indeterminato
+    # dentro l'exe compilato - sia X509Store.Remove() che l'equivalente
+    # "certutil -delstore" hanno dato "0x80070032 ERROR_NOT_SUPPORTED" nei
+    # test isolati (Windows protegge deliberatamente il trust store da
+    # rimozioni automatiche), ma qui il tentativo si impantana invece di
+    # fallire in fretta. Gira in un job separato con un timeout breve - se
+    # Windows lo rifiuta o si blocca, si prosegue comunque: non vale
+    # bloccare tutta la disinstallazione per un certificato residuo innocuo.
     $caRoot = Join-Path $env:APPDATA 'Caddy\pki\authorities\local\root.crt'
     if (Test-Path $caRoot) {
         try {
-            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($caRoot)
-            $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
-            $store.Open('ReadWrite')
-            $store.Remove($cert)
-            $store.Close()
+            $job = Start-Job -ScriptBlock {
+                param($path)
+                $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($path)
+                $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+                $store.Open('ReadWrite')
+                $store.Remove($cert)
+                $store.Close()
+            } -ArgumentList $caRoot
+            Wait-Job $job -Timeout 5 | Out-Null
+            Remove-Job $job -Force -ErrorAction SilentlyContinue
         } catch {}
     }
     Remove-Item (Join-Path $env:APPDATA 'Caddy') -Recurse -Force -ErrorAction SilentlyContinue
