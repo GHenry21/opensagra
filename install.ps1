@@ -153,6 +153,14 @@ $Script:ExcludeFromCopy = @(
 # L'autostart lo scrive il wrapper stesso (chiave HKCU\...\Run), non l'installer.
 $Script:WrapperExeName = 'opensagra-wrapper.exe'
 
+# Eseguibile del disinstaller: precompilato da packaging\make-uninstaller.ps1
+# e gia' incluso nel payload dall'installer (make-installer.ps1 lo costruisce
+# per primo apposta). Copiato in C:\opensagra e registrato in Impostazioni >
+# App - un utente deve poter disinstallare anche mesi dopo, senza dover
+# ritrovare il pacchetto originale o GitHub.
+$Script:UninstallerExeName = 'opensagra-uninstaller.exe'
+$Script:UninstallRegKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OpenSagra'
+
 # ============================================================================
 # Interfaccia grafica (WPF in un runspace separato, aggiornata dal thread
 # principale - vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md per il perche')
@@ -814,6 +822,52 @@ function New-WrapperShortcut {
     Add-InstallChecklistItem 'Collegamento sul desktop creato'
 }
 
+function Install-Uninstaller {
+    # Copiato accanto all'app (gia' compilato e incluso nel payload -
+    # make-installer.ps1 costruisce prima il disinstaller apposta) e non lo
+    # script grezzo: serve per la voce in Impostazioni > App, vedi
+    # Register-UninstallEntry per il perche'.
+    $src = Join-Path $Script:SourcePath $Script:UninstallerExeName
+    if (-not (Test-Path $src)) {
+        throw "Disinstaller non trovato ($src). Va compilato PRIMA di impacchettare la release: .\packaging\make-uninstaller.ps1 (macchina di sviluppo)."
+    }
+    Copy-Item $src (Join-Path $Script:InstallPath $Script:UninstallerExeName) -Force
+    Add-InstallChecklistItem 'Disinstaller copiato'
+}
+
+function Register-UninstallEntry {
+    # Voce in Impostazioni > App / Pannello di controllo - un utente deve
+    # poter disinstallare OpenSagra come qualsiasi altro programma, senza
+    # dover ritrovare il pacchetto originale o GitHub mesi dopo.
+    # UninstallString punta all'EXE compilato, non allo script grezzo: solo
+    # l'exe, con il manifest -requireAdmin incorporato da ps2exe, fa scattare
+    # l'elevazione UAC in automatico quando Windows lancia questo comando -
+    # un "powershell.exe -File script.ps1" nudo non si eleva da solo, e lo
+    # script si limiterebbe a bloccarsi su "#Requires -RunAsAdministrator".
+    $exePath = Join-Path $Script:InstallPath $Script:UninstallerExeName
+    $version = (Get-Item $exePath).VersionInfo.FileVersion
+    if (-not (Test-Path $Script:UninstallRegKey)) {
+        New-Item -Path $Script:UninstallRegKey -Force | Out-Null
+    }
+    $sizeKB = [math]::Round(((Get-ChildItem $Script:InstallPath -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum) / 1KB)
+    $props = @{
+        DisplayName     = 'OpenSagra'
+        DisplayVersion  = $version
+        Publisher       = 'OpenSagra'
+        UninstallString = "`"$exePath`""
+        DisplayIcon     = $exePath
+        InstallLocation = $Script:InstallPath
+        EstimatedSize   = $sizeKB
+        NoModify        = 1
+        NoRepair        = 1
+    }
+    foreach ($key in $props.Keys) {
+        New-ItemProperty -Path $Script:UninstallRegKey -Name $key -Value $props[$key] -Force | Out-Null
+    }
+    Add-InstallChecklistItem 'Voce di disinstallazione registrata (Impostazioni > App)'
+}
+
 function Start-Wrapper {
     # Avvia il wrapper SUBITO e nel contesto NON elevato dell'utente
     # interattivo (l'installer gira elevato: Start-Process erediterebbe il
@@ -941,6 +995,8 @@ try {
     Set-InstallProgress -Percent 75 -Status 'Installazione del pannello OpenSagra...'
     Install-Wrapper
     New-WrapperShortcut
+    Install-Uninstaller
+    Register-UninstallEntry
 
     Set-InstallProgress -Percent 90 -Status 'Configurazione delle regole di rete...'
     Set-FirewallRules

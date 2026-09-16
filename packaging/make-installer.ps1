@@ -15,16 +15,21 @@
     l'installer su un'altra macchina adesso".
 
     Meccanismo:
-    1. wrapper\build.ps1 -> wrapper\opensagra-wrapper.exe fresco
+    1. wrapper\build.ps1 -> wrapper\opensagra-wrapper.exe fresco, poi
+       make-uninstaller.ps1 -> opensagra-uninstaller.exe fresco (serve dentro
+       il payload: install.ps1 lo copia in C:\opensagra e registra una voce
+       in Impostazioni > App che lo richiama - senza l'exe gia' compilato
+       quella voce non potrebbe elevarsi da sola)
     2. `git ls-files --cached --others --exclude-standard` -> lista dei file
-       "che contano" (tracciati + nuovi non ignorati), letti pero' DAL DISCO
+       "che contano" (tracciati e nuovi non ignorati), letti pero' DAL DISCO
        (working tree), non dall'ultimo commit: le modifiche non ancora
        committate finiscono nel pacchetto. Scelta voluta per i test rapidi -
        vedi nota sotto. Rispetta comunque .gitignore (niente .git,
        node_modules, log di test, vendor arriva a parte al passo 3).
-    3. dentro quello zip si aggiungono wrapper\opensagra-wrapper.exe (compilato,
-       gitignored - non e' tracciato) e vendor\ (Composer, gitignored - deve
-       gia' esistere: `composer install` a parte, PRIMA di lanciare questo)
+    3. dentro quello zip si aggiungono wrapper\opensagra-wrapper.exe,
+       opensagra-uninstaller.exe (entrambi compilati, gitignored - non sono
+       tracciati) e vendor\ (Composer, gitignored - deve gia' esistere:
+       `composer install` a parte, PRIMA di lanciare questo)
     4. ps2exe compila packaging\installer-bootstrap.ps1 in un unico exe, con
        quello zip incorporato come risorsa (-embedFiles) e -requireAdmin (UAC
        al lancio, non serve elevarsi di nuovo dentro install.ps1)
@@ -55,10 +60,14 @@ $Work = Join-Path $env:TEMP ('opensagra-pkg-' + [guid]::NewGuid().ToString('N').
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 
 try {
-    Write-Host '1/5  Compilo il wrapper...' -ForegroundColor Cyan
+    Write-Host '1/5  Compilo il wrapper e il disinstaller...' -ForegroundColor Cyan
     & (Join-Path $RepoRoot 'wrapper\build.ps1') | Out-Null
     $wrapperExe = Join-Path $RepoRoot 'wrapper\opensagra-wrapper.exe'
     if (-not (Test-Path $wrapperExe)) { throw 'wrapper\opensagra-wrapper.exe non trovato dopo la build.' }
+
+    & (Join-Path $PSScriptRoot 'make-uninstaller.ps1') | Out-Null
+    $uninstallerExe = Join-Path $RepoRoot 'opensagra-uninstaller.exe'
+    if (-not (Test-Path $uninstallerExe)) { throw 'opensagra-uninstaller.exe non trovato dopo la build.' }
 
     Write-Host '2/5  Preparo il payload dal working tree (incluse le modifiche non committate)...' -ForegroundColor Cyan
     $payloadZip = Join-Path $Work 'payload.zip'
@@ -83,6 +92,8 @@ try {
 
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $wrapperExe, 'wrapper/opensagra-wrapper.exe') | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $uninstallerExe, 'opensagra-uninstaller.exe') | Out-Null
 
         $vendorDir = Join-Path $RepoRoot 'vendor'
         if (Test-Path $vendorDir) {

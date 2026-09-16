@@ -78,6 +78,33 @@ $Script:InstallPath = 'C:\opensagra'
 $Script:FrankenDir = "$env:USERPROFILE\.frankenphp"
 $Script:MariaDbDir = 'C:\Program Files\MariaDB 12.3'
 $Script:ProgramDataDir = 'C:\ProgramData\opensagra'
+$Script:UninstallRegKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\OpenSagra'
+
+# Bug reale (2026-09-16, confermato dal vivo su VM): install.ps1 copia questo
+# stesso exe DENTRO C:\opensagra e ce lo registra come UninstallString - il
+# caso normale e' quindi girare da li'. Remove-AppFiles pero' non riesce mai
+# a cancellare il PROPRIO file .exe mentre e' in esecuzione: la cartella
+# resta con dentro solo quello, mai davvero vuota. Trucco classico dei
+# disinstaller: se ci si accorge di girare da dentro la cartella da
+# cancellare, ci si ricopia in %TEMP% e ci si rilancia da li' con gli stessi
+# argomenti - una copia in %TEMP% non ha nulla di suo da bloccare quando
+# arriva a cancellare C:\opensagra per intero.
+$Script:CurrentExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+if ($Script:CurrentExe -like "$Script:InstallPath\*") {
+    $tempCopy = Join-Path $env:TEMP ('opensagra-uninstall-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.exe')
+    Copy-Item $Script:CurrentExe $tempCopy -Force
+    $relaunchArgs = @()
+    if ($Force) { $relaunchArgs += '-Force' }
+    Start-Process -FilePath $tempCopy -ArgumentList $relaunchArgs
+    # NIENTE -Wait: bug reale confermato dal vivo - se questo processo resta
+    # in attesa, il SUO file .exe (dentro C:\opensagra) resta bloccato per
+    # tutta la durata, esattamente mentre la copia in %TEMP% prova a
+    # cancellare quella cartella - un fallimento silenzioso identico a
+    # prima, solo spostato di un livello. Uscire SUBITO libera il lock ben
+    # prima che la copia arrivi a Remove-AppFiles (tutti gli altri passi,
+    # MariaDB/FrankenPHP compresi, richiedono comunque diversi secondi).
+    exit 0
+}
 
 # ============================================================================
 # Interfaccia grafica (stessa identica finestra di install.ps1, testi
@@ -419,10 +446,19 @@ function Remove-FrankenPHP {
 }
 
 function Remove-AppFiles {
+    # Nota: se questo stesso exe gira da dentro $Script:InstallPath (il caso
+    # normale, invocato dalla voce in Impostazioni > App - vedi
+    # Register-UninstallEntry in install.ps1), Windows permette comunque di
+    # cancellare il proprio file .exe mentre e' in esecuzione (il caricatore
+    # lo apre con condivisione-in-cancellazione) - -ErrorAction
+    # SilentlyContinue tollera l'eventuale singolo file ancora bloccato.
     Remove-Item $Script:InstallPath -Recurse -Force -ErrorAction SilentlyContinue
     # Collegamento sul desktop pubblico creato da install.ps1 (New-WrapperShortcut) -
     # altrimenti resta un collegamento rotto dopo la disinstallazione.
     Remove-Item (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'OpenSagra.lnk') -Force -ErrorAction SilentlyContinue
+    # Voce di Impostazioni > App creata da install.ps1 (Register-UninstallEntry) -
+    # altrimenti resta una voce fantasma che punta a un exe non piu' presente.
+    Remove-Item $Script:UninstallRegKey -Recurse -Force -ErrorAction SilentlyContinue
     Add-InstallChecklistItem 'File dell''app rimossi'
 }
 

@@ -46,13 +46,9 @@ jobs:
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module -Name ps2exe -Scope CurrentUser -Force -AllowClobber
 
-      - name: Compila l'installer (compila anche il wrapper al suo interno)
+      - name: Compila l'installer (compila anche wrapper e disinstaller al suo interno)
         shell: powershell
         run: .\packaging\make-installer.ps1
-
-      - name: Compila il disinstaller
-        shell: powershell
-        run: .\packaging\make-uninstaller.ps1
 
       - name: Info versione (verifica rapida)
         shell: powershell
