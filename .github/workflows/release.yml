@@ -40,22 +40,22 @@ jobs:
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
       - name: Installa il modulo ps2exe
-        shell: pwsh
+        shell: powershell
         run: |
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module -Name ps2exe -Scope CurrentUser -Force -AllowClobber
 
       - name: Compila l'installer (compila anche il wrapper al suo interno)
-        shell: pwsh
+        shell: powershell
         run: .\packaging\make-installer.ps1
 
       - name: Compila il disinstaller
-        shell: pwsh
+        shell: powershell
         run: .\packaging\make-uninstaller.ps1
 
       - name: Info versione (verifica rapida)
-        shell: pwsh
+        shell: powershell
         run: |
           foreach ($f in 'opensagra-installer.exe', 'opensagra-uninstaller.exe') {
             $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($f)
