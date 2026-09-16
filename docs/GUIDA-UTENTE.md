@@ -82,9 +82,39 @@ all'indirizzo nel browser), con questi vantaggi concreti sul campo:
 - **Nessun avviso "sito non sicuro"** che potrebbe confondere chi lavora al
   banco.
 - **Compatibilità sistemi mobile** e con altre funzionalità
-  moderne dei browser/tablet più recenti: per i tablet e telefoni è necessario installare a mano il certificato HTTPS generato dall'installer. Nulla di complicato, ma è un passaggio aggiuntivo rispetto ai PC.
+  moderne dei browser/tablet più recenti: per i tablet e telefoni è necessario installare a mano il certificato HTTPS generato dall'installer. Nulla di complicato, ma è un passaggio aggiuntivo rispetto ai PC — vedi qui sotto.
 
-  (vedi §6.1 per le istruzioni su come installare il certificato HTTPS sui dispositivi mobile)
+### 1.2 Collegare un tablet o telefono
+
+Sulla pagina **Configurazione Rete** trovi un **QR code**, sotto "Collega un
+cellulare o tablet":
+
+![Riquadro "Collega un cellulare o tablet" con QR code e indirizzo](img/guida/21-conf-rete-qr.png)
+
+1. Inquadralo con la fotocamera del cellulare/tablet che vuoi usare come
+   cassa — si apre una pagina dedicata ("Collega questo dispositivo").
+2. Tocca **"Scarica certificato"**. È il "biglietto da visita" di questo PC:
+   una volta installato, il browser smette di segnalare OpenSagra come sito
+   non sicuro. Va fatto **una sola volta per dispositivo**.
+3. Installa il file scaricato — la pagina stessa spiega come, a seconda del
+   dispositivo:
+   - **Android**: Impostazioni → Sicurezza e privacy → Crittografia e
+     credenziali → Installa certificato → Certificato CA → scegli il file
+     appena scaricato. Dopo l'installazione Android mostra un avviso
+     permanente ("rete monitorata" o simile): è normale, non un errore.
+   - **iPhone/iPad**: dopo il download, apri Impostazioni → in alto comparirà
+     "Profilo scaricato" → Installa. Poi vai in Impostazioni → Generali →
+     Informazioni → Impostazioni certificati attendibili e attiva la piena
+     fiducia per il certificato OpenSagra.
+   - **Firefox** (telefono o PC): usa un proprio elenco di certificati,
+     separato da quello del sistema — la prima volta mostrerà comunque un
+     avviso ("Avanzate" → "Accetta il rischio e continua"). È normale, dopo
+     funziona senza più avvisi.
+4. Torna sulla pagina e tocca **"Apri OpenSagra"**: il lucchetto conferma che
+   il dispositivo ora si fida di questo PC.
+
+Se preferisci saltare questo passaggio, la stessa pagina offre anche "Apri
+OpenSagra senza HTTPS" — funziona comunque, semplicemente senza il lucchetto.
 
 ---
 
@@ -531,10 +561,6 @@ casse collegate insieme:
 
 Restano da scrivere, in un prossimo aggiornamento:
 
-- Installazione del certificato HTTPS su un **tablet/telefono** che non sia
-  il PC su cui hai lanciato l'installer (Android, Firefox) — oggi il §1.1
-  copre solo il comportamento generale, non la procedura passo-passo per
-  device diversi dal browser che ha girato l'installer.
 - Aggiornare un'installazione esistente e disinstallarla.
 - Casi d'errore più comuni e come risolverli (stampante non raggiungibile,
   rete assente, ecc.).

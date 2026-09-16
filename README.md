@@ -6,7 +6,7 @@ Basata su **FrankenPHP** (server web + PHP in un unico eseguibile, con HTTPS aut
 
 ## Installazione (utente finale, Windows)
 
-1. Scarica **`opensagra-installer.exe`** — un unico file, contiene già tutto il necessario (non serve scaricare nient'altro a parte quello che l'installer stesso scaricherà al volo: FrankenPHP, MariaDB).
+1. Scarica **`opensagra-installer.exe`** dalla pagina [**Releases**](https://github.com/GHenry21/opensagra/releases/latest) — un unico file, contiene già tutto il necessario (non serve scaricare nient'altro a parte quello che l'installer stesso scaricherà al volo: FrankenPHP, MariaDB).
 2. Fai doppio click. Windows chiederà conferma un paio di volte (UAC + eventuali popup di sicurezza): accetta sempre.
 3. Da lì in poi non c'è più nulla da fare: una finestra mostra l'avanzamento mentre l'installer scarica e configura da solo FrankenPHP, MariaDB, le estensioni PHP necessarie, crea il database, registra il servizio MariaDB, avvia il wrapper (che gestisce FrankenPHP) e apre le regole firewall. Ci vogliono alcuni minuti, dipende dalla connessione internet.
 4. A fine installazione l'app è già raggiungibile su `http://localhost` e `https://localhost`.
