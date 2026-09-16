@@ -119,7 +119,7 @@ $_hNavGroups = [
                 data-push-url="<?= $_hRoot ?>api/push_local_sales.php">Sincronizza ora</button>
         </div>
         <?php if ($_hAppVersion !== null): ?>
-        <span class="pos-version">OpenSagra v<?= htmlspecialchars($_hAppVersion) ?></span>
+        <span class="pos-version" title="Versione app installata">OpenSagra v<?= htmlspecialchars($_hAppVersion) ?></span>
         <?php endif; ?>
     </div>
 </aside>
