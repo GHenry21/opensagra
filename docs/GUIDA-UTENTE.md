@@ -25,12 +25,26 @@
 1. Scarica **`opensagra-installer.exe`** (un unico file — dentro c'è già tutto il
    necessario, non serve scaricare nient'altro a parte quello che l'installer
    scaricherà da solo).
-2. Fai doppio click. Durante l'installazione Windows chiederà conferma **tre
-   volte**: clicca sempre **sì/consenti** per lasciar configurare
-   all'installer il server, la rete e il certificato di sicurezza.
+2. Fai doppio click. **Windows mostra tre avvisi in sequenza** — sono normali,
+   capitano con qualunque programma nuovo scaricato da internet che non ha
+   ancora una "reputazione" presso Microsoft, non un segnale che qualcosa non
+   va:
+
+   | | Cosa vedi | Cosa fare |
+   |---|---|---|
+   | 1 | **"PC protetto da Windows"** (SmartScreen) | Clicca **"Ulteriori informazioni"** (appare sotto il testo), poi **"Esegui comunque"**. |
+   | 2 | **Controllo dell'account utente** (UAC) | Clicca **"Sì"** — serve per installare il servizio del database e le regole del firewall. |
+   | 3 | **Avviso di sicurezza sul certificato** (compare più avanti, durante l'installazione) | Clicca **"Sì"** — è il certificato che permette poi alla connessione di essere protetta (HTTPS, §1.1), generato apposta per questo PC. |
+
+   ![Avviso "PC protetto da Windows" di SmartScreen](img/guida/01-smartscreen.png)
+   ![Richiesta di conferma UAC per opensagra-installer.exe](img/guida/02-uac.png)
+   ![Avviso di sicurezza per installare il certificato "Caddy Local Authority"](img/guida/04-certificato-https.png)
 3. Da qui in poi **non c'è più nulla da fare**: una finestra mostra
-   l'avanzamento mentre l'installer scarica e configura da solo tutto il resto.
-   Ci vogliono alcuni minuti, dipende dalla connessione internet.
+   l'avanzamento mentre l'installer scarica e configura da solo tutto il resto
+   (FrankenPHP, MariaDB, il database, il certificato, il firewall). Ci vogliono
+   alcuni minuti, dipende dalla connessione internet.
+
+   ![Finestra di avanzamento dell'installazione, con la lista dei passaggi completati](img/guida/03-installer-avanzamento.png)
 4. A fine installazione l'app è già pronta e raggiungibile su questo PC.
 
 ### Il pannello di controllo
@@ -38,7 +52,7 @@
 Da questo momento, ogni volta che il PC è acceso, trovi una piccola finestra
 che mostra lo stato del server:
 
-![Pannello di controllo: server attivo, 1 cassa collegata](img/guida/01-wrapper-status.png)
+![Pannello di controllo: server attivo, 1 cassa collegata](img/guida/05-wrapper-status.png)
 
 Nell'uso di tutti i giorni conta solo questo:
 
@@ -55,7 +69,7 @@ Nell'uso di tutti i giorni conta solo questo:
 Tutto il resto — **Ferma/Avvia server**, **Riavvia tutto**, **Apri cartella
 log** e **Dettagli avanzati** servono solo per la diagnosi tecnica o chi vuole vedere cosa succede "dietro le quinte"; **non ti servirà nell'uso quotidiano**.:
 
-![Dettagli avanzati: componenti singoli con stato e pulsanti Ferma/Avvia/Riavvia](img/guida/02-wrapper-status-dettagli.png)
+![Dettagli avanzati: componenti singoli con stato e pulsanti Ferma/Avvia/Riavvia](img/guida/06-wrapper-status-dettagli.png)
 
 
 ### 1.1 La connessione è sempre protetta (HTTPS)
@@ -79,13 +93,13 @@ all'indirizzo nel browser), con questi vantaggi concreti sul campo:
 La primissima volta che apri l'app **su un dispositivo/browser nuovo**, prima
 ancora di vedere la Home, ti viene chiesto un nome per questa postazione:
 
-![Modal "Configura questa cassa" con un campo per l'ID e il pulsante Conferma](img/guida/03-cassa-id-modal.png)
+![Modal "Configura questa cassa" con un campo per l'ID e il pulsante Conferma](img/guida/07-cassa-id-modal.png)
 
 Scrivi un nome a piacere che ti aiuti a riconoscerla (es. `cassa_bar`,
 `cassa_griglia`, `cassa_dolci`) e premi **Conferma**. Da quel momento vedrai
 sempre quel nome in basso a sinistra nel menu, su ogni pagina:
 
-![Home dell'app con tutte le funzioni raggiungibili dal menu](img/guida/04-home.png)
+![Home dell'app con tutte le funzioni raggiungibili dal menu](img/guida/08-home.png)
 
 **Cosa significa in pratica**: questo nome viene salvato **solo in questo
 browser, su questo dispositivo** — non ti verrà richiesto di nuovo finché non
@@ -120,7 +134,7 @@ si decide dalla pagina **Configurazione Rete**, in qualsiasi momento — non è
 una scelta da fare per forza durante l'installazione, e si può cambiare
 quando vuoi:
 
-![Pagina Configurazione Rete, con "Indipendente" selezionato di default](img/guida/05-conf-rete.png)
+![Pagina Configurazione Rete, con "Indipendente" selezionato di default](img/guida/09-conf-rete.png)
 
 - **Indipendente** (attivo di default): questo PC usa il proprio database, in
   locale. Ogni installazione parte così.
@@ -197,7 +211,7 @@ ripetuto alla cieca.
 La pagina **Gestione Prodotti** (nel menu laterale) gestisce sia l'aggiunta di
 nuovi articoli sia il catalogo esistente:
 
-![Gestione prodotti: form di inserimento a sinistra, elenco prodotti esistenti a destra](img/guida/06-add-product.png)
+![Gestione prodotti: form di inserimento a sinistra, elenco prodotti esistenti a destra](img/guida/10-add-product.png)
 
 ### 4.1 Aggiungere un prodotto nuovo
 
@@ -233,7 +247,7 @@ se serve riattivarlo.
 Questa pagina imposta come appare lo scontrino stampato, **per tutte le casse
 insieme** (non è una configurazione da ripetere per ognuna):
 
-![Configurazione Scontrino: testo header, logo, opzione ticket per riga, anteprima simulata](img/guida/07-conf-scontrino.png)
+![Configurazione Scontrino: testo header, logo, opzione ticket per riga, anteprima simulata](img/guida/11-conf-scontrino.png)
 
 - **Testo header scontrino**: il testo che compare in cima a ogni scontrino
   (nome della sagra, un messaggio di benvenuto, ecc.) — supporta più righe.
@@ -256,12 +270,12 @@ insieme** (non è una configurazione da ripetere per ognuna):
 La pagina **Configura Casse** (nel menu laterale) è dove si registra ogni
 postazione di vendita e si decide come stampa i suoi scontrini:
 
-![Elenco casse configurate, con tipo stampante per ciascuna](img/guida/08-conf-casse-lista.png)
+![Elenco casse configurate, con tipo stampante per ciascuna](img/guida/12-conf-casse-lista.png)
 
 *(su schermo stretto/tablet la stessa pagina diventa un elenco a schede, una
 per cassa — comodo da consultare in piedi al banco:)*
 
-![Stessa pagina in versione mobile, ad accordion](img/guida/09-conf-casse-mobile.png)
+![Stessa pagina in versione mobile, ad accordion](img/guida/13-conf-casse-mobile.png)
 
 Il pulsante **"+ Nuova Cassa"** apre un modulo con: l'**ID della cassa** (lo
 stesso nome scelto al primo avvio, §2 — dev'essere identico, è così che
@@ -304,7 +318,7 @@ una sagra vera:
 Si configura dalla postazione mobile scegliendo **BRIDGE NATIVO** come metodo di stampa e
 l'**indirizzo IP del PC-ponte**:
 
-![Modulo "Nuova Cassa" con Bridge Nativo selezionato: IP del ponte e ricerca stampanti](img/guida/10-conf-casse-bridge-nativo.png)
+![Modulo "Nuova Cassa" con Bridge Nativo selezionato: IP del ponte e ricerca stampanti](img/guida/14-conf-casse-bridge-nativo.png)
 
 Il pulsante **"Ricerca Stampanti"** interroga direttamente il PC-ponte e
 propone l'elenco delle stampanti che vede, così normalmente non serve
@@ -352,7 +366,7 @@ inoltra alla stampante appaiato.
 carrello, applicare sconti, incassare, stampare lo scontrino. Ecco come si
 presenta con qualche prodotto nel carrello:
 
-![Carrello con due prodotti, sconto riga disponibile, sconto totale e importo pagato](img/guida/12-billing-carrello.png)
+![Carrello con due prodotti, sconto riga disponibile, sconto totale e importo pagato](img/guida/16-billing-carrello.png)
 
 ### 7.1 Aggiungere prodotti al carrello
 
@@ -361,7 +375,7 @@ Il catalogo prodotti è diviso per categorie (Antipasti, Primi, Secondi, …).
 carrello** con quantità 1. Se lo tocchi di nuovo, la quantità sale di 1 (non
 crea una seconda riga).
 
-![Catalogo prodotti diviso per categorie](img/guida/11-billing-catalogo.png)
+![Catalogo prodotti diviso per categorie](img/guida/15-billing-catalogo.png)
 
 Su schermi stretti (tablet/telefono) il catalogo si apre a schermo intero col
 bottone **"+ Aggiungi"**; su schermi larghi è già visibile accanto al
@@ -388,7 +402,7 @@ modificabili con la matita ✎ nel pannello dello sconto totale — vedi sotto),
 più **100%** (riga gratis), **Personale** (per inserire una percentuale a
 piacere) e **Azzera** (toglie lo sconto dalla riga):
 
-![Popover sconto riga con percentuali predefinite, 100%, Personale e Azzera](img/guida/13-billing-sconto-riga.png)
+![Popover sconto riga con percentuali predefinite, 100%, Personale e Azzera](img/guida/17-billing-sconto-riga.png)
 
 Lo sconto riga si applica **solo a quella riga**, indipendentemente dallo
 sconto totale sotto.
@@ -414,7 +428,7 @@ Il bottone **"Pagato"** apre un pannello con dei tagli rapidi (5€, 10€, 20�
 prima**, non lo sostituisce. Se il cliente paga con un 20€ e un 5€, tocchi
 prima "20€" poi "5€" e l'importo pagato diventa 25€ da solo:
 
-![Pannello "Pagato" con due tagli sommati (20€+5€=25€) e il resto calcolato](img/guida/14-billing-pagato-resto.png)
+![Pannello "Pagato" con due tagli sommati (20€+5€=25€) e il resto calcolato](img/guida/18-billing-pagato-resto.png)
 
 - Puoi anche scrivere l'importo esatto a mano nella casella sotto ai
   bottoni (utile se il cliente paga con una banconota "strana" o un taglio
@@ -481,7 +495,7 @@ scontrini insieme, invece che uno alla volta dalla cassa. Dalla stessa
 pagina si può anche consultare l'elenco degli scontrini già stornati,
 filtrando per data e per cassa.
 
-![Pagina Storni: campo numeri scontrino da annullare, e ricerca degli storni già effettuati](img/guida/15-storni.png)
+![Pagina Storni: campo numeri scontrino da annullare, e ricerca degli storni già effettuati](img/guida/19-storni.png)
 
 ---
 
@@ -491,7 +505,7 @@ La pagina **Statistiche Vendite** (nel menu laterale) riassume l'andamento
 del servizio, con la stessa vista sia che tu abbia una cassa sola sia più
 casse collegate insieme:
 
-![Statistiche vendite: filtri per periodo, ricavo totale, ordini totali, valore medio, grafico andamento](img/guida/16-stat-vendite.png)
+![Statistiche vendite: filtri per periodo, ricavo totale, ordini totali, valore medio, grafico andamento](img/guida/20-stat-vendite.png)
 
 - I pulsanti in alto (**Oggi / Ieri / Ultimi 7 giorni / Ultimi 30 giorni**)
   filtrano velocemente il periodo; le due caselle data/ora accanto permettono
@@ -517,9 +531,6 @@ casse collegate insieme:
 
 Restano da scrivere, in un prossimo aggiornamento:
 
-- Screenshot reali dei tre popup di Windows e della finestra di avanzamento
-  durante l'installazione (§1) — oggi solo descritti a parole, per non dover
-  disinstallare/reinstallare i componenti su una macchina già in uso.
 - Installazione del certificato HTTPS su un **tablet/telefono** che non sia
   il PC su cui hai lanciato l'installer (Android, Firefox) — oggi il §1.1
   copre solo il comportamento generale, non la procedura passo-passo per
