@@ -58,6 +58,17 @@ var (
 	cachedInfo UpdateInfo
 )
 
+// invalidateUpdateCache: forza checkForUpdate() a rifare la richiesta a
+// GitHub alla prossima chiamata, invece di aspettare le 12h di cache - senza
+// questo, dopo un aggiornamento leggero applicato con successo l'interfaccia
+// continuerebbe a offrire per ore un aggiornamento gia' installato (il
+// confronto con installedVersion() non passa mai da qui, solo il timestamp).
+func invalidateUpdateCache() {
+	updateMu.Lock()
+	updateAt = time.Time{}
+	updateMu.Unlock()
+}
+
 type ghAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`

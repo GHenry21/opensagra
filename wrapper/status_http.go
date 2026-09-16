@@ -309,7 +309,8 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 			}
 			h.mu.Unlock()
 			if err == nil {
-				h.sup.restartAll() // il codice nuovo va caricato - stesso effetto di "Riavvia tutto"
+				invalidateUpdateCache() // altrimenti resta "disponibile" un aggiornamento gia' applicato, fino a 12h
+				h.sup.restartAll()      // il codice nuovo va caricato - stesso effetto di "Riavvia tutto"
 				go announceBackWhenUp(h.ctx, h.sup, h.cfg)
 			}
 		}()
