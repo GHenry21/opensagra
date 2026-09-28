@@ -4,9 +4,11 @@ package main
 
 import (
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -243,6 +245,58 @@ func appPathFromRegistry(exeName string) string {
 		}
 	}
 	return ""
+}
+
+// platformWebClientIPs: legge le connessioni TCP ESTABLISHED da
+// `netstat -an -p TCP` (formato Windows: "Proto  IndirizzoLocale
+// IndirizzoEsterno  Stato"). Gli helper hostPortSplit/ipFromHostPort/
+// localIPSet vivono in cluster.go, condivisi con Linux/macOS.
+func platformWebClientIPs() []string {
+	cmd := exec.Command("netstat", "-an", "-p", "TCP")
+	hideWindow(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	locals := localIPSet()
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || !strings.EqualFold(f[0], "TCP") || !strings.EqualFold(f[3], "ESTABLISHED") {
+			continue
+		}
+		if p := hostPortSplit(f[1]); p != "80" && p != "443" {
+			continue
+		}
+		ip := ipFromHostPort(f[2])
+		if ip == "" {
+			continue
+		}
+		if _, local := locals[ip]; local {
+			continue
+		}
+		if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified() {
+			continue
+		}
+		seen[ip] = struct{}{}
+	}
+	out2 := make([]string, 0, len(seen))
+	for ip := range seen {
+		out2 = append(out2, ip)
+	}
+	return out2
+}
+
+// signalQuit: usato da -quit (main.go). Su Windows os.Process.Signal supporta
+// solo os.Interrupt/os.Kill (niente equivalente "grazioso" di SIGTERM) - qui
+// e' comunque un percorso secondario, il menu tray "Esci" resta il modo
+// normale di chiudere su Windows.
+func signalQuit(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Kill()
 }
 
 // --- "avvia all'accensione": chiave di registro HKCU\...\Run ---

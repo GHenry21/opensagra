@@ -37,6 +37,24 @@ func readLock(logDir string) (alive bool, statusURL string) {
 	return true, statusURL
 }
 
+// lockPID: PID scritto nel lock file, se punta a un processo vivo. Usato dal
+// flag -quit (main.go) per sapere chi terminare.
+func lockPID(logDir string) (pid int, alive bool) {
+	b, err := os.ReadFile(lockFilePath(logDir))
+	if err != nil {
+		return 0, false
+	}
+	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(string(b)), "\r\n", "\n"), "\n")
+	if len(lines) == 0 {
+		return 0, false
+	}
+	pid, err = strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil || pid <= 0 || pid == os.Getpid() || !processAlive(pid) {
+		return 0, false
+	}
+	return pid, true
+}
+
 func writeLock(logDir, statusURL string) {
 	_ = os.WriteFile(lockFilePath(logDir),
 		[]byte(fmt.Sprintf("%d\n%s\n", os.Getpid(), statusURL)), 0o644)
