@@ -145,7 +145,7 @@ wrapper.
 
 ---
 
-## 5. Pannello per server desktop macOS / Linux — DIFFERITO (analisi 2026-09-10)
+## 5. Pannello per server desktop macOS / Linux — ✅ FATTO (2026-09-29), analisi originale 2026-09-10 sotto
 
 **Domanda:** un'installazione **indipendente / server** su un desktop Linux o
 Mac, gestita da un utente che non usa il terminale — serve il wrapper? Se no,
@@ -177,11 +177,39 @@ Windows-only sono solo: tray, dialogo Esci (TaskDialog), kill-anti-orfani
   plist + `osascript` per la conferma + un `.app`/`.command`.
 - stima ~1 gg Linux (grosso = riuso del pannello esistente), simile macOS.
 
-**Decisione:** **non farlo ora.** Nessun server desktop macOS/Linux è nei
-piani (server = Windows col wrapper; Pi = client headless con systemd, nessuna
-interazione operatore). Se salta fuori un desktop Linux/Mac come server per un
-non-tecnico, il percorso è questo e costa poco. Le voci "tray nativa macOS/
-Linux" del `README.md` si leggono come **"non si fa salvo necessità"**.
+**Decisione originale (2026-09-10): non farlo ora.** Nessun server desktop
+macOS/Linux era nei piani (server = Windows col wrapper; Pi = client headless
+con systemd, nessuna interazione operatore).
+
+**Aggiornamento 2026-09-29: decisione ribaltata, fatto.** Il percorso
+tratteggiato sopra è esattamente quello implementato:
+
+- Wrapper diviso in file per-OS (`main_unix.go`/`main_windows.go`,
+  `platform_linux.go`/`platform_darwin.go`/`platform_unix.go` al posto dello
+  stub `platform_other.go`) - `flock` per l'istanza singola, zenity/kdialog/
+  osascript per la conferma Esci (fallback stdin), `Setpgid`+`Pdeathsig`
+  (Linux) o solo `Setpgid` (macOS, nessun equivalente di Pdeathsig - limite
+  noto) per gli orfani, autostart `systemd --user`/`LaunchAgent`. Nuovo flag
+  `-quit` per fermare un'istanza viva da un lanciatore desktop.
+- **`install.sh`** (Debian/Raspberry Pi OS): equivalente di `install.ps1` -
+  FrankenPHP (binario statico ufficiale, non pacchettizzato da Debian),
+  `setcap cap_net_bind_service` (il wrapper gira sempre non-root, serve
+  esplicitamente per legarsi alle porte 80/443), MariaDB via apt, file app,
+  Caddyfile, provisioning DB (utente di bootstrap temporaneo via `sudo
+  mariadb`, perché l'utente `root@localhost` di un mariadb-server apt usa
+  `unix_socket`, non una password TCP come su XAMPP/Windows), migrazioni,
+  wrapper + `systemd --user` + `.desktop`.
+- **Testato dal vivo** sul Pi 192.168.88.32 (ripulito dal vecchio setup
+  manuale a servizi systemd separati per frankenphp/relay/snapshot, sostituito
+  da questo modello a processi-figli del wrapper): install da zero + 3
+  rilanci idempotenti, `loginctl enable-linger` per la persistenza al boot,
+  HTTP/HTTPS/AdminNeo (`/db`, bloccato da LAN) tutti verificati. Ancora
+  attivo e stabile a distanza di giorni (uptime senza riavvii del wrapper).
+- **macOS**: `platform_darwin.go` scritto secondo la documentazione ufficiale
+  di launchd/osascript, ma **mai provato su hardware reale** (nessun Mac
+  disponibile) - resta beta finché qualcuno non lo verifica dal vivo.
+- **Resta da fare**: `uninstall.sh`, `frankenphp trust` per il certificato
+  HTTPS locale su Linux (oggi il primo avvio mostra l'avviso del browser).
 
 ---
 
