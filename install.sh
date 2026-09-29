@@ -66,6 +66,26 @@ test_prerequisites() {
     ok "prerequisiti di base"
 }
 
+# FRANKENPHP_TAG: versione FISSA, NON "latest". Bug reale scoperto il
+# 2026-09-29 riprovando un install da zero: /releases/latest/download/ non e'
+# un asset stabile - due download della stessa release "v1.12.7", a pochi
+# minuti di distanza, hanno dato PHP 8.5.10 poi PHP 8.5.11 (rebuild silenzioso
+# in-place dello stesso tag, verosimilmente per portare avanti le patch di
+# sicurezza di PHP senza pubblicare un nuovo numero di versione). Uno di
+# questi rebuild ha portato con se' una versione aggiornata del modulo Caddy
+# di Mercure che RIFIUTA le direttive legacy publisher_jwt/subscriber_jwt
+# usate da questo Caddyfile ("work only in compatibility mode... move them
+# into an 'issuer' block for modern mode") - FrankenPHP non parte piu' del
+# tutto. Verificato dal vivo: v1.12.1 e v1.12.6 caricano lo stesso Caddyfile
+# senza problemi. Fissare un tag esplicito non e' garanzia assoluta (non e'
+# escluso che anche i tag vecchi vengano ritoccati), ma e' l'unica mitigazione
+# ragionevole finche' l'app non migra alla sintassi "issuer" (modern mode) -
+# cambio che tocca anche config/mercure.php lato PHP (claim/algoritmo dei
+# token), non solo il Caddyfile, quindi deliberatamente NON fatto qui.
+# Stesso problema presumibile in install.ps1/Caddyfile.example (identico
+# blocco mercure{}), non ancora verificato su Windows.
+FRANKENPHP_TAG="v1.12.6"
+
 # install_frankenphp: binario statico ufficiale (musl, "portable" - nessuna
 # dipendenza di sistema), non un pacchetto apt (Debian/Raspbian non lo
 # impacchetta). Stessa idempotenza di Install-FrankenPHP in install.ps1:
@@ -86,12 +106,12 @@ install_frankenphp() {
         *) die "Architettura non supportata: $arch" ;;
     esac
     mkdir -p "$FRANKEN_DIR"
-    local url="https://github.com/php/frankenphp/releases/latest/download/$asset"
-    log "Scarico FrankenPHP ($asset)..."
+    local url="https://github.com/php/frankenphp/releases/download/$FRANKENPHP_TAG/$asset"
+    log "Scarico FrankenPHP $FRANKENPHP_TAG ($asset)..."
     curl -fL --retry 3 -o "$FRANKEN_DIR/frankenphp" "$url" || die "Download di FrankenPHP fallito ($url)"
     chmod +x "$FRANKEN_DIR/frankenphp"
     "$FRANKEN_DIR/frankenphp" version >/dev/null 2>&1 || die "FrankenPHP scaricato ma non si avvia (binario incompatibile con questa CPU/libc?)"
-    ok "FrankenPHP installato ($asset)"
+    ok "FrankenPHP installato ($FRANKENPHP_TAG, $asset)"
 }
 
 # grant_bind_service_capability: il wrapper (e quindi FrankenPHP, suo figlio)
@@ -531,6 +551,22 @@ start_wrapper_and_autostart() {
     done
 
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        # Grace period PRIMA di fermarla: bug reale trovato il 2026-09-29 su
+        # un'installazione davvero da zero (nessuna CA locale precedente). Il
+        # file di lock appare appena status.start() riesce - PRIMA che
+        # FrankenPHP (avviato da sup.Start poco sopra, fire-and-forget, non
+        # atteso) abbia finito la SUA inizializzazione interna, che al primo
+        # avvio in assoluto include la generazione della CA locale (root.key/
+        # root.crt/intermediate.key/intermediate.crt, piu' file scritti in
+        # sequenza). Un SIGTERM troppo tempestivo (il poll sopra ha
+        # granularita' 0.5s) puo' arrivare a meta' di quella scrittura,
+        # lasciando una CA corrotta (es. intermediate.key mancante) che blocca
+        # OGNI riavvio successivo finche' qualcuno non cancella a mano
+        # ~/.local/share/caddy - non basta ripetere l'installazione, il danno
+        # e' gia' fatto sul disco. 5s di margine bastano abbondantemente per
+        # la generazione della CA (operazione singola, mai piu' ripetuta una
+        # volta che i file esistono) anche su hardware lento come un Pi.
+        sleep 5
         kill -TERM "$pid" 2>/dev/null || true
         tries=0
         while kill -0 "$pid" 2>/dev/null && [ $tries -lt 20 ]; do sleep 0.5; tries=$((tries + 1)); done
