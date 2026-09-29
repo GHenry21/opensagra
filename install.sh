@@ -45,7 +45,7 @@ die() { echo "ERRORE: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
 # niente 'archive' perche' gia' rimossa dal repo).
 EXCLUDE_FROM_COPY=(
     .git .github .claude .vscode e2e docs node_modules
-    install.ps1 install.sh uninstall.ps1
+    install.ps1 install.sh uninstall.ps1 uninstall.sh
     .gitignore .gitattributes
     playwright-report test-results package.json package-lock.json playwright.config.js
     "bt.html" "navbar example.html"
@@ -425,6 +425,20 @@ install_wrapper() {
     ok "Wrapper copiato"
 }
 
+# install_uninstaller: copia uninstall.sh accanto all'app - a differenza di
+# Windows (una voce vera in Impostazioni > App, Register-UninstallEntry in
+# install.ps1), Linux non ha un registro centrale equivalente per uno script;
+# lo si lascia semplicemente dentro $INSTALL_DIR cosi' chi vuole disinstallare
+# mesi dopo lo trova li', senza doversi procurare di nuovo il pacchetto
+# originale.
+install_uninstaller() {
+    local src="$SOURCE_DIR/uninstall.sh"
+    [ -f "$src" ] || { log "uninstall.sh non trovato in $SOURCE_DIR, salto la copia (non blocca l'installazione)."; return; }
+    cp "$src" "$INSTALL_DIR/uninstall.sh"
+    chmod +x "$INSTALL_DIR/uninstall.sh"
+    ok "Disinstaller copiato"
+}
+
 # new_desktop_launcher: equivalente di New-WrapperShortcut (collegamento sul
 # desktop di install.ps1). A differenza del "server headless" (nessuna
 # sessione grafica: qui l'icona non serve a nessuno, solo l'unit systemd
@@ -611,6 +625,7 @@ invoke_migrations
 set_mercure_secret_in_db "$MERCURE_SECRET"
 
 install_wrapper
+install_uninstaller
 new_desktop_launcher
 
 set_firewall_rules
