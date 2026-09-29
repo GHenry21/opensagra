@@ -544,6 +544,51 @@ set_firewall_rules() {
     fi
 }
 
+# register_local_ca_trust: stesso ragionamento di Register-LocalCaTrust in
+# install.ps1 - `frankenphp trust` chiede all'API admin di Caddy (127.0.0.1:
+# 2019, su fino a via HTTP anche se il sito vero e' su tls internal) il
+# certificato locale e lo installa nei trust store, cosi' l'utente non vede
+# l'avviso "connessione non sicura" al primo avvio. Necessario apposta per un
+# processo NON privilegiato (`frankenphp trust --help`: "it might fail if
+# Caddy doesn't have the appropriate permissions... if the server process
+# runs as an unprivileged user (such as via systemd)" - esattamente il nostro
+# caso). Verificato dal vivo sul Pi: FrankenPHP installa gia' da solo la CA
+# nello store di sistema (Debian/Raspbian, via update-ca-certificates) al
+# primo avvio anche senza questo passo - `frankenphp trust` qui serve
+# soprattutto per gli store NSS separati di Firefox/Chrome (via `certutil`,
+# non tocca lo store di sistema), e come rete di sicurezza esplicita se
+# l'installazione automatica fosse fallita silenziosamente. Best-effort come
+# su Windows: non fa fallire l'installer, un avviso una-tantum nel browser
+# resta un fallback accettabile.
+register_local_ca_trust() {
+    [ -x "$FRANKEN_DIR/frankenphp" ] || return
+
+    # certutil (pacchetto libnss3-tools) e' quello che `frankenphp trust`
+    # usa per scrivere nei database NSS di Firefox/Chrome - senza, tocca solo
+    # lo store di sistema (comunque sufficiente per curl/wget/app non-browser).
+    if ! command -v certutil >/dev/null 2>&1; then
+        log "installo libnss3-tools (certutil, per fidare la CA locale anche in Firefox/Chrome)..."
+        sudo apt-get update -qq && sudo apt-get install -y -qq libnss3-tools 2>>"$LOG_FILE" || \
+            log "installazione di libnss3-tools fallita (non bloccante, resta il trust dello store di sistema)"
+    fi
+
+    local admin_up=0 i
+    for i in $(seq 1 20); do
+        curl -fsS --max-time 2 http://127.0.0.1:2019/config/ >/dev/null 2>&1 && { admin_up=1; break; }
+        sleep 1
+    done
+    if [ "$admin_up" -ne 1 ]; then
+        log "register_local_ca_trust: l'API admin di Caddy (127.0.0.1:2019) non risponde dopo 20s, salto."
+        return
+    fi
+
+    if "$FRANKEN_DIR/frankenphp" trust --address 127.0.0.1:2019 >>"$LOG_FILE" 2>&1; then
+        ok "Certificato locale HTTPS fidato"
+    else
+        log "Certificato locale HTTPS: da confermare al primo avvio nel browser (dettagli in $LOG_FILE)"
+    fi
+}
+
 # ============================================================================
 # Orchestrazione
 # ============================================================================
@@ -571,5 +616,6 @@ new_desktop_launcher
 set_firewall_rules
 
 start_wrapper_and_autostart
+register_local_ca_trust
 
 log "Installazione completata. Log completo in $LOG_FILE"
