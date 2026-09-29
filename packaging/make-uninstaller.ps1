@@ -26,6 +26,8 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Out) { $Out = Join-Path $RepoRoot 'opensagra-uninstaller.exe' }
 
+. (Join-Path $PSScriptRoot 'Get-ReleaseVersion.ps1')
+
 if (-not (Get-Module -ListAvailable -Name ps2exe)) {
     throw "Modulo ps2exe non installato. Install-Module ps2exe -Scope CurrentUser -Force"
 }
@@ -33,6 +35,7 @@ Import-Module ps2exe -Force
 
 $inputScript = Join-Path $RepoRoot 'uninstall.ps1'
 $iconPath = Join-Path $RepoRoot 'wrapper\assets\opensagra.ico'
+$verParts = ConvertTo-VersionParts -Version (Get-ReleaseVersion -RepoRoot $RepoRoot)
 
 $ps2exeArgs = @{
     inputFile    = $inputScript
@@ -42,7 +45,7 @@ $ps2exeArgs = @{
     title        = 'Disinstallazione OpenSagra'
     product      = 'OpenSagra'
     description  = 'Uninstaller'
-    version      = '1.0.0.0'
+    version      = "$($verParts[0]).$($verParts[1]).$($verParts[2]).0"
 }
 if (Test-Path $iconPath) { $ps2exeArgs.iconFile = $iconPath }
 

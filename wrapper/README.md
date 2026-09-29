@@ -138,10 +138,14 @@ opensagra-wrapper.exe -root C:\opensagra -frankenphp C:\Users\me\.frankenphp\fra
       non webview incorporata. API status/logs/action, pausa aggregata, per-processo.
       **API verificata via curl; rendering pagina + finestra app-mode da provare a video.**
 - [x] "Avvia all'accensione" (Scheduled Task at-logon), spunta nel menu — Windows
-- [x] Risorse exe: `.syso` (`rsrc.rc` + `opensagra.manifest` → `windres`) —
-      **manifest** (Common-Controls v6 → TaskDialog, DPI permonitorv2), **icona**
-      (Explorer/taskbar/Alt-Tab, la stessa `assets/opensagra.ico` della tray),
-      **info versione** (proprietà file). `go build` include il `.syso` da solo.
+- [x] Risorse exe: `.syso` generato da `build.ps1` via `goversioninfo` (pure Go,
+      niente `windres`/MinGW) — **manifest** (Common-Controls v6 → TaskDialog,
+      DPI permonitorv2), **icona** (Explorer/taskbar/Alt-Tab, la stessa
+      `assets/opensagra.ico` della tray), **info versione** (proprietà file,
+      dal tag git esatto — vedi `packaging/Get-ReleaseVersion.ps1`). `go build`
+      include il `.syso` da solo, ma va rigenerato ad ogni build (non è più
+      committato): usare sempre `build.ps1`, non `go build` direttamente per
+      una release.
 - [x] `--kind=back` anche dopo *Riavvia tutto* (finestra e menu tray) — non
       `--kind=shutdown` prima: un riavvio è breve, non vale allarmare le casse
 - [x] Rotazione dei log dei figli — `<name>.log` → `<name>.log.1` oltre 5 MiB, controllata a ogni (ri)avvio del figlio

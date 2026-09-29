@@ -3,9 +3,11 @@
 /opensagra-wrapper.exe
 *.exe
 *.exe~
+# Icona/manifest/info versione: generati da build.ps1 via goversioninfo ad
+# ogni build (versione presa dal tag git, mai piu' scritta a mano) - non e'
+# piu' un file statico da tenere sincronizzato a mano nel repo.
 *.syso
-# ...tranne il .syso del manifest (piccolo, rigenerabile da rsrc.rc + windres)
-!rsrc_windows_amd64.syso
+versioninfo.json
 
 # runtime
 /logs/

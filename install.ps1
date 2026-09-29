@@ -837,7 +837,7 @@ function New-WrapperShortcut {
     $shortcut = $shell.CreateShortcut($lnkPath)
     $shortcut.TargetPath = $target
     $shortcut.WorkingDirectory = $Script:InstallPath
-    $shortcut.IconLocation = $target  # icona gia' incorporata nell'exe (rsrc.rc)
+    $shortcut.IconLocation = $target  # icona gia' incorporata nell'exe (wrapper\build.ps1 + goversioninfo)
     $shortcut.Description = 'OpenSagra - pannello di controllo'
     $shortcut.Save()
     Add-InstallChecklistItem 'Collegamento sul desktop creato'
