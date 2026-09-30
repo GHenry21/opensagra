@@ -659,29 +659,26 @@ function New-CaddyConfig {
     if ($lanIp) { $hostList += $lanIp }
 
     $httpsHosts = ($hostList | ForEach-Object { "https://$_" }) -join ', '
-    $httpCors = ($hostList | ForEach-Object { "http://$_" }) -join ' '
     $httpsCors = ($hostList | ForEach-Object { "https://$_" }) -join ' '
 
-    # Hub Mercure (Fase 4) dentro ogni blocco di sito - NON a livello globale
+    # Hub Mercure (Fase 4) dentro il blocco di sito - NON a livello globale
     # (Caddy: "must appear in a site block"). Stesso segreto di variabili.env.
     # cookie_name: obbligatorio, senza l'hub rifiuta con 401 il cookie
     # mercure_authorization, l'unico modo in cui EventSource nel browser
     # autentica. cors_origins: ogni hostname da cui e' servito billing.php.
     # heartbeat: tiene viva una connessione SSE ferma (i sottoscrittori CLI la
     # abortiscono a 45s, l'EventSource del browser flappa).
-    $httpMercure = @"
-	mercure {
-		publisher_jwt $MercureSecret
-		subscriber_jwt $MercureSecret
-		cookie_name mercure_authorization
-		cors_origins $httpCors
-		heartbeat 20s
-	}
-"@
     $httpsMercure = @"
 	mercure {
-		publisher_jwt $MercureSecret
-		subscriber_jwt $MercureSecret
+		issuer opensagra-hub {
+			publisher {
+				jwt $MercureSecret
+			}
+			subscriber {
+				jwt $MercureSecret
+			}
+		}
+		resource_identifier https://opensagra-hub/.well-known/mercure
 		cookie_name mercure_authorization
 		cors_origins $httpsCors
 		heartbeat 20s
@@ -709,20 +706,18 @@ function New-CaddyConfig {
 	}
 "@
 
+    # Solo HTTPS - niente piu' un blocco http://:80 che serve l'app in chiaro.
+    # Motivo storico dell'HTTP (vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md,
+    # "Appendice C"): QZ Tray, il vecchio metodo di stampa condivisa via
+    # WebSocket dal browser, andava in mixed-content su Firefox/WebKit se la
+    # pagina era in HTTPS. QZ Tray e' stato rimosso (Fase 4, bridge nativo via
+    # Mercure - stampa lato server/PHP, mai lato browser), quindi quel motivo
+    # non c'e' piu'. Rimuovendo `auto_https disable_redirects`, Caddy aggiunge
+    # da solo un redirect 308 da :80 a https:// per ogni host elencato sotto.
     $caddyPath = Join-Path $Script:InstallPath 'Caddyfile'
     @"
 {
 	frankenphp
-	auto_https disable_redirects
-}
-
-http://:80 {
-	root * $Script:InstallPath
-	encode zstd gzip
-	php_server
-
-$dbRoute
-$httpMercure
 }
 
 $httpsHosts {

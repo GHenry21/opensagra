@@ -66,26 +66,6 @@ test_prerequisites() {
     ok "prerequisiti di base"
 }
 
-# FRANKENPHP_TAG: versione FISSA, NON "latest". Bug reale scoperto il
-# 2026-09-29 riprovando un install da zero: /releases/latest/download/ non e'
-# un asset stabile - due download della stessa release "v1.12.7", a pochi
-# minuti di distanza, hanno dato PHP 8.5.10 poi PHP 8.5.11 (rebuild silenzioso
-# in-place dello stesso tag, verosimilmente per portare avanti le patch di
-# sicurezza di PHP senza pubblicare un nuovo numero di versione). Uno di
-# questi rebuild ha portato con se' una versione aggiornata del modulo Caddy
-# di Mercure che RIFIUTA le direttive legacy publisher_jwt/subscriber_jwt
-# usate da questo Caddyfile ("work only in compatibility mode... move them
-# into an 'issuer' block for modern mode") - FrankenPHP non parte piu' del
-# tutto. Verificato dal vivo: v1.12.1 e v1.12.6 caricano lo stesso Caddyfile
-# senza problemi. Fissare un tag esplicito non e' garanzia assoluta (non e'
-# escluso che anche i tag vecchi vengano ritoccati), ma e' l'unica mitigazione
-# ragionevole finche' l'app non migra alla sintassi "issuer" (modern mode) -
-# cambio che tocca anche config/mercure.php lato PHP (claim/algoritmo dei
-# token), non solo il Caddyfile, quindi deliberatamente NON fatto qui.
-# Stesso problema presumibile in install.ps1/Caddyfile.example (identico
-# blocco mercure{}), non ancora verificato su Windows.
-FRANKENPHP_TAG="v1.12.6"
-
 # install_frankenphp: binario statico ufficiale (musl, "portable" - nessuna
 # dipendenza di sistema), non un pacchetto apt (Debian/Raspbian non lo
 # impacchetta). Stessa idempotenza di Install-FrankenPHP in install.ps1:
@@ -93,6 +73,15 @@ FRANKENPHP_TAG="v1.12.6"
 # ($env:USERPROFILE\.frankenphp) - detectFrankenphp() nel wrapper (util.go)
 # cerca PRIMA li', poi nel $PATH: mettercelo qui evita di dover passare
 # -frankenphp a mano.
+#
+# Scarica sempre "latest", non un tag fisso: prima di migrare il Caddyfile
+# alla sintassi "issuer" (modern mode di Mercure), un tag "latest" instabile
+# (rebuild in-place di uno stesso tag - vedi CHANGELOG/timestamp asset su
+# GitHub) aveva rotto le vecchie direttive publisher_jwt/subscriber_jwt e
+# costretto a pinnare v1.12.6. Ora vale l'opposto: v1.12.6 incorpora ancora
+# Mercure pre-1.0 (verificato dal vivo - ignora silenziosamente il blocco
+# "issuer" e il Caddyfile fallisce a livello di provisioning), quindi serve
+# una build recente per la sintassi modern mode che l'app usa da qui in poi.
 install_frankenphp() {
     if [ -x "$FRANKEN_DIR/frankenphp" ]; then
         ok "FrankenPHP gia' presente"
@@ -106,12 +95,12 @@ install_frankenphp() {
         *) die "Architettura non supportata: $arch" ;;
     esac
     mkdir -p "$FRANKEN_DIR"
-    local url="https://github.com/php/frankenphp/releases/download/$FRANKENPHP_TAG/$asset"
-    log "Scarico FrankenPHP $FRANKENPHP_TAG ($asset)..."
+    local url="https://github.com/php/frankenphp/releases/latest/download/$asset"
+    log "Scarico FrankenPHP ($asset)..."
     curl -fL --retry 3 -o "$FRANKEN_DIR/frankenphp" "$url" || die "Download di FrankenPHP fallito ($url)"
     chmod +x "$FRANKEN_DIR/frankenphp"
     "$FRANKEN_DIR/frankenphp" version >/dev/null 2>&1 || die "FrankenPHP scaricato ma non si avvia (binario incompatibile con questa CPU/libc?)"
-    ok "FrankenPHP installato ($FRANKENPHP_TAG, $asset)"
+    ok "FrankenPHP installato ($asset)"
 }
 
 # grant_bind_service_capability: il wrapper (e quindi FrankenPHP, suo figlio)
@@ -284,50 +273,32 @@ detect_lan_ip() {
     ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' | head -1 || true
 }
 
+# Solo HTTPS - niente piu' un blocco http://:80 che serve l'app in chiaro.
+# Motivo storico dell'HTTP (vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md,
+# "Appendice C"): QZ Tray, il vecchio metodo di stampa condivisa via
+# WebSocket dal browser, andava in mixed-content su Firefox/WebKit se la
+# pagina era in HTTPS. QZ Tray e' stato rimosso (Fase 4, bridge nativo via
+# Mercure - stampa lato server/PHP, mai lato browser), quindi quel motivo
+# non c'e' piu': nessun blocco su HTTPS oggi. Rimuovendo `auto_https
+# disable_redirects`, Caddy aggiunge da solo un redirect 308 da :80 a
+# https:// per ogni host elencato sotto - non va scritto a mano. Beneficio
+# collaterale: un solo hub Mercure invece di due, quindi via anche `name`/
+# `transport bolt` per-hub (necessari solo quando ce n'e' più di uno nella
+# stessa configurazione - vedi commit precedente).
 new_caddy_config() {
     local mercure_secret="$1"
     local lan_ip; lan_ip="$(detect_lan_ip)"
     local hosts=(localhost)
     [ -n "$lan_ip" ] && hosts+=("$lan_ip")
 
-    local https_hosts http_cors https_cors
+    local https_hosts https_cors
     https_hosts="$(printf 'https://%s, ' "${hosts[@]}")"; https_hosts="${https_hosts%, }"
-    http_cors="$(printf 'http://%s ' "${hosts[@]}")"; http_cors="${http_cors% }"
     https_cors="$(printf 'https://%s ' "${hosts[@]}")"; https_cors="${https_cors% }"
 
     local caddy_path="$INSTALL_DIR/Caddyfile"
     cat > "$caddy_path" <<EOF
 {
 	frankenphp
-	auto_https disable_redirects
-}
-
-http://:80 {
-	root * $INSTALL_DIR
-	encode zstd gzip
-	php_server
-
-	@dbpath path /db /db/*
-	@dblocal {
-		path /db /db/*
-		remote_ip 127.0.0.1 ::1
-	}
-	handle @dblocal {
-		rewrite * /adminer.php
-		root * $INSTALL_DIR/tools
-		php_server
-	}
-	handle @dbpath {
-		respond "Il gestore DB e' raggiungibile solo dal PC server." 403
-	}
-
-	mercure {
-		publisher_jwt $mercure_secret
-		subscriber_jwt $mercure_secret
-		cookie_name mercure_authorization
-		cors_origins $http_cors
-		heartbeat 20s
-	}
 }
 
 $https_hosts {
@@ -351,8 +322,15 @@ $https_hosts {
 	}
 
 	mercure {
-		publisher_jwt $mercure_secret
-		subscriber_jwt $mercure_secret
+		issuer opensagra-hub {
+			publisher {
+				jwt $mercure_secret
+			}
+			subscriber {
+				jwt $mercure_secret
+			}
+		}
+		resource_identifier https://opensagra-hub/.well-known/mercure
 		cookie_name mercure_authorization
 		cors_origins $https_cors
 		heartbeat 20s

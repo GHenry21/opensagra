@@ -1,15 +1,25 @@
 {
 	frankenphp
-	auto_https disable_redirects
 }
 
-http://:80 {
+https://localhost {
 	root * C:\xampp\htdocs\opensagra
 	encode zstd gzip
 	php_server
+	tls internal
 
 	# Realtime Mercure (Fase 4) - stesso segreto di config/variabili.env
 	# (MERCURE_JWT_SECRET), genera il tuo con:  openssl rand -base64 48
+	# Solo HTTPS - niente blocco http://:80: serviva solo per QZ Tray (vecchio
+	# metodo di stampa condiviso via WebSocket, mixed-content su Firefox/
+	# WebKit in HTTPS), rimosso in Fase 4 (bridge nativo via Mercure, stampa
+	# lato server/PHP, mai lato browser). Senza `auto_https disable_redirects`
+	# nel blocco globale sopra, Caddy aggiunge da solo un redirect 308 da :80.
+	# - issuer/resource_identifier: fissi, identici a MERCURE_ISSUER/
+	#   MERCURE_AUDIENCE in config/mercure.php - la verifica di iss/aud e'
+	#   puramente locale a questo hub, non serve altro che farli combaciare.
+	#   resource_identifier deve avere forma di URL assoluto (RFC 9728),
+	#   issuer no.
 	# - cookie_name: OBBLIGATORIO, senza l'hub non legge il cookie e le
 	#   sottoscrizioni da browser (EventSource) prendono 401 - il modulo
 	#   Caddy non applica un default.
@@ -19,23 +29,15 @@ http://:80 {
 	#   abortita e riaperta di continuo dai sottoscrittori CLI (relay/bridge,
 	#   soglia 45s) e fa flappare l'EventSource del browser. 20s la tiene viva.
 	# mercure {
-	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
-	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
-	# 	cookie_name mercure_authorization
-	# 	cors_origins http://localhost
-	# 	heartbeat 20s
-	# }
-}
-
-https://localhost {
-	root * C:\xampp\htdocs\opensagra
-	encode zstd gzip
-	php_server
-	tls internal
-
-	# mercure {
-	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
-	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
+	# 	issuer opensagra-hub {
+	# 		publisher {
+	# 			jwt CAMBIA-QUESTO-SEGRETO
+	# 		}
+	# 		subscriber {
+	# 			jwt CAMBIA-QUESTO-SEGRETO
+	# 		}
+	# 	}
+	# 	resource_identifier https://opensagra-hub/.well-known/mercure
 	# 	cookie_name mercure_authorization
 	# 	cors_origins https://localhost
 	# 	heartbeat 20s
