@@ -78,7 +78,11 @@ func appWindowCmd(url, profileDir string) *exec.Cmd {
 	}
 	for _, p := range cands {
 		if fileExists(p) {
-			return exec.Command(p, "--app="+url, "--user-data-dir="+profileDir, "--window-size=470,660")
+			// --no-first-run come su Windows: senza, il profilo dedicato mostra
+			// "Welcome to Google Chrome" sopra la finestra di stato al primo
+			// avvio (visto dal vivo sul runner macOS, 2026-10-01).
+			return exec.Command(p, "--app="+url, "--user-data-dir="+profileDir, "--window-size=470,660",
+				"--no-first-run", "--no-default-browser-check")
 		}
 	}
 	return nil

@@ -49,12 +49,20 @@ func confirmQuit(title, heading, body string) bool {
 // (gia' sufficiente per una shell interattiva) controlla anche percorsi
 // assoluti comuni: un servizio systemd --user ha spesso un $PATH piu' povero
 // di una sessione desktop.
+// appModeCmd: --no-first-run come su Windows/macOS - senza, il profilo
+// dedicato mostra la schermata di benvenuto del browser sopra la finestra di
+// stato al primo avvio (visto dal vivo su macOS, 2026-10-01).
+func appModeCmd(bin, url, profileDir string) *exec.Cmd {
+	return exec.Command(bin, "--app="+url, "--user-data-dir="+profileDir, "--window-size=470,660",
+		"--no-first-run", "--no-default-browser-check")
+}
+
 func appWindowCmd(url, profileDir string) *exec.Cmd {
 	names := []string{"google-chrome", "google-chrome-stable", "chromium",
 		"chromium-browser", "microsoft-edge", "microsoft-edge-stable"}
 	for _, name := range names {
 		if p, err := exec.LookPath(name); err == nil {
-			return exec.Command(p, "--app="+url, "--user-data-dir="+profileDir, "--window-size=470,660")
+			return appModeCmd(p, url, profileDir)
 		}
 	}
 	absPaths := []string{
@@ -64,7 +72,7 @@ func appWindowCmd(url, profileDir string) *exec.Cmd {
 	}
 	for _, p := range absPaths {
 		if fileExists(p) {
-			return exec.Command(p, "--app="+url, "--user-data-dir="+profileDir, "--window-size=470,660")
+			return appModeCmd(p, url, profileDir)
 		}
 	}
 	return nil // openWindow ripiega su xdg-open (openURL, sotto)

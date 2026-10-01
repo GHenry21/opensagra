@@ -489,8 +489,24 @@ new_app_launcher() {
 	<key>LSUIElement</key><true/>
 </dict></plist>
 EOF
+    # Se il LaunchAgent e' registrato e OpenSagra e' fermo (es. dopo "Esci"),
+    # lo si fa ripartire ATTRAVERSO launchd (kickstart) e si aspetta che
+    # prenda il lock: lanciato direttamente, il wrapper girerebbe fuori da
+    # launchd e un suo crash non verrebbe piu' riavviato fino al prossimo
+    # login (visto dal vivo sul runner macOS, 2026-10-01). Poi l'exec trova
+    # l'istanza viva e apre solo la sua finestra di stato (main.go).
     cat > "$macos_dir/OpenSagra" <<EOF
 #!/bin/bash
+target="gui/\$(id -u)/$LAUNCH_AGENT_LABEL"
+if launchctl print "\$target" >/dev/null 2>&1 && \\
+   ! launchctl print "\$target" | grep -q 'state = running'; then
+    launchctl kickstart "\$target"
+    for i in \$(seq 1 20); do
+        pid="\$(head -1 "$INSTALL_DIR/logs/wrapper.lock" 2>/dev/null)"
+        [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null && break
+        sleep 0.5
+    done
+fi
 exec "$INSTALL_DIR/opensagra-wrapper"
 EOF
     chmod +x "$macos_dir/OpenSagra"
