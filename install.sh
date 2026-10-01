@@ -54,7 +54,22 @@ EXCLUDE_FROM_COPY=(
     # Sorgente Go del wrapper: nella webroot non serve, solo l'eseguibile
     # gia' compilato (wrapper/opensagra-wrapper, copiato a parte piu' sotto).
     wrapper
+    VERSION # metadato del pacchetto (letto da app_version), non un file dell'app
 )
+
+# app_version: stessa fonte di install.ps1 - il file VERSION che il pacchetto
+# di release porta con se' (generato dal tag git in CI), poi il tag git esatto
+# su HEAD se si installa da una copia del repo (come Get-ReleaseVersion.ps1),
+# infine '0.0.0-dev'. Mai piu' un numero scritto a mano qui.
+app_version() {
+    if [ -f "$SOURCE_DIR/VERSION" ]; then
+        tr -d '[:space:]' < "$SOURCE_DIR/VERSION"
+        return
+    fi
+    local tag
+    tag="$(git -C "$SOURCE_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)"
+    if [ -n "$tag" ]; then echo "${tag#v}"; else echo "0.0.0-dev"; fi
+}
 
 # ============================================================================
 # Passi dell'installazione
@@ -211,7 +226,7 @@ copy_app_files() {
     done
     shopt -u dotglob
     mkdir -p "$INSTALL_DIR/config"
-    echo -n "1.0.0" > "$INSTALL_DIR/config/.installed_version"
+    printf '%s' "$(app_version)" > "$INSTALL_DIR/config/.installed_version"
     ok "File dell'app copiati in $INSTALL_DIR"
 }
 

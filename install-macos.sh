@@ -71,6 +71,7 @@ EXCLUDE_FROM_COPY=(
     "bt.html" "navbar example.html"
     private packaging
     wrapper
+    VERSION # metadato del pacchetto (letto da app_version), non un file dell'app
 )
 
 # --- helper variabili.env: sostituti BSD di grep -P / sed -i GNU ---
@@ -80,6 +81,20 @@ env_value() { # file chiave -> valore (vuoto se assente)
     sed -n -E "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p" "$1" 2>/dev/null | head -1 || true
 }
 env_has_key() { grep -Eq "^[[:space:]]*$2[[:space:]]*=" "$1" 2>/dev/null; }
+
+# app_version: stessa fonte di install.ps1 - il file VERSION che il pacchetto
+# di release porta con se' (generato dal tag git in CI), poi il tag git esatto
+# su HEAD se si installa da una copia del repo (come Get-ReleaseVersion.ps1),
+# infine '0.0.0-dev'. Mai piu' un numero scritto a mano qui.
+app_version() {
+    if [ -f "$SOURCE_DIR/VERSION" ]; then
+        tr -d '[:space:]' < "$SOURCE_DIR/VERSION"
+        return
+    fi
+    local tag
+    tag="$(git -C "$SOURCE_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)"
+    if [ -n "$tag" ]; then echo "${tag#v}"; else echo "0.0.0-dev"; fi
+}
 
 # ============================================================================
 # Passi dell'installazione
@@ -226,7 +241,7 @@ copy_app_files() {
     done
     shopt -u dotglob
     mkdir -p "$INSTALL_DIR/config"
-    echo -n "1.0.0" > "$INSTALL_DIR/config/.installed_version"
+    printf '%s' "$(app_version)" > "$INSTALL_DIR/config/.installed_version"
     # Pacchetto scaricato dal browser = ogni file in quarantena (Gatekeeper).
     xattr -dr com.apple.quarantine "$INSTALL_DIR" 2>/dev/null || true
     ok "File dell'app copiati in $INSTALL_DIR"

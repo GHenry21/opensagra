@@ -88,6 +88,10 @@ jobs:
           mariadb -e 'SHOW DATABASES' | grep opensagra_pos
           test -d "$HOME/Applications/OpenSagra.app"
           test -f "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist"
+          # Versione dal tag git esatto, o 0.0.0-dev fuori da un tag (mai vuota)
+          v=$(cat "$HOME/opensagra/config/.installed_version"); echo "versione installata: $v"
+          [ -n "$v" ]
+          test ! -e "$HOME/opensagra/VERSION"
 
       - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
         run: |

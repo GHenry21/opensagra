@@ -12,15 +12,16 @@ import (
 	"time"
 )
 
-// WrapperVersion: versione del BINARIO del wrapper (tenerla allineata a
-// rsrc.rc e ai -version di packaging/make-installer.ps1 / make-uninstaller.ps1
-// - non c'e' un modo semplice di leggere la risorsa Windows da dentro il
-// binario stesso, quindi e' duplicata a mano ad ogni release). Serve solo
+// WrapperVersion: versione del BINARIO del wrapper, iniettata a build time
+// da wrapper/build.ps1 via "-ldflags -X main.WrapperVersion=..." (dallo
+// stesso tag git usato per la VERSIONINFO dell'exe e per config/.installed_version -
+// vedi packaging/Get-ReleaseVersion.ps1). Il valore qui e' solo il fallback
+// per chi lancia `go build` a mano senza passare da build.ps1. Serve solo
 // come valore di partenza per installedVersion() la prima volta (vedi sotto)
 // - il confronto vero e proprio usa il marcatore su disco, non questa
-// costante, perche' un aggiornamento "leggero" (solo codice PHP, vedi
+// variabile, perche' un aggiornamento "leggero" (solo codice PHP, vedi
 // self_update.go) non ricompila il wrapper.
-const WrapperVersion = "1.0.0"
+var WrapperVersion = "0.0.0-dev"
 
 // UpdateRepo: repo GitHub "owner/nome" da cui leggere le release.
 const UpdateRepo = "GHenry21/opensagra"

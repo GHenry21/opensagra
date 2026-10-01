@@ -56,6 +56,8 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Out) { $Out = Join-Path $RepoRoot 'opensagra-installer.exe' }
 
+. (Join-Path $PSScriptRoot 'Get-ReleaseVersion.ps1')
+
 $Work = Join-Path $env:TEMP ('opensagra-pkg-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 
@@ -81,6 +83,14 @@ try {
     $srcLabel = if ($isDirty) { "$headSha+modifiche non committate" } else { $headSha }
     Write-Host "     $($fileList.Count) file dal working tree ($srcLabel)" -ForegroundColor DarkGray
 
+    # Versione del codice app per config/.installed_version (letta da
+    # install.ps1) - stessa fonte di verita' (Get-ReleaseVersion.ps1) usata da
+    # wrapper\build.ps1 per la VERSIONINFO del binario.
+    $releaseVersion = Get-ReleaseVersion -RepoRoot $RepoRoot
+    Write-Host "     versione app: $releaseVersion" -ForegroundColor DarkGray
+    $versionFile = Join-Path $Work 'VERSION'
+    Set-Content -Path $versionFile -Value $releaseVersion -NoNewline -Encoding ascii
+
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::Open($payloadZip, 'Create')
     try {
@@ -94,6 +104,8 @@ try {
             $zip, $wrapperExe, 'wrapper/opensagra-wrapper.exe') | Out-Null
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $uninstallerExe, 'opensagra-uninstaller.exe') | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $versionFile, 'VERSION') | Out-Null
 
         $vendorDir = Join-Path $RepoRoot 'vendor'
         if (Test-Path $vendorDir) {
@@ -121,6 +133,7 @@ try {
 
     $bootstrap = Join-Path $PSScriptRoot 'installer-bootstrap.ps1'
     $iconPath = Join-Path $RepoRoot 'wrapper\assets\opensagra.ico'
+    $verParts = ConvertTo-VersionParts -Version $releaseVersion
 
     $ps2exeArgs = @{
         inputFile    = $bootstrap
@@ -130,7 +143,7 @@ try {
         title        = 'Installazione OpenSagra'
         product      = 'OpenSagra'
         description  = "Installer (da $srcLabel)"
-        version      = '1.0.0.0'
+        version      = "$($verParts[0]).$($verParts[1]).$($verParts[2]).0"
         embedFiles   = @{ '%TEMP%\opensagra-installer-payload.zip' = $payloadZip }
     }
     if (Test-Path $iconPath) { $ps2exeArgs.iconFile = $iconPath }
