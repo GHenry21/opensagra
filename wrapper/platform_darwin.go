@@ -9,6 +9,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"net"
 	"os"
@@ -110,13 +111,30 @@ func autostartEnabled() bool {
 	return err == nil && fileExists(p)
 }
 
+// launchdTarget: "gui/<uid>/<label>" - il dominio della sessione grafica
+// dell'utente, quello in cui vivono i LaunchAgent (sintassi launchctl
+// moderna bootstrap/bootout/enable, al posto di load/unload deprecati).
+func launchdTarget() string {
+	return fmt.Sprintf("gui/%d/%s", os.Getuid(), launchAgentLabel)
+}
+
+func launchAgentLoaded() bool {
+	return exec.Command("launchctl", "print", launchdTarget()).Run() == nil
+}
+
+// setAutostart: NON fa mai bootout dell'agente - setAutostart viene chiamato
+// anche dal wrapper gia' in esecuzione (pannello, -register-autostart), che
+// spesso E' proprio l'istanza gestita da launchd: un bootout le manderebbe
+// SIGTERM, cioe' disattivare l'avvio automatico chiuderebbe OpenSagra.
+// Spegnere = `launchctl disable` (persistente: al prossimo login non parte)
+// + rimozione del plist; il bootout vero lo fa solo uninstall-macos.sh.
 func setAutostart(enable bool) error {
 	p, err := launchAgentPath()
 	if err != nil {
 		return err
 	}
 	if !enable {
-		_ = exec.Command("launchctl", "unload", p).Run()
+		_ = exec.Command("launchctl", "disable", launchdTarget()).Run()
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -129,19 +147,51 @@ func setAutostart(enable bool) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
+	// KeepAlive/SuccessfulExit=false = riavvia solo se esce con errore (crash),
+	// come Restart=on-failure dell'unit systemd su Linux. Un KeepAlive=true
+	// secco riavvierebbe in loop (ogni ~10s, throttle di launchd) anche
+	// un'uscita pulita: es. l'istanza duplicata che trova il lock occupato ed
+	// esce da sola con 0, o un -quit voluto dall'operatore.
+	// PATH esplicito: launchd da' ai LaunchAgent solo /usr/bin:/bin:/usr/sbin:
+	// /sbin, senza Homebrew (MariaDB/strumenti installati da install-macos.sh).
+	logDir := filepath.Join(filepath.Dir(exe), "logs")
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 	<key>Label</key><string>%s</string>
 	<key>ProgramArguments</key><array><string>%s</string><string>-autostarted</string></array>
+	<key>WorkingDirectory</key><string>%s</string>
+	<key>EnvironmentVariables</key><dict>
+		<key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>StandardOutPath</key><string>%s</string>
+	<key>StandardErrorPath</key><string>%s</string>
 	<key>RunAtLoad</key><true/>
-	<key>KeepAlive</key><true/>
+	<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+	<key>ProcessType</key><string>Interactive</string>
 </dict></plist>
-`, launchAgentLabel, exe)
+`, launchAgentLabel, xmlEscape(exe), xmlEscape(filepath.Dir(exe)),
+		xmlEscape(filepath.Join(logDir, "launchd.log")), xmlEscape(filepath.Join(logDir, "launchd.log")))
 	if err := os.WriteFile(p, []byte(plist), 0o644); err != nil {
 		return err
 	}
-	return exec.Command("launchctl", "load", p).Run()
+	_ = exec.Command("launchctl", "enable", launchdTarget()).Run()
+	if launchAgentLoaded() {
+		// Gia' caricato (rilancio dell'installer, o riattivazione dal
+		// pannello): il plist aggiornato vale dal prossimo login, nessun
+		// bootout - vedi commento sopra la funzione.
+		return nil
+	}
+	if out, err := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), p).CombinedOutput(); err != nil {
+		return fmt.Errorf("launchctl bootstrap: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func xmlEscape(s string) string {
+	var b bytes.Buffer
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
 }
 
 // platformWebClientIPs: `lsof` da' un output riga-per-riga piu' regolare del

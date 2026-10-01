@@ -45,7 +45,8 @@ die() { echo "ERRORE: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
 # niente 'archive' perche' gia' rimossa dal repo).
 EXCLUDE_FROM_COPY=(
     .git .github .claude .vscode e2e docs node_modules
-    install.ps1 install.sh uninstall.ps1 uninstall.sh
+    install.ps1 install.sh install-macos.sh
+    uninstall.ps1 uninstall.sh uninstall-macos.sh
     .gitignore .gitattributes
     playwright-report test-results package.json package-lock.json playwright.config.js
     "bt.html" "navbar example.html"
@@ -60,6 +61,7 @@ EXCLUDE_FROM_COPY=(
 # ============================================================================
 
 test_prerequisites() {
+    [ "$(uname -s)" != "Darwin" ] || die "Su macOS usa install-macos.sh."
     [ "$(uname -s)" = "Linux" ] || die "Questo installer supporta solo Linux."
     [ "$EUID" -ne 0 ] || die "Non lanciare come root: lo script chiede sudo da solo dove serve (systemd --user va registrato come utente normale, non come root)."
     command -v sudo >/dev/null || die "sudo non trovato."

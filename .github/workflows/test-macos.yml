@@ -1,0 +1,191 @@
+name: Test installer macOS
+
+# Prova install-macos.sh / uninstall-macos.sh su un Mac Apple Silicon pulito
+# (runner GitHub macos-15, M1, gratuito per repo pubblici) - l'unico Mac
+# reale a disposizione del progetto. Il runner ha gia' Homebrew, sudo senza
+# password e una sessione grafica attiva (utente "runner"), quindi l'installer
+# gira dall'inizio alla fine senza interazione.
+#
+# Debug interattivo, dopo l'installazione e prima della disinstallazione
+# (parola chiave nel messaggio del commit, o input lanciandolo a mano):
+#   [debug-mac]   -> VS Code nel browser (terminale + file), secret MAC_DEBUG_TOKEN
+#   [desktop-mac] -> desktop macOS nel browser (noVNC), secret MAC_VNC_PASSWORD
+# Gli URL compaiono nel log del job (e come "notice" nel riepilogo).
+
+on:
+  push:
+    branches: [worktree-unix-installer]
+    paths:
+      - "install-macos.sh"
+      - "uninstall-macos.sh"
+      - "wrapper/**"
+      - ".github/workflows/test-macos.yml"
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Apri VS Code nel browser alla fine"
+        type: boolean
+        default: false
+      desktop:
+        description: "Apri un desktop remoto nel browser (noVNC) alla fine"
+        type: boolean
+        default: false
+
+jobs:
+  install:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
+      HAS_DEBUG_TOKEN: ${{ secrets.MAC_DEBUG_TOKEN != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: Compila il wrapper (darwin/arm64)
+        working-directory: wrapper
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go vet ./...
+          go build -o opensagra-wrapper-darwin-arm64 .
+
+      - name: Ambiente del runner
+        run: |
+          sw_vers; uname -m; id
+          launchctl print "gui/$(id -u)" >/dev/null && echo "sessione grafica: si" || echo "sessione grafica: NO"
+          brew list --formula | grep -Ei 'mysql|mariadb' || echo "nessun MySQL/MariaDB preinstallato"
+          lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|2019) ' || echo "porte 80/443/3306/2019 libere"
+
+      - name: install-macos.sh (prima installazione)
+        timeout-minutes: 25
+        run: bash ./install-macos.sh
+
+      - name: Verifica installazione
+        run: |
+          set -x
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|pid|last exit'
+          pgrep -fl opensagra-wrapper
+          pgrep -fl frankenphp
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)
+          echo "https://localhost -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost/)
+          echo "http://localhost -> $code (atteso redirect verso https)"
+          curl -s --max-time 5 -o /dev/null -w 'https senza -k (CA fidata?) -> %{http_code}\n' https://localhost/ || echo "CA locale NON fidata dal sistema"
+          mariadb -e 'SHOW DATABASES' | grep opensagra_pos
+          test -d "$HOME/Applications/OpenSagra.app"
+          test -f "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist"
+
+      - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
+        run: |
+          set -x
+          pid=$(launchctl print "gui/$(id -u)/com.opensagra.wrapper" | awk '/pid =/{print $3}')
+          kill -KILL "$pid"; sleep 15
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state = running'
+          curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/
+
+      - name: install-macos.sh (rilancio, deve essere idempotente)
+        timeout-minutes: 15
+        run: |
+          bash ./install-macos.sh
+          curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
+
+      - name: Log
+        if: always()
+        run: |
+          for f in /tmp/opensagra-install.log "$HOME"/opensagra/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -n 200 "$f"; echo "::endgroup::"
+          done
+          echo "::group::LaunchAgent plist"; cat "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist" || true; echo "::endgroup::"
+
+      # Desktop remoto nel browser: Condivisione Schermo di macOS (VNC) ->
+      # noVNC (client VNC in HTML) -> tunnel Cloudflare "quick" (URL
+      # https://*.trycloudflare.com, nessun account). Il repo e' PUBBLICO:
+      # chiunque puo' leggere questo log e quindi l'URL - la protezione e' la
+      # password nel secret MAC_VNC_PASSWORD (max 8 caratteri, limite del
+      # protocollo VNC classico), mai stampata. La stessa password diventa
+      # quella dell'utente "runner", per i dialoghi di sistema (portachiavi,
+      # firewall) che la chiedono a video.
+      # Resta attivo finche' non si crea il file ~/stop (dal terminale del Mac:
+      # `touch ~/stop`) o per 60 minuti al massimo; annullare il job dalla tab
+      # Actions lo chiude subito.
+      - name: Desktop remoto via browser (noVNC + Cloudflare)
+        if: always() && (inputs.desktop || contains(github.event.head_commit.message, '[desktop-mac]'))
+        timeout-minutes: 65
+        env:
+          VNC_PASSWORD: ${{ secrets.MAC_VNC_PASSWORD }}
+        run: |
+          [ -n "$VNC_PASSWORD" ] || { echo "::error::Manca il secret MAC_VNC_PASSWORD (Settings > Secrets and variables > Actions)"; exit 1; }
+          echo "::add-mask::$VNC_PASSWORD"
+          sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -privs -all -allowAccessFor -allUsers \
+            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \
+            -restart -agent -console >/dev/null
+          for i in $(seq 1 20); do nc -z 127.0.0.1 5900 && break; sleep 1; done
+          nc -z 127.0.0.1 5900 || { echo "::error::Il server VNC di macOS non e' partito"; exit 1; }
+
+          git clone --depth 1 -q https://github.com/novnc/noVNC.git "$RUNNER_TEMP/novnc"
+          nohup "$RUNNER_TEMP/novnc/utils/novnc_proxy" --vnc 127.0.0.1:5900 --listen 6080 >"$RUNNER_TEMP/novnc.log" 2>&1 &
+          brew install -q cloudflared >/dev/null
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:6080 >"$RUNNER_TEMP/cf.log" 2>&1 &
+          url=""
+          for i in $(seq 1 30); do
+            url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cf.log" | head -1 || true)
+            [ -n "$url" ] && break; sleep 2
+          done
+          [ -n "$url" ] || { cat "$RUNNER_TEMP/cf.log"; echo "::error::Tunnel Cloudflare non partito"; exit 1; }
+          echo "::notice title=Desktop Mac::Apri $url/vnc.html?autoconnect=1&resize=scale  (password = secret MAC_VNC_PASSWORD; per chiudere: touch ~/stop nel Terminale del Mac)"
+          echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale"
+
+          end=$(( $(date +%s) + 3600 ))
+          while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 10; done
+          echo "Sessione desktop chiusa"
+
+      # VS Code nel browser (terminale + file) sul Mac del runner: CLI ufficiale
+      # di VS Code (`code serve-web`) dietro un tunnel Cloudflare "quick".
+      # L'URL finisce nel log PUBBLICO: l'accesso e' protetto dal token nel
+      # secret MAC_DEBUG_TOKEN (GitHub lo maschera nei log da solo), da
+      # aggiungere all'URL come ?tkn=<token>. Per chiudere e far proseguire il
+      # job (disinstallazione): creare un file vuoto `continue` nella cartella
+      # del repo (`touch continue` nel terminale di VS Code). Action fissata a
+      # un commit preciso (scarica comunque a runtime uno script dal proprio
+      # ramo main - accettabile per sessioni brevi di debug).
+      - name: VS Code nel browser - secret mancante
+        if: always() && (inputs.debug || contains(github.event.head_commit.message, '[debug-mac]')) && env.HAS_DEBUG_TOKEN != 'true'
+        run: echo "::error::Manca il secret MAC_DEBUG_TOKEN (Settings > Secrets and variables > Actions) - sessione VS Code NON avviata (senza token sarebbe aperta a chiunque legga il log)"
+
+      - name: VS Code nel browser (debug)
+        if: always() && (inputs.debug || contains(github.event.head_commit.message, '[debug-mac]')) && env.HAS_DEBUG_TOKEN == 'true'
+        timeout-minutes: 60
+        uses: fawazahmed0/action-debug-vscode@b19d919aac4131db998db2e544abcffe1ca90272
+        with:
+          token: ${{ secrets.MAC_DEBUG_TOKEN }}
+
+      - name: uninstall-macos.sh
+        if: always()
+        run: |
+          bash "$HOME/opensagra/uninstall-macos.sh" --force || bash ./uninstall-macos.sh --force
+          set -x
+          # (`! cmd` non fa fallire lo step sotto set -e: si usa test ! / if)
+          test ! -e "$HOME/opensagra"
+          test ! -e "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist"
+          if pgrep -f opensagra-wrapper; then echo "wrapper ancora vivo"; exit 1; fi
+          if brew list --formula mariadb >/dev/null 2>&1; then echo "MariaDB ancora installato"; exit 1; fi
+          ls "$HOME"/opensagra-backup-*.sql
