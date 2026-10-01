@@ -13,13 +13,11 @@ name: Test installer macOS
 # Gli URL compaiono nel log del job (e come "notice" nel riepilogo).
 
 on:
+  # Nessun filtro `paths`: su questo branch (dedicato agli installer Unix)
+  # ogni push va testato, e un filtro impedirebbe di lanciare una sessione
+  # [debug-mac]/[desktop-mac] con un commit vuoto.
   push:
     branches: [worktree-unix-installer]
-    paths:
-      - "install-macos.sh"
-      - "uninstall-macos.sh"
-      - "wrapper/**"
-      - ".github/workflows/test-macos.yml"
   workflow_dispatch:
     inputs:
       debug:
