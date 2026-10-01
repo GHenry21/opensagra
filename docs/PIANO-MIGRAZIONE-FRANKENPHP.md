@@ -1064,8 +1064,8 @@ Aperta il 2026-09-14. A differenza delle fasi precedenti (infrastruttura/funzion
 ### 5e. Test su Linux e macOS (client e server)
 
 - [ ] **Linux**: iniziato ma non completo. Il Raspberry Pi è già allestito come **client** (FrankenPHP+MariaDB+relay+snapshot via systemd, fallback locale testato verde) — resta da provare Linux anche come **server/indipendente** (oggi il ruolo "server" è stato validato solo su Windows).
-- [ ] **macOS**: non testato per mancanza di hardware disponibile. Sia come client sia come server restano da fare quando/se si avrà una macchina Mac a disposizione.
-- Nota: il wrapper Go ha già un percorso pensato per questo (`platform_other.go`, stub compilante ma degradato — niente tray/autostart nativi, vedi `docs/PIANO-MODIFICHE-WRAPPER.md` §5, **deliberatamente rimandato** finché non serve un vero server desktop non-Windows) — il lavoro qui è testare il **resto dell'app** (FrankenPHP/MariaDB/PHP/migrazioni/stampa) su questi OS, non necessariamente il wrapper con interfaccia grafica.
+- [ ] **macOS**: **parzialmente testato (2026-10-01)** su un Mac reale, il runner `macos-15` (Apple Silicon M1) di GitHub Actions. `install-macos.sh` installa da zero un'istanza **indipendente/server** funzionante (FrankenPHP + MariaDB Homebrew + migrazioni + HTTPS con CA fidata) sotto un LaunchAgent; la CI lo riverifica a ogni push (`.github/workflows/test-macos.yml`, verde), compresi crash/riavvio, rilancio idempotente e disinstallazione. Pannello, dialogo Esci e lanciatore verificati a video. Restano da fare su un **Mac fisico**: ruolo **client**, stampa ESC/POS e casse/telefoni in LAN, avvio al boot con login automatico, Mac Intel. Dettagli e difetti trovati in `docs/PIANO-MODIFICHE-WRAPPER.md` §5, aggiornamento 2026-10-01.
+- Nota: lo stub `platform_other.go` citato in origine non c'è più — il wrapper ha file per-OS veri (`platform_linux.go`/`platform_darwin.go`/`platform_unix.go`) con autostart, dialogo Esci e pannello su tutti e tre gli OS (`docs/PIANO-MODIFICHE-WRAPPER.md` §5).
 
 ### 5f. Demo pubblica live
 

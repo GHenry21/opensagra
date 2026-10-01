@@ -205,11 +205,92 @@ tratteggiato sopra è esattamente quello implementato:
   rilanci idempotenti, `loginctl enable-linger` per la persistenza al boot,
   HTTP/HTTPS/AdminNeo (`/db`, bloccato da LAN) tutti verificati. Ancora
   attivo e stabile a distanza di giorni (uptime senza riavvii del wrapper).
-- **macOS**: `platform_darwin.go` scritto secondo la documentazione ufficiale
-  di launchd/osascript, ma **mai provato su hardware reale** (nessun Mac
-  disponibile) - resta beta finché qualcuno non lo verifica dal vivo.
-- **Resta da fare**: `uninstall.sh`, `frankenphp trust` per il certificato
-  HTTPS locale su Linux (oggi il primo avvio mostra l'avviso del browser).
+- **macOS**: vedi l'aggiornamento 2026-10-01 qui sotto.
+- ~~Resta da fare: `uninstall.sh`, `frankenphp trust` per il certificato
+  HTTPS locale su Linux~~ - fatti entrambi (commit `3678cbb`, `6747ecd`).
+
+**Aggiornamento 2026-10-01: macOS testato su Mac reale (runner GitHub).**
+
+Nessun Mac fisico disponibile; scartate la VM VMware locale (macOS ospite
+richiede di spegnere Hyper-V/VBS sul PC di sviluppo, e la licenza Apple
+consente la virtualizzazione solo su hardware Apple) e il noleggio Scaleway
+(verifica d'identità troppo onerosa, minimo 24h). Soluzione adottata: i
+**runner macOS di GitHub Actions** - il repo è pubblico, quindi sono gratuiti e
+senza limiti di minuti. Runner `macos-15`, Apple Silicon M1, macOS 15.7.
+
+- **`install-macos.sh` / `uninstall-macos.sh`**: script separati da
+  `install.sh`, perché su macOS cambia quasi ogni passo: Homebrew per MariaDB
+  (`brew services`, utente admin via `unix_socket` dell'utente macOS, niente
+  sudo), binario FrankenPHP `frankenphp-mac-*`, nessun `setcap` (da macOS 10.14
+  le porte <1024 sono libere per i non-root), rimozione dell'attributo di
+  quarantena di Gatekeeper, autorizzazione nel firewall applicativo se acceso,
+  CA locale nel portachiavi di Sistema (`frankenphp trust`), mini-app
+  `~/Applications/OpenSagra.app` con alias sulla Scrivania. bash 3.2 e
+  strumenti BSD (niente `grep -P`, `sed -i` GNU, `ip`, `timeout`).
+- **`.github/workflows/test-macos.yml`** (ogni push al branch): installa,
+  verifica (LaunchAgent attivo, HTTPS anche *senza* `-k`, DB, app, versione),
+  `kill -9` del wrapper → deve ripartire con **un solo** frankenphp figlio del
+  nuovo wrapper, verifica `PHPRC`, rilancio idempotente, disinstallazione
+  completa con backup del DB. **Verde.**
+- Sessioni interattive, attivate da una parola chiave nel messaggio di
+  commit: `[debug-mac]` apre VS Code nel browser (secret `MAC_DEBUG_TOKEN`;
+  l'URL stampato contiene `tkn=root`, da *sostituire* col token);
+  `[desktop-mac]` apre il desktop macOS nel browser (noVNC + tunnel Cloudflare
+  quick, login utente `opensagra` + secret `MAC_VNC_PASSWORD`). Per il desktop
+  servono un utente admin dedicato (la password di `runner` non è modificabile
+  su macOS 15, nemmeno da root o con `sysadminctl` + admin) e il permesso TCC
+  "Registrazione schermo" scritto nel `TCC.db` (SIP è spento sui runner):
+  senza, schermo nero e disconnessione dopo ~10 s. Attenzione: noVNC mostra la
+  sessione di `opensagra`, mentre l'app è installata per `runner`. Le prove a
+  video su `runner` si fanno via SSH (tunnel `cloudflared` verso la porta 22)
+  con `sudo launchctl asuser <uid> … screencapture` e clic simulati via System
+  Events. Gli appunti di noVNC non funzionano con il server VNC di Apple.
+
+**Difetti trovati dal vivo e corretti:**
+
+1. **FrankenPHP orfano dopo un crash del wrapper.** Senza Pdeathsig, dopo un
+   `kill -9` il frankenphp figlio restava vivo (padre = launchd) tenendo
+   `mercure.db` bloccato, e il frankenphp del wrapper riavviato falliva in
+   loop. Il primo test "crash → riparte" passava per un **falso positivo**
+   (il sito rispondeva, servito dall'orfano). Ora il wrapper annota i PID dei
+   figli in `logs/children.pids` e all'avvio chiude i superstiti, solo se
+   eseguono ancora lo stesso binario (`reapStaleChildren`). Vale anche per
+   Linux; su Windows non fa nulla (c'è il Job Object).
+2. **`php.ini` non letto.** La build statica di FrankenPHP per macOS non
+   cerca il file accanto al binario (`upload_max_filesize` restava 2M). Ora
+   `PHPRC` viene passato ai figli (`childEnv`) e ai `php-cli` dell'installer,
+   che fallisce se il file non viene letto.
+3. **LaunchAgent in loop.** `KeepAlive=true` avrebbe riavviato anche
+   un'uscita pulita, compreso "Esci". Ora `KeepAlive/SuccessfulExit=false`,
+   come `Restart=on-failure` di systemd. `bootstrap`/`enable` al posto di
+   `load`/`unload` (deprecati), e mai `bootout` da `setAutostart`, che
+   chiuderebbe il wrapper stesso.
+4. **Doppio clic dopo "Esci" fuori da launchd.** Il lanciatore dell'app ora
+   fa `launchctl kickstart` del LaunchAgent e poi apre solo la finestra di
+   stato.
+5. **"Welcome to Google Chrome" sopra la finestra di stato** al primo avvio
+   (profilo dedicato): aggiunti `--no-first-run --no-default-browser-check`
+   anche su macOS/Linux (Windows li aveva già). Inoltre la pagina di stato è
+   marcata `notranslate`, contro il popup "Traduci" di un Chrome in altra
+   lingua.
+
+**Verificati ok senza modifiche:** alias sulla Scrivania; doppio clic con
+istanza viva → finestra di stato (Chrome in modalità app); finestra di stato
+("Server attivo", pulsanti, "Avvia all'accensione" spuntato); dialogo Esci
+nativo (`osascript`): Annulla lascia OpenSagra attivo, Esci lo ferma con
+codice 0 e launchd non lo riavvia; certificato HTTPS fidato dal sistema.
+
+**Resta da fare (macOS):**
+
+- prove su un **Mac fisico** per quello che il runner non copre: stampante
+  ESC/POS e telefoni in LAN, login automatico + avvio al boot, Safari da un
+  altro dispositivo, Mac Intel (il wrapper `darwin/amd64` compila ma non è mai
+  stato eseguito);
+- **pacchetto di release** per macOS (archivio con app, `vendor/` e i due
+  wrapper darwin) generato da `release.yml`;
+- **icona** dell'app `.app` (oggi generica);
+- unione del branch in `main`: prima va ritestato Windows, perché il branch
+  porta anche la migrazione di Mercure al modern mode, codice condiviso.
 
 ---
 
