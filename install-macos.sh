@@ -49,6 +49,13 @@ APP_BUNDLE="$HOME/Applications/OpenSagra.app"
 LOG_FILE="/tmp/opensagra-install.log"
 : > "$LOG_FILE"
 
+# La build statica di FrankenPHP per macOS NON cerca il php.ini accanto al
+# binario (verificato sul runner macOS: nessun file caricato, limiti di
+# default) - PHPRC glielo indica esplicitamente. Vale per i php-cli lanciati
+# da questo script; per i figli del wrapper lo imposta il wrapper stesso
+# (childEnv in supervisor.go).
+export PHPRC="$FRANKEN_DIR"
+
 # date -Iseconds e' GNU: il date BSD di macOS vuole il formato esplicito.
 log() { echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')] $*" | tee -a "$LOG_FILE"; }
 ok()  { echo "  OK: $*" | tee -a "$LOG_FILE"; }
@@ -171,9 +178,7 @@ EOF
 
     local upl
     upl="$("$FRANKEN_DIR/frankenphp" php-cli -r 'echo ini_get("upload_max_filesize");' 2>>"$LOG_FILE" || true)"
-    if [ "$upl" != "40M" ]; then
-        log "ATTENZIONE: php.ini in $FRANKEN_DIR non sembra letto da FrankenPHP (upload_max_filesize=$upl). Controlla con: $FRANKEN_DIR/frankenphp php-cli --ini"
-    fi
+    [ "$upl" = "40M" ] || die "php.ini in $FRANKEN_DIR non letto da FrankenPHP nemmeno con PHPRC (upload_max_filesize=$upl)"
     ok "php.ini scritto, estensioni PHP verificate"
 }
 

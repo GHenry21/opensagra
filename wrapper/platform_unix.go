@@ -11,9 +11,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // processAlive: true se esiste un processo con quel PID ancora in esecuzione.
@@ -48,6 +51,32 @@ func acquireSingleInstance(name string) (release func(), fresh bool) {
 		f.Close()
 		os.Remove(path)
 	}, true
+}
+
+// processRunsBinary: true se il processo pid sta eseguendo bin (confronto sul
+// primo campo della riga di comando). `ps -o command=` esiste identico su
+// Linux (procps) e macOS (BSD) - nessuna lettura di /proc, che macOS non ha.
+func processRunsBinary(pid int, bin string) bool {
+	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return false
+	}
+	cmdline := strings.TrimSpace(string(out))
+	return cmdline == bin || strings.HasPrefix(cmdline, bin+" ")
+}
+
+// terminateProcess: SIGTERM (uscita pulita: FrankenPHP rilascia porte e
+// mercure.db), poi SIGKILL se dopo grace e' ancora vivo.
+func terminateProcess(pid int, grace time.Duration) {
+	_ = syscall.Kill(pid, syscall.SIGTERM)
+	deadline := time.Now().Add(grace)
+	for time.Now().Before(deadline) {
+		if !processAlive(pid) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
 }
 
 // confirmQuitStdinFallback: ultima rete di sicurezza se ne' zenity/kdialog

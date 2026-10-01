@@ -94,10 +94,25 @@ jobs:
       - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
         run: |
           set -x
-          pid=$(launchctl print "gui/$(id -u)/com.opensagra.wrapper" | awk '/pid =/{print $3}')
-          kill -KILL "$pid"; sleep 15
-          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state = running'
+          agent="gui/$(id -u)/com.opensagra.wrapper"
+          old=$(launchctl print "$agent" | awk '/pid =/{print $3}')
+          kill -KILL "$old"; sleep 20
+          launchctl print "$agent" | grep -E 'state = running'
+          new=$(launchctl print "$agent" | awk '/pid =/{print $3}')
+          [ "$new" != "$old" ]
+          # Il sito che risponde NON basta: il primo giro (2026-10-01) passava
+          # servito da un frankenphp orfano del wrapper ucciso. Deve esserci un
+          # solo frankenphp server, figlio del NUOVO wrapper.
+          ps -o pid,ppid,command -p $(pgrep -f 'frankenphp run')
+          [ "$(pgrep -f 'frankenphp run' | wc -l | tr -d ' ')" = "1" ]
+          [ "$(ps -o ppid= -p $(pgrep -f 'frankenphp run') | tr -d ' ')" = "$new" ]
+          grep -q 'orfano' "$HOME/opensagra/logs/wrapper.log"
           curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/
+
+      - name: php.ini letto dal server (PHPRC)
+        run: |
+          set -x
+          ps eww -p $(pgrep -f 'frankenphp run') | tr ' ' '\n' | grep '^PHPRC='
 
       - name: install-macos.sh (rilancio, deve essere idempotente)
         timeout-minutes: 15
@@ -119,9 +134,8 @@ jobs:
       # https://*.trycloudflare.com, nessun account). Il repo e' PUBBLICO:
       # chiunque puo' leggere questo log e quindi l'URL - la protezione e' la
       # password nel secret MAC_VNC_PASSWORD (max 8 caratteri, limite del
-      # protocollo VNC classico), mai stampata. La stessa password diventa
-      # quella dell'utente "runner", per i dialoghi di sistema (portachiavi,
-      # firewall) che la chiedono a video.
+      # protocollo VNC classico), mai stampata. Si prova anche a farla
+      # diventare la password dell'utente "runner" (vedi sotto).
       # Resta attivo finche' non si crea il file ~/stop (dal terminale del Mac:
       # `touch ~/stop`) o per 60 minuti al massimo; annullare il job dalla tab
       # Actions lo chiude subito.
@@ -133,7 +147,13 @@ jobs:
         run: |
           [ -n "$VNC_PASSWORD" ] || { echo "::error::Manca il secret MAC_VNC_PASSWORD (Settings > Secrets and variables > Actions)"; exit 1; }
           echo "::add-mask::$VNC_PASSWORD"
-          sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
+          # Su macOS 15 dscl vuole la password VECCHIA anche da root (eDSAuthFailed,
+          # visto sul primo giro) e quella dei runner GitHub non e' pubblica:
+          # tentativo non bloccante. VNC usa comunque la propria password; senza
+          # questa, i dialoghi di sistema che chiedono la password utente a
+          # video non si possono confermare.
+          sudo dscl . -passwd /Users/runner "$VNC_PASSWORD" 2>/dev/null \
+            || echo "::warning::Password dell'utente runner non impostabile: i dialoghi di sistema che la chiedono non saranno confermabili"
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -allowAccessFor -allUsers \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \

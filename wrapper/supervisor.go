@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +52,8 @@ type Supervisor struct {
 	logs    map[string]*os.File
 	running map[string]*os.Process
 	bump    map[string]chan struct{}
-	paused  map[string]bool // name -> in pausa (fermo, niente riavvio automatico)
+	paused  map[string]bool   // name -> in pausa (fermo, niente riavvio automatico)
+	pids    map[string]string // name -> "pid<TAB>bin", specchio di childPidsFile
 
 	wg sync.WaitGroup
 }
@@ -65,7 +67,78 @@ func newSupervisor(logDir string, job *jobObject) *Supervisor {
 		running: map[string]*os.Process{},
 		bump:    map[string]chan struct{}{},
 		paused:  map[string]bool{},
+		pids:    map[string]string{},
 	}
+}
+
+// childPidsFile: PID dei figli vivi, riscritto a ogni avvio/uscita di un
+// figlio. Serve solo dove nessun meccanismo del kernel chiude i figli quando
+// il wrapper muore di colpo (kill -9, crash): macOS non ha ne' Job Object
+// (Windows) ne' Pdeathsig (Linux). Verificato dal vivo sul runner macOS di
+// GitHub (2026-10-01): dopo un kill -9 del wrapper, il frankenphp orfano
+// (padre = launchd, PID 1) restava su tenendo bloccato mercure.db, e il
+// frankenphp del wrapper riavviato falliva in loop ("mercure.db is already
+// open") - il sito rispondeva, ma servito da un processo non supervisionato.
+// Il nuovo wrapper legge il file all'avvio e chiude i superstiti
+// (reapStaleChildren, prima di sup.Start).
+const childPidsFile = "children.pids"
+
+// savePids: chiamata con s.mu gia' preso.
+func (s *Supervisor) savePids() {
+	var b strings.Builder
+	for _, line := range s.pids {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	_ = os.WriteFile(filepath.Join(s.logDir, childPidsFile), []byte(b.String()), 0o644)
+}
+
+// reapStaleChildren: chiude i figli rimasti vivi da un'istanza precedente
+// morta senza uscita pulita. Un PID viene toccato SOLO se il processo con quel
+// numero esegue ancora lo stesso binario registrato (processRunsBinary): un
+// PID nel frattempo riassegnato ad altro software non va mai ucciso. Va
+// chiamata dopo acquireSingleInstance (nessun altro wrapper vivo, quindi
+// nessuno di quei figli e' legittimamente supervisionato).
+func reapStaleChildren(logDir string) {
+	path := filepath.Join(logDir, childPidsFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		pidStr, bin, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok {
+			continue
+		}
+		var pid int
+		if _, err := fmt.Sscan(pidStr, &pid); err != nil || pid <= 0 || pid == os.Getpid() {
+			continue
+		}
+		if !processAlive(pid) || !processRunsBinary(pid, bin) {
+			continue
+		}
+		log.Printf("wrapper: figlio orfano di un'istanza precedente ancora vivo (pid %d, %s) - lo chiudo", pid, bin)
+		terminateProcess(pid, 5*time.Second)
+	}
+	_ = os.Remove(path)
+}
+
+// childEnv: ambiente dei figli = quello del wrapper + PHPRC verso la cartella
+// del php.ini accanto al binario di FrankenPHP, se c'e' e se PHPRC non e' gia'
+// impostato. Verificato dal vivo (runner macOS, 2026-10-01): la build statica
+// per macOS NON legge il php.ini accanto al binario (php_ini_loaded_file()
+// vuoto, upload_max_filesize rimasto al default 2M), con PHPRC si'. Innocuo
+// dove il file veniva gia' trovato (Windows): punta allo stesso file.
+func childEnv(bin string) []string {
+	env := os.Environ()
+	if os.Getenv("PHPRC") != "" {
+		return env
+	}
+	dir := filepath.Dir(bin)
+	if fileExists(filepath.Join(dir, "php.ini")) {
+		env = append(env, "PHPRC="+dir)
+	}
+	return env
 }
 
 func (s *Supervisor) Start(ctx context.Context, children []*Child) {
@@ -281,6 +354,7 @@ func (s *Supervisor) spawn(ctx context.Context, c *Child) (int, error) {
 	cmd.Dir = c.Dir
 	cmd.Stdout = lw
 	cmd.Stderr = lw
+	cmd.Env = childEnv(c.Bin)
 	hideWindow(cmd)
 
 	if err := cmd.Start(); err != nil {
@@ -297,12 +371,16 @@ func (s *Supervisor) spawn(ctx context.Context, c *Child) (int, error) {
 	s.mu.Lock()
 	s.running[c.Name] = cmd.Process
 	s.status[c.Name] = childStatus{State: stateRunning, Since: time.Now(), PID: cmd.Process.Pid}
+	s.pids[c.Name] = fmt.Sprintf("%d\t%s", cmd.Process.Pid, c.Bin)
+	s.savePids()
 	s.mu.Unlock()
 
 	waitErr := cmd.Wait()
 
 	s.mu.Lock()
 	delete(s.running, c.Name)
+	delete(s.pids, c.Name)
+	s.savePids()
 	s.mu.Unlock()
 
 	return exitCode(waitErr), nil

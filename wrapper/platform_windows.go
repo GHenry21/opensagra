@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -63,6 +64,12 @@ func processAlive(pid int) bool {
 	const stillActive = 259
 	return code == stillActive
 }
+
+// processRunsBinary / terminateProcess (reapStaleChildren, supervisor.go): su
+// Windows il Job Object chiude gia' i figli quando il wrapper muore, anche di
+// colpo - nessun orfano da cercare, quindi non si tocca mai nessun PID.
+func processRunsBinary(pid int, bin string) bool    { return false }
+func terminateProcess(pid int, grace time.Duration) {}
 
 // --- job object: KILL_ON_JOB_CLOSE = i figli muoiono col wrapper ---
 

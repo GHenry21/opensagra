@@ -93,6 +93,9 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Prima di avviare i figli: chiudi quelli rimasti orfani da un'istanza
+	// precedente morta di colpo (macOS/Linux - vedi childPidsFile).
+	reapStaleChildren(cfg.LogDir)
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
 	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
