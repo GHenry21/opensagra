@@ -158,6 +158,31 @@ jobs:
           # Il desktop mostrato resta quello di "runner" (sessione a video).
           sudo sysadminctl -addUser opensagra -fullName "OpenSagra test" -password "$VNC_PASSWORD" -admin 2>&1 | grep -v -i 'secure token' || true
           id opensagra
+
+          # Login riuscito ma schermo nero + disconnessione dopo ~10s (visto dal
+          # vivo, 2026-10-01): sospetto permesso TCC "Registrazione schermo"
+          # mancante (normalmente lo concede l'utente a video). Si scrive
+          # direttamente nel TCC.db di sistema - possibile solo con SIP spento,
+          # e i log qui sotto dicono se lo e'.
+          echo "::group::Diagnostica display / SIP"
+          csrutil status || true
+          system_profiler SPDisplaysDataType 2>/dev/null | grep -E 'Resolution|Display Type|Online|Main Display|Virtual' || true
+          echo "::endgroup::"
+          if csrutil status 2>/dev/null | grep -qi disabled; then
+            db="/Library/Application Support/com.apple.TCC/TCC.db"
+            for client in com.apple.screensharing.agent com.apple.RemoteDesktopAgent; do
+              for svc in kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility; do
+                if sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('$svc','$client',0,2,4,1,'UNUSED',0,CAST(strftime('%s','now') AS INTEGER));"; then
+                  echo "TCC: $svc concesso a $client"
+                else
+                  echo "TCC: $svc per $client NON scritto"
+                fi
+              done
+            done
+          else
+            echo "::warning::SIP attivo: permessi TCC non modificabili, lo schermo potrebbe restare nero"
+          fi
+
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -allowAccessFor -allUsers \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \
@@ -179,7 +204,16 @@ jobs:
           echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale   (utente: opensagra)"
 
           end=$(( $(date +%s) + 3600 ))
-          while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 10; done
+          # Ogni 30s: log di sistema della Condivisione Schermo, cosi' se la
+          # connessione cade la causa resta scritta nel log del job (leggibile
+          # anche annullando il run).
+          while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do
+            sleep 30
+            log show --last 30s --style compact \
+              --predicate 'process CONTAINS[c] "screensharing" OR process CONTAINS[c] "ARDAgent" OR (process == "tccd" AND eventMessage CONTAINS[c] "screen")' \
+              2>/dev/null | grep -v '^Timestamp' | tail -25 || true
+            tail -3 "$RUNNER_TEMP/novnc.log" 2>/dev/null || true
+          done
           echo "Sessione desktop chiusa"
 
       # VS Code nel browser (terminale + file) sul Mac del runner: CLI ufficiale
