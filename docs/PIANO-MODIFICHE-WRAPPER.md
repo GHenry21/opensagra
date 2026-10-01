@@ -289,8 +289,22 @@ codice 0 e launchd non lo riavvia; certificato HTTPS fidato dal sistema.
 - **pacchetto di release** per macOS (archivio con app, `vendor/` e i due
   wrapper darwin) generato da `release.yml`;
 - **icona** dell'app `.app` (oggi generica);
-- unione del branch in `main`: prima va ritestato Windows, perché il branch
-  porta anche la migrazione di Mercure al modern mode, codice condiviso.
+- unione del branch in `main`: **bloccata lato Windows**. Il branch porta
+  anche la migrazione di Mercure al modern mode (codice condiviso:
+  `config/mercure.php`, Caddyfile di `install.ps1`), e a oggi la build "latest"
+  di FrankenPHP per Windows **ignora** `issuer`/`resource_identifier` (vedi
+  `PIANO-MIGRAZIONE-FRANKENPHP.md`, Fase 4, "Migrazione a Mercure modern
+  mode", punto *Aperto*). Prima dell'unione servono: una build Windows che li
+  capisca, poi un test su VM sia dell'installazione da zero sia
+  dell'**aggiornamento leggero** sopra un'installazione esistente (vecchio
+  Caddyfile e vecchio FrankenPHP con il nuovo `mercure.php`: il realtime
+  rischia di rompersi, se serve l'aggiornamento dovrà rigenerare il Caddyfile).
+  `main` è già stato unito nel branch (commit `cef6d5c`, nessun conflitto
+  reale), quindi l'unione inversa resterà semplice.
+
+**Stato CI a fine giornata (2026-10-01):** `test-macos.yml` verde su tutti i
+commit del branch, compresi `8c15d40` (lanciatore + finestra di stato) e
+`112b72d` (questo aggiornamento del piano).
 
 ---
 
