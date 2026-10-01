@@ -149,13 +149,15 @@ jobs:
         run: |
           [ -n "$VNC_PASSWORD" ] || { echo "::error::Manca il secret MAC_VNC_PASSWORD (Settings > Secrets and variables > Actions)"; exit 1; }
           echo "::add-mask::$VNC_PASSWORD"
-          # Su macOS 15 dscl vuole la password VECCHIA anche da root (eDSAuthFailed,
-          # visto sul primo giro) e quella dei runner GitHub non e' pubblica:
-          # tentativo non bloccante. VNC usa comunque la propria password; senza
-          # questa, i dialoghi di sistema che chiedono la password utente a
-          # video non si possono confermare.
-          sudo dscl . -passwd /Users/runner "$VNC_PASSWORD" 2>/dev/null \
-            || echo "::warning::Password dell'utente runner non impostabile: i dialoghi di sistema che la chiedono non saranno confermabili"
+          # noVNC si autentica col metodo Apple (utente + password macOS), non
+          # con la sola password VNC (visto dal vivo, 2026-10-01). La password
+          # di "runner" non e' pubblica ne' modificabile (dscl su macOS 15 vuole
+          # quella vecchia anche da root: eDSAuthFailed) - si crea quindi un
+          # utente amministratore dedicato con la password del secret. Serve
+          # anche per i dialoghi di sistema che chiedono credenziali admin.
+          # Il desktop mostrato resta quello di "runner" (sessione a video).
+          sudo sysadminctl -addUser opensagra -fullName "OpenSagra test" -password "$VNC_PASSWORD" -admin 2>&1 | grep -v -i 'secure token' || true
+          id opensagra
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -allowAccessFor -allUsers \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \
@@ -173,8 +175,8 @@ jobs:
             [ -n "$url" ] && break; sleep 2
           done
           [ -n "$url" ] || { cat "$RUNNER_TEMP/cf.log"; echo "::error::Tunnel Cloudflare non partito"; exit 1; }
-          echo "::notice title=Desktop Mac::Apri $url/vnc.html?autoconnect=1&resize=scale  (password = secret MAC_VNC_PASSWORD; per chiudere: touch ~/stop nel Terminale del Mac)"
-          echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale"
+          echo "::notice title=Desktop Mac::Apri $url/vnc.html?autoconnect=1&resize=scale  (utente opensagra, password = secret MAC_VNC_PASSWORD; per chiudere: touch ~/stop nel Terminale del Mac)"
+          echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale   (utente: opensagra)"
 
           end=$(( $(date +%s) + 3600 ))
           while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 10; done
