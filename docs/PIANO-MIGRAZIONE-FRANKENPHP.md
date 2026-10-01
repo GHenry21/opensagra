@@ -1040,6 +1040,8 @@ Emersa discutendo la pagina Configurazione Rete (2026-09-07): oggi non esiste al
 
 **Aperto:** la build FrankenPHP per **Windows** di "latest" è rimasta indietro rispetto a quella Linux — scaricata e testata due volte (2026-09-30), ignora silenziosamente `issuer`/`resource_identifier` invece di capirli. Causa isolata: il workflow che la ripubblica (`windows.yaml`) gira su uno **schedule cron giornaliero alle 08:00 UTC** e quel giorno ha girato ~5h30 **prima** del merge di #2611 — non è un limite permanente di Windows, solo un ritardo nella pipeline di release. L'ambiente Windows di sviluppo (`C:\xampp\htdocs\opensagra`, Caddyfile live) **non è stato toccato**, resta sulla vecchia modalità legacy funzionante. Programmato un controllo automatico per quando lo scheduler gira di nuovo.
 
+**Blocca l'unione del branch `worktree-unix-installer` in `main`** — non solo per Linux: lo stesso branch porta anche il port macOS (`docs/PIANO-MODIFICHE-WRAPPER.md` §5), quindi finché la build Windows non capisce `issuer`/`resource_identifier` l'unione resta ferma per entrambi. Da verificare anche, prima di unire: una cassa con un'installazione **già esistente** (vecchio Caddyfile + vecchio FrankenPHP) che riceve solo il nuovo `config/mercure.php` tramite l'**aggiornamento leggero** del wrapper (`self_update.go`, che oggi non tocca il Caddyfile) perderebbe il realtime — il token nuovo (RFC 9068) non lo accetterebbe più un hub ancora in legacy mode. O si insegna a `self_update.go` a rigenerare il Caddyfile, o si documenta che questa migrazione richiede un reinstall completo (vedi la proposta già scritta nel piano di migrazione Mercure, sezione "Rischio operativo").
+
 ---
 
 ## Fase 5 — Rilascio (pulizia, GitHub, guida, multi-piattaforma, demo, sito)
