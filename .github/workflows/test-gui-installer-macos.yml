@@ -73,6 +73,13 @@ jobs:
           </dict></plist>
           EOF
           plutil -lint "$app/Contents/Info.plist"
+          # Firma ad-hoc dell'INTERO bundle (gratuita, nessun account Apple).
+          # Il linker Go firma solo l'eseguibile: con Info.plist e payload
+          # aggiunti dopo, la firma non copre il bundle e Gatekeeper dice
+          # "e' danneggiata, spostala nel Cestino" - messaggio senza "Apri
+          # comunque" in Privacy e sicurezza (visto sul runner, 2026-10-02).
+          codesign --force --sign - --timestamp=none "$app"
+          codesign --verify --strict --verbose=2 "$app"
           # ditto: lo zip "alla Apple" (mantiene permessi e attributi del bundle)
           ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip"
           ls -la "$RUNNER_TEMP"/*.zip
@@ -109,7 +116,9 @@ jobs:
           spctl --status || true
           defaults write -g AppleLanguages -array it-IT
           defaults write -g AppleLocale it_IT
+          sudo defaults write /Library/Preferences/.GlobalPreferences AppleLanguages -array it-IT || true
           killall cfprefsd CoreServicesUIAgent 2>/dev/null || true
+          sleep 2
           dl="$HOME/Downloads/gk"; rm -rf "$dl"; mkdir -p "$dl"
           ditto -x -k "$ZIP" "$dl"
           q="0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)"
@@ -122,7 +131,10 @@ jobs:
           pgrep -fl opensagra-installer && echo "::warning::l'app quarantinata e' partita (Gatekeeper non attivo?)" || echo "bloccata da Gatekeeper, come atteso"
           pkill -f opensagra-installer 2>/dev/null || true
           killall CoreServicesUIAgent open 2>/dev/null || true
-          open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension" & sleep 10
+          # "Apri comunque" sta nella sezione Sicurezza, in fondo alla pagina:
+          # si prova ad arrivarci con l'ancora dell'URL (niente osascript:
+          # System Events aspetta un permesso di accessibilita' e si appende).
+          open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security" & sleep 10
           screencapture -x "$SHOTS/gatekeeper-2-privacy.png" || true
           killall "System Settings" open 2>/dev/null || true
           rm -rf "$dl"
