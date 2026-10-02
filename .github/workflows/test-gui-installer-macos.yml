@@ -128,7 +128,8 @@ jobs:
           ( spctl --assess --type execute -vv "$dl/Installa OpenSagra.app" 2>&1 | head -5 ) & sleep 8; kill $! 2>/dev/null || true
           open "$dl/Installa OpenSagra.app" & sleep 8
           screencapture -x "$SHOTS/gatekeeper-1-avviso.png" || true
-          pgrep -fl opensagra-installer && echo "::warning::l'app quarantinata e' partita (Gatekeeper non attivo?)" || echo "bloccata da Gatekeeper, come atteso"
+          # (il processo dell'app esiste comunque mentre il dialogo e' a video:
+          # l'esito vero e' spctl "rejected" sopra + il dialogo nello screenshot)
           pkill -f opensagra-installer 2>/dev/null || true
           killall CoreServicesUIAgent open 2>/dev/null || true
           # "Apri comunque" sta nella sezione Sicurezza, in fondo alla pagina:

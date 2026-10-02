@@ -22,6 +22,16 @@
 
 ## 1. Installazione
 
+OpenSagra si installa su **Windows**, **Mac** e **Linux** (compreso il
+Raspberry Pi). Su tutti e tre la finestra di installazione è la stessa: segui
+la parte del tuo sistema, poi il resto della guida vale per tutti.
+
+- [Windows](#su-windows)
+- [Mac](#su-mac)
+- [Linux e Raspberry Pi](#su-linux-e-raspberry-pi)
+
+### Su Windows
+
 1. Scarica **`opensagra-installer.exe`** (un unico file — dentro c'è già tutto il
    necessario, non serve scaricare nient'altro a parte quello che l'installer
    scaricherà da solo).
@@ -46,6 +56,86 @@
 
    ![Finestra di avanzamento dell'installazione, con la lista dei passaggi completati](img/guida/03-installer-avanzamento.png)
 4. A fine installazione l'app è già pronta e raggiungibile su questo PC.
+
+### Su Mac
+
+Serve un Mac con macOS 13 (Ventura) o successivo, e un utente
+**amministratore** (quello con cui hai configurato il Mac di solito lo è).
+
+1. **Scegli il file giusto per il tuo Mac.** Menu Apple () → **Informazioni
+   su questo Mac**:
+   - se alla voce *Chip* c'è **Apple M1, M2, M3…** scarica
+     **`Installa-OpenSagra-macos-arm64.zip`**;
+   - se c'è *Processore* **Intel** scarica
+     **`Installa-OpenSagra-macos-x86_64.zip`**.
+2. Fai doppio click sul file `.zip` scaricato: accanto compare l'app
+   **Installa OpenSagra**. Trascinala sulla **Scrivania** (non è obbligatorio,
+   ma la ritrovi più facilmente).
+3. Fai doppio click su **Installa OpenSagra**. La prima volta **il Mac la
+   blocca**: *"Installa OpenSagra" non aperta — Apple non ha potuto
+   verificare che "Installa OpenSagra" sia privo di malware…*. È normale:
+   OpenSagra è un progetto gratuito e non paga ad Apple la "firma" degli
+   sviluppatori — non significa che ci sia qualcosa che non va. Clicca
+   **Fine** (non "Sposta nel Cestino").
+
+   ![Avviso di macOS (qui su un Mac in inglese): Apple non ha potuto verificare l'app — pulsanti Fine e Sposta nel Cestino](img/guida/22-mac-gatekeeper-avviso.png)
+4. Apri **Impostazioni di Sistema** → **Privacy e sicurezza** e scorri fino
+   alla sezione **Sicurezza**: subito sotto *"Consenti applicazioni da"* c'è
+   la riga *"Installa OpenSagra" è stata bloccata…* con il pulsante **Apri
+   comunque**. Cliccalo, poi conferma con **Apri comunque** e, se richiesta,
+   la password del Mac.
+
+   Il pulsante resta visibile per circa un'ora dopo il blocco: se non lo
+   trovi, rifai il doppio click sull'app e torna qui. Lo fai **una volta
+   sola**: le volte successive l'app si apre subito.
+
+   > Se invece il messaggio dice che l'app **"è danneggiata"** e propone solo
+   > di spostarla nel Cestino, il file scaricato è incompleto o rovinato:
+   > cancellalo e scaricalo di nuovo.
+
+   > Su macOS 13 e 14 c'è anche una scorciatoia: **clic destro** sull'app →
+   > **Apri** → **Apri**. Su macOS 15 (Sequoia) e successivi questa
+   > scorciatoia non c'è più, serve il passaggio da Impostazioni.
+5. Si apre la finestra di installazione e chiede la **password che usi per
+   accedere al Mac**: serve per installare il database e il certificato della
+   connessione protetta (§1.1). Scrivila e premi **Continua**.
+
+   ![Finestra di installazione su Mac: richiesta della password](img/guida/24-mac-password.png)
+6. Da qui in poi **non c'è più nulla da fare**: la finestra mostra
+   l'avanzamento e si chiude da sola a fine installazione. Ci vogliono alcuni
+   minuti la prima volta (scarica anche Homebrew e MariaDB, se non ci sono già).
+
+   ![Finestra di avanzamento dell'installazione su Mac](img/guida/25-mac-avanzamento.png)
+7. A fine installazione trovi l'app **OpenSagra** nella cartella *Applicazioni*
+   della tua utenza e sulla Scrivania, e OpenSagra riparte da solo ogni volta
+   che accedi al Mac.
+
+> **Se qualcosa va storto** la finestra resta aperta con il messaggio
+> d'errore in rosso e due pulsanti: **Apri il log** (il resoconto dettagliato,
+> utile a chi ti aiuta) e **Chiudi**. Puoi rilanciare l'installer quando vuoi:
+> ripete solo i passaggi che mancano.
+
+### Su Linux e Raspberry Pi
+
+Pensato per **Raspberry Pi OS** (64 bit) e **Debian**, con un utente che può
+usare `sudo` (sul Raspberry Pi l'utente creato al primo avvio può farlo).
+
+1. **Scegli il file giusto**: **`…-linux-aarch64.tar.gz`** per Raspberry Pi
+   (64 bit), **`…-linux-x86_64.tar.gz`** per un PC normale.
+2. Estrai l'archivio: clic destro sul file → **Estrai qui**. Compare una
+   cartella `opensagra-<versione>`.
+3. Apri la cartella e fai doppio click su **Installa OpenSagra**. Se il file
+   manager chiede cosa fare con il file, scegli **Esegui**. Se invece non
+   succede nulla: clic destro → **Proprietà** → **Permessi** → spunta
+   *"Consenti l'esecuzione"* (o simile), poi riprova.
+4. Si apre la **stessa finestra di installazione di Windows e Mac**. Se chiede
+   la password, è quella del tuo utente (quella che usi con `sudo`).
+5. Da qui in poi non c'è più nulla da fare: la finestra si chiude da sola a
+   fine installazione. Sul desktop trovi il collegamento **OpenSagra**.
+
+> La finestra usa **Chromium** o **Google Chrome** (sul Raspberry Pi c'è già).
+> Se non ce n'è nessuno, l'installazione si apre in una scheda del browser:
+> funziona lo stesso, aspetta che dica *"Fatto!"* prima di chiuderla.
 
 ### Il pannello di controllo
 
