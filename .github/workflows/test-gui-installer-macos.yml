@@ -234,7 +234,13 @@ jobs:
           while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do
             sleep 5; i=$((i+1)); f="$SHOTS/desk-$(printf %04d $i)"
             screencapture -x "$f.png" 2>/dev/null && sips -s format jpeg -s formatOptions 60 "$f.png" --out "$f.jpg" >/dev/null 2>&1 && rm -f "$f.png"
-            [ $((i % 12)) -eq 0 ] && { echo "--- $(date +%T) installer: $(pgrep -fl opensagra-installer | head -1)"; tail -2 /tmp/opensagra-install.log 2>/dev/null; }
+            # (if, non `[ ] && {...}`: con bash -e un tail fallito come ultimo
+            # comando di una lista && chiude il passo - e il tunnel - prima
+            # che esista il log dell'installazione; visto il 2026-10-02)
+            if [ $((i % 12)) -eq 0 ]; then
+              echo "--- $(date +%T) installer: $(pgrep -fl opensagra-installer | head -1 || true)"
+              tail -2 /tmp/opensagra-install.log 2>/dev/null || true
+            fi
           done
           echo "Sessione desktop chiusa"
 
