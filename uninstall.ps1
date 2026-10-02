@@ -93,9 +93,16 @@ $Script:CurrentExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModul
 if ($Script:CurrentExe -like "$Script:InstallPath\*") {
     $tempCopy = Join-Path $env:TEMP ('opensagra-uninstall-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.exe')
     Copy-Item $Script:CurrentExe $tempCopy -Force
-    $relaunchArgs = @()
-    if ($Force) { $relaunchArgs += '-Force' }
-    Start-Process -FilePath $tempCopy -ArgumentList $relaunchArgs
+    # -ArgumentList solo se c'e' davvero qualcosa da passare: Windows
+    # PowerShell 5.1 rifiuta un array vuoto ("Impossibile convalidare
+    # l'argomento sul parametro 'ArgumentList'") - bug reale trovato su VM il
+    # 2026-10-02: la disinstallazione da Impostazioni > App (senza -Force, il
+    # caso normale) si fermava qui con un errore, senza togliere nulla.
+    if ($Force) {
+        Start-Process -FilePath $tempCopy -ArgumentList '-Force'
+    } else {
+        Start-Process -FilePath $tempCopy
+    }
     # NIENTE -Wait: bug reale confermato dal vivo - se questo processo resta
     # in attesa, il SUO file .exe (dentro C:\opensagra) resta bloccato per
     # tutta la durata, esattamente mentre la copia in %TEMP% prova a
@@ -358,6 +365,19 @@ function Stop-OpenSagraWrapper {
     }
 
     Get-Process -Name 'opensagra-wrapper' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    # Finestra di stato del wrapper ancora aperta: e' un browser Chromium in
+    # modalita' app con il profilo DENTRO l'installazione
+    # (<InstallPath>\logs\.statuswin, vedi appWindowCmd nel wrapper) - finche'
+    # e' viva tiene bloccati quei file e Remove-AppFiles lascia C:\opensagra
+    # in piedi (bug reale su VM, 2026-10-02: 168 file rimasti dopo una
+    # disinstallazione fatta col pannello aperto). Si chiudono SOLO i processi
+    # del browser che usano quel profilo, mai le altre finestre dell'utente.
+    $statusProfile = Join-Path $Script:InstallPath 'logs\.statuswin'
+    Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe' OR Name='brave.exe' OR Name='vivaldi.exe' OR Name='chromium.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$statusProfile*" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
     # Difensivo: nel caso un'installazione precedente sia stata interrotta a
     # meta' (install.ps1 lo disiscrive da solo a fine passo, in teoria non
     # dovrebbe mai essere qui).
@@ -424,7 +444,36 @@ function Remove-FrankenPHP {
     # Windows lo rifiuta o si blocca, si prosegue comunque: non vale
     # bloccare tutta la disinstallazione per un certificato residuo innocuo.
     $caRoot = Join-Path $env:APPDATA 'Caddy\pki\authorities\local\root.crt'
-    if (Test-Path $caRoot) {
+
+    # Installazioni dal 2026-10-02: la CA sta nello store del COMPUTER
+    # (Register-LocalCaTrust in install.ps1). Da amministratore la rimozione e'
+    # silenziosa. Solo il certificato con la stessa impronta della CA di
+    # OpenSagra, mai altre "Caddy Local Authority" (es. un Caddy di sviluppo).
+    $caFiles = @($caRoot) + @(Get-ChildItem 'C:\Users\*\AppData\Roaming\Caddy\pki\authorities\local\root.crt' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $thumbs = $caFiles | Where-Object { Test-Path $_ } | Select-Object -Unique | ForEach-Object {
+        try { [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($_).Thumbprint } catch {}
+    }
+    foreach ($tp in $thumbs) {
+        try {
+            $lm = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
+            $lm.Open('ReadWrite')
+            try { $lm.Certificates.Find('FindByThumbprint', $tp, $false) | ForEach-Object { $lm.Remove($_) } } finally { $lm.Close() }
+        } catch {}
+    }
+
+    # Installazioni precedenti: la CA l'aveva messa FrankenPHP nello store
+    # dell'UTENTE, la cui rimozione Windows presidia con un dialogo Si'/No (e
+    # che dentro l'exe si e' gia' bloccata, vedi sotto). Si tenta SOLO se il
+    # certificato c'e' davvero, cosi' le installazioni nuove non vedono alcun
+    # dialogo in disinstallazione.
+    $inUserStore = $false
+    try {
+        $cu = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+        $cu.Open('ReadOnly')
+        try { $inUserStore = [bool]($thumbs | Where-Object { $cu.Certificates.Find('FindByThumbprint', $_, $false).Count -gt 0 }) } finally { $cu.Close() }
+    } catch {}
+
+    if ($inUserStore -and (Test-Path $caRoot)) {
         try {
             $job = Start-Job -ScriptBlock {
                 param($path)

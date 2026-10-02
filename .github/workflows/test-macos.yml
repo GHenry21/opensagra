@@ -1,0 +1,283 @@
+name: Test installer macOS
+
+# Prova install-macos.sh / uninstall-macos.sh su un Mac Apple Silicon pulito
+# (runner GitHub macos-15, M1, gratuito per repo pubblici) - l'unico Mac
+# reale a disposizione del progetto. Il runner ha gia' Homebrew, sudo senza
+# password e una sessione grafica attiva (utente "runner"), quindi l'installer
+# gira dall'inizio alla fine senza interazione.
+#
+# Debug interattivo, dopo l'installazione e prima della disinstallazione
+# (parola chiave nel messaggio del commit, o input lanciandolo a mano):
+#   [debug-mac]   -> VS Code nel browser (terminale + file), secret MAC_DEBUG_TOKEN
+#   [desktop-mac] -> desktop macOS nel browser (noVNC), secret MAC_VNC_PASSWORD
+# Gli URL compaiono nel log del job (e come "notice" nel riepilogo).
+
+on:
+  # Nessun filtro `paths`: su questo branch (dedicato agli installer Unix)
+  # ogni push va testato, e un filtro impedirebbe di lanciare una sessione
+  # [debug-mac]/[desktop-mac] con un commit vuoto.
+  push:
+    branches: [worktree-unix-installer]
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: "Apri VS Code nel browser alla fine"
+        type: boolean
+        default: false
+      desktop:
+        description: "Apri un desktop remoto nel browser (noVNC) alla fine"
+        type: boolean
+        default: false
+
+jobs:
+  install:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
+      HAS_DEBUG_TOKEN: ${{ secrets.MAC_DEBUG_TOKEN != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: go vet del wrapper
+        working-directory: wrapper
+        run: go vet ./...
+
+      # Si installa dal PACCHETTO DI RELEASE (come un utente), non dalla copia
+      # del repo: copre make-unix-package.sh e il FrankenPHP incluso (nessun
+      # download all'installazione).
+      - name: Costruisci ed estrai il pacchetto macOS arm64
+        run: |
+          bash packaging/make-unix-package.sh macos arm64
+          mkdir -p "$RUNNER_TEMP/pkg"
+          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
+          pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
+          ls "$pkg" "$pkg/frankenphp" "$pkg/wrapper"
+          echo "PKG=$pkg" >> "$GITHUB_ENV"
+
+      - name: Ambiente del runner
+        run: |
+          sw_vers; uname -m; id
+          launchctl print "gui/$(id -u)" >/dev/null && echo "sessione grafica: si" || echo "sessione grafica: NO"
+          brew list --formula | grep -Ei 'mysql|mariadb' || echo "nessun MySQL/MariaDB preinstallato"
+          lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|2019) ' || echo "porte 80/443/3306/2019 libere"
+
+      - name: install-macos.sh (prima installazione)
+        timeout-minutes: 25
+        run: bash "$PKG/install-macos.sh"
+
+      - name: Verifica installazione
+        run: |
+          set -x
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|pid|last exit'
+          pgrep -fl opensagra-wrapper
+          pgrep -fl frankenphp
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)
+          echo "https://localhost -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost/)
+          echo "http://localhost -> $code (atteso redirect verso https)"
+          curl -s --max-time 5 -o /dev/null -w 'https senza -k (CA fidata?) -> %{http_code}\n' https://localhost/ || echo "CA locale NON fidata dal sistema"
+          mariadb -e 'SHOW DATABASES' | grep opensagra_pos
+          test -d "$HOME/Applications/OpenSagra.app"
+          test -f "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist"
+          # Versione dal tag git esatto, o 0.0.0-dev fuori da un tag (mai vuota)
+          v=$(cat "$HOME/opensagra/config/.installed_version"); echo "versione installata: $v"
+          [ -n "$v" ]
+          test ! -e "$HOME/opensagra/VERSION"
+          # FrankenPHP: la versione fissata, presa dal pacchetto (nessun download)
+          "$HOME/.frankenphp/frankenphp" version | grep -E '(^| |v)1\.12\.6( |$)'
+          if grep -q 'Scarico FrankenPHP' /tmp/opensagra-install.log; then echo "::error::FrankenPHP scaricato invece di usare quello del pacchetto"; exit 1; fi
+          test ! -e "$HOME/opensagra/frankenphp"
+
+      - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
+        run: |
+          set -x
+          agent="gui/$(id -u)/com.opensagra.wrapper"
+          old=$(launchctl print "$agent" | awk '/pid =/{print $3}')
+          kill -KILL "$old"; sleep 20
+          launchctl print "$agent" | grep -E 'state = running'
+          new=$(launchctl print "$agent" | awk '/pid =/{print $3}')
+          [ "$new" != "$old" ]
+          # Il sito che risponde NON basta: il primo giro (2026-10-01) passava
+          # servito da un frankenphp orfano del wrapper ucciso. Deve esserci un
+          # solo frankenphp server, figlio del NUOVO wrapper.
+          ps -o pid,ppid,command -p $(pgrep -f 'frankenphp run')
+          [ "$(pgrep -f 'frankenphp run' | wc -l | tr -d ' ')" = "1" ]
+          [ "$(ps -o ppid= -p $(pgrep -f 'frankenphp run') | tr -d ' ')" = "$new" ]
+          grep -q 'orfano' "$HOME/opensagra/logs/wrapper.log"
+          curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/
+
+      # Mercure end-to-end col codice vero dell'app: token firmato da
+      # config/mercure.php (formato 0.x) accettato dall'hub del FrankenPHP
+      # fissato, evento pubblicato e ricevuto da un sottoscrittore SSE.
+      - name: Mercure - pubblica e ricevi (token dell'app)
+        run: |
+          set -x
+          cd "$HOME/opensagra"
+          fp="$HOME/.frankenphp/frankenphp"
+          "$fp" version
+          export PHPRC="$HOME/.frankenphp"
+          pub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt(["ci-test"], [], 300);')
+          sub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt([], ["ci-test"], 300);')
+          hub=https://localhost/.well-known/mercure
+          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" > /tmp/sse.txt &
+          sleep 2
+          id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-dal-mac "$hub")
+          echo "id pubblicazione: $id"
+          case "$id" in urn:uuid:*) ;; *) echo "::error::pubblicazione rifiutata dall'hub"; exit 1;; esac
+          wait || true
+          cat /tmp/sse.txt
+          grep -q 'data: ciao-dal-mac' /tmp/sse.txt
+
+      - name: php.ini letto dal server (PHPRC)
+        run: |
+          set -x
+          ps eww -p $(pgrep -f 'frankenphp run') | tr ' ' '\n' | grep '^PHPRC='
+
+      - name: install-macos.sh (rilancio, deve essere idempotente)
+        timeout-minutes: 15
+        run: |
+          bash "$PKG/install-macos.sh"
+          curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
+
+      - name: Log
+        if: always()
+        run: |
+          for f in /tmp/opensagra-install.log "$HOME"/opensagra/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -n 200 "$f"; echo "::endgroup::"
+          done
+          echo "::group::LaunchAgent plist"; cat "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist" || true; echo "::endgroup::"
+
+      # Desktop remoto nel browser: Condivisione Schermo di macOS (VNC) ->
+      # noVNC (client VNC in HTML) -> tunnel Cloudflare "quick" (URL
+      # https://*.trycloudflare.com, nessun account). Il repo e' PUBBLICO:
+      # chiunque puo' leggere questo log e quindi l'URL - la protezione e' la
+      # password nel secret MAC_VNC_PASSWORD (max 8 caratteri, limite del
+      # protocollo VNC classico), mai stampata. Si prova anche a farla
+      # diventare la password dell'utente "runner" (vedi sotto).
+      # Resta attivo finche' non si crea il file ~/stop (dal terminale del Mac:
+      # `touch ~/stop`) o per 60 minuti al massimo; annullare il job dalla tab
+      # Actions lo chiude subito.
+      - name: Desktop remoto via browser (noVNC + Cloudflare)
+        if: always() && (inputs.desktop || contains(github.event.head_commit.message, '[desktop-mac]'))
+        timeout-minutes: 65
+        env:
+          VNC_PASSWORD: ${{ secrets.MAC_VNC_PASSWORD }}
+        run: |
+          [ -n "$VNC_PASSWORD" ] || { echo "::error::Manca il secret MAC_VNC_PASSWORD (Settings > Secrets and variables > Actions)"; exit 1; }
+          echo "::add-mask::$VNC_PASSWORD"
+          # noVNC si autentica col metodo Apple (utente + password macOS), non
+          # con la sola password VNC (visto dal vivo, 2026-10-01). La password
+          # di "runner" non e' pubblica ne' modificabile (dscl su macOS 15 vuole
+          # quella vecchia anche da root: eDSAuthFailed) - si crea quindi un
+          # utente amministratore dedicato con la password del secret. Serve
+          # anche per i dialoghi di sistema che chiedono credenziali admin.
+          # Il desktop mostrato resta quello di "runner" (sessione a video).
+          sudo sysadminctl -addUser opensagra -fullName "OpenSagra test" -password "$VNC_PASSWORD" -admin 2>&1 | grep -v -i 'secure token' || true
+          id opensagra
+
+          # Login riuscito ma schermo nero + disconnessione dopo ~10s (visto dal
+          # vivo, 2026-10-01): sospetto permesso TCC "Registrazione schermo"
+          # mancante (normalmente lo concede l'utente a video). Si scrive
+          # direttamente nel TCC.db di sistema - possibile solo con SIP spento,
+          # e i log qui sotto dicono se lo e'.
+          echo "::group::Diagnostica display / SIP"
+          csrutil status || true
+          system_profiler SPDisplaysDataType 2>/dev/null | grep -E 'Resolution|Display Type|Online|Main Display|Virtual' || true
+          echo "::endgroup::"
+          if csrutil status 2>/dev/null | grep -qi disabled; then
+            db="/Library/Application Support/com.apple.TCC/TCC.db"
+            for client in com.apple.screensharing.agent com.apple.RemoteDesktopAgent; do
+              for svc in kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility; do
+                if sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('$svc','$client',0,2,4,1,'UNUSED',0,CAST(strftime('%s','now') AS INTEGER));"; then
+                  echo "TCC: $svc concesso a $client"
+                else
+                  echo "TCC: $svc per $client NON scritto"
+                fi
+              done
+            done
+          else
+            echo "::warning::SIP attivo: permessi TCC non modificabili, lo schermo potrebbe restare nero"
+          fi
+
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -privs -all -allowAccessFor -allUsers \
+            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \
+            -restart -agent -console >/dev/null
+          for i in $(seq 1 20); do nc -z 127.0.0.1 5900 && break; sleep 1; done
+          nc -z 127.0.0.1 5900 || { echo "::error::Il server VNC di macOS non e' partito"; exit 1; }
+
+          git clone --depth 1 -q https://github.com/novnc/noVNC.git "$RUNNER_TEMP/novnc"
+          nohup "$RUNNER_TEMP/novnc/utils/novnc_proxy" --vnc 127.0.0.1:5900 --listen 6080 >"$RUNNER_TEMP/novnc.log" 2>&1 &
+          brew install -q cloudflared >/dev/null
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:6080 >"$RUNNER_TEMP/cf.log" 2>&1 &
+          url=""
+          for i in $(seq 1 30); do
+            url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cf.log" | head -1 || true)
+            [ -n "$url" ] && break; sleep 2
+          done
+          [ -n "$url" ] || { cat "$RUNNER_TEMP/cf.log"; echo "::error::Tunnel Cloudflare non partito"; exit 1; }
+          echo "::notice title=Desktop Mac::Apri $url/vnc.html?autoconnect=1&resize=scale  (utente opensagra, password = secret MAC_VNC_PASSWORD; per chiudere: touch ~/stop nel Terminale del Mac)"
+          echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale   (utente: opensagra)"
+
+          end=$(( $(date +%s) + 3600 ))
+          # Ogni 30s: log di sistema della Condivisione Schermo, cosi' se la
+          # connessione cade la causa resta scritta nel log del job (leggibile
+          # anche annullando il run).
+          while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do
+            sleep 30
+            log show --last 30s --style compact \
+              --predicate 'process CONTAINS[c] "screensharing" OR process CONTAINS[c] "ARDAgent" OR (process == "tccd" AND eventMessage CONTAINS[c] "screen")' \
+              2>/dev/null | grep -v '^Timestamp' | tail -25 || true
+            tail -3 "$RUNNER_TEMP/novnc.log" 2>/dev/null || true
+          done
+          echo "Sessione desktop chiusa"
+
+      # VS Code nel browser (terminale + file) sul Mac del runner: CLI ufficiale
+      # di VS Code (`code serve-web`) dietro un tunnel Cloudflare "quick".
+      # L'URL finisce nel log PUBBLICO: l'accesso e' protetto dal token nel
+      # secret MAC_DEBUG_TOKEN (GitHub lo maschera nei log da solo), da
+      # aggiungere all'URL come ?tkn=<token>. Per chiudere e far proseguire il
+      # job (disinstallazione): creare un file vuoto `continue` nella cartella
+      # del repo (`touch continue` nel terminale di VS Code). Action fissata a
+      # un commit preciso (scarica comunque a runtime uno script dal proprio
+      # ramo main - accettabile per sessioni brevi di debug).
+      - name: VS Code nel browser - secret mancante
+        if: always() && (inputs.debug || contains(github.event.head_commit.message, '[debug-mac]')) && env.HAS_DEBUG_TOKEN != 'true'
+        run: echo "::error::Manca il secret MAC_DEBUG_TOKEN (Settings > Secrets and variables > Actions) - sessione VS Code NON avviata (senza token sarebbe aperta a chiunque legga il log)"
+
+      - name: VS Code nel browser (debug)
+        if: always() && (inputs.debug || contains(github.event.head_commit.message, '[debug-mac]')) && env.HAS_DEBUG_TOKEN == 'true'
+        timeout-minutes: 60
+        uses: fawazahmed0/action-debug-vscode@b19d919aac4131db998db2e544abcffe1ca90272
+        with:
+          token: ${{ secrets.MAC_DEBUG_TOKEN }}
+
+      - name: uninstall-macos.sh
+        if: always()
+        run: |
+          bash "$HOME/opensagra/uninstall-macos.sh" --force || bash "$PKG/uninstall-macos.sh" --force
+          set -x
+          # (`! cmd` non fa fallire lo step sotto set -e: si usa test ! / if)
+          test ! -e "$HOME/opensagra"
+          test ! -e "$HOME/Library/LaunchAgents/com.opensagra.wrapper.plist"
+          if pgrep -f opensagra-wrapper; then echo "wrapper ancora vivo"; exit 1; fi
+          if brew list --formula mariadb >/dev/null 2>&1; then echo "MariaDB ancora installato"; exit 1; fi
+          ls "$HOME"/opensagra-backup-*.sql

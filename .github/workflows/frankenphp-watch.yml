@@ -1,0 +1,89 @@
+name: Controllo nuove release FrankenPHP
+
+# OpenSagra fissa UNA versione di FrankenPHP per tutti gli OS
+# (packaging/frankenphp.sha256), perche' gli asset di una stessa release
+# possono incorporare Mercure diverse a seconda dell'OS (php/frankenphp#2685).
+# Una volta a settimana questo workflow guarda l'ultima release di FrankenPHP:
+# se e' piu' recente di quella fissata E ha la STESSA Mercure su Linux, macOS
+# e Windows, apre un issue in questo repo con la tabella delle versioni. Finche'
+# non e' cosi' non fa nulla (nessuna notifica inutile).
+#
+# Nota GitHub: i workflow pianificati girano solo dal branch predefinito
+# (main) - questo file e' attivo solo una volta su main.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # lunedi', 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable # serve solo `go version -m` per leggere i binari
+
+      - name: Confronta l'ultima release di FrankenPHP con quella fissata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pinned=$(sed -n 's/^#[[:space:]]*version:[[:space:]]*\([^[:space:]]*\).*/\1/p' packaging/frankenphp.sha256)
+          latest=$(gh api repos/php/frankenphp/releases/latest --jq .tag_name)
+          latest=${latest#v}
+          echo "fissata: $pinned - ultima: $latest"
+          if [ "$latest" = "$pinned" ]; then
+            echo "Nessuna nuova release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          base="https://github.com/php/frankenphp/releases/download/v$latest"
+          mkdir -p fp && cd fp
+          curl -fsSL -o linux "$base/frankenphp-linux-x86_64"
+          curl -fsSL -o mac "$base/frankenphp-mac-arm64"
+          curl -fsSL -o win.zip "$base/frankenphp-windows-x86_64.zip"
+          unzip -qo win.zip frankenphp.exe
+
+          mver() { go version -m "$1" | awk '$2=="github.com/dunglas/mercure" {print $3}'; }
+          lin=$(mver linux); mac=$(mver mac); win=$(mver frankenphp.exe)
+          table="| Asset FrankenPHP v$latest | Mercure |
+          |---|---|
+          | frankenphp-linux-x86_64 | $lin |
+          | frankenphp-mac-arm64 | $mac |
+          | frankenphp-windows-x86_64.zip | $win |"
+          printf '%s\n' "$table" | sed 's/^ *//' >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$lin" ] || [ "$lin" != "$mac" ] || [ "$lin" != "$win" ]; then
+            echo "Mercure ancora diversa tra gli OS: nessun issue." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          title="FrankenPHP v$latest: Mercure $lin su tutti gli OS, si puo' aggiornare"
+          if gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "\"$title\" in:title" --json number --jq '.[0].number' | grep -q .; then
+            echo "Issue gia' aperto per v$latest." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          case "$lin" in
+            v0.*) mode="Mercure 0.x: stessa sintassi di oggi, basta aggiornare versione e impronte." ;;
+            *)    mode="Mercure 1.x: va riattivato il **modern mode** (token RFC 9068 + blocco \`issuer\` nel Caddyfile), gia' scritto e testato su Linux/macOS nel commit \`4143534\`." ;;
+          esac
+          body=$(printf '%s\n' \
+            "La release **v$latest** di FrankenPHP ha la stessa Mercure su Linux, macOS e Windows:" "" \
+            "$(printf '%s\n' "$table" | sed 's/^ *//')" "" \
+            "$mode" "" \
+            "**Passi per aggiornare** (oggi fissata: v$pinned):" \
+            "1. \`packaging/frankenphp.sha256\`: versione + impronte (\`gh api repos/php/frankenphp/releases/tags/v$latest --jq '.assets[] | .digest + \"  \" + .name'\`)" \
+            "2. stessa versione in \`install.sh\`, \`install-macos.sh\`, \`install.ps1\` (controllata da release.yml)" \
+            "3. se Mercure 1.x: riattivare il modern mode (vedi sopra)" \
+            "4. test: CI macOS, Pi, VM Windows (installazione da zero + aggiornamento)" "" \
+            "Contesto: php/frankenphp#2685 e il piano (Fase 4, migrazione Mercure).")
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          echo "Issue aperto: $title" >> "$GITHUB_STEP_SUMMARY"

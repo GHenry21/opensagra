@@ -62,43 +62,13 @@ func activeClientCount(cfg *Config) int {
 }
 
 // webClientIPs: IP remoti con una connessione TCP ESTABLISHED verso la 80/443
-// di questa macchina (da `netstat -an -p TCP`). Esclude loopback e gli IP
-// locali.
+// di questa macchina. Esclude loopback e gli IP locali. L'elenco delle
+// connessioni si legge in modo diverso per OS (Windows: `netstat`; Linux:
+// `ss`/`/proc/net/tcp`; macOS: `lsof`) - platformWebClientIPs() vive in
+// platform_windows.go / platform_linux.go / platform_darwin.go, ma tutti e
+// tre riusano gli helper qui sotto (hostPortSplit, ipFromHostPort, localIPSet).
 func webClientIPs() []string {
-	cmd := exec.Command("netstat", "-an", "-p", "TCP")
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-	locals := localIPSet()
-	seen := map[string]struct{}{}
-	for _, line := range strings.Split(string(out), "\n") {
-		f := strings.Fields(line)
-		// Proto  IndirizzoLocale  IndirizzoEsterno  Stato
-		if len(f) < 4 || !strings.EqualFold(f[0], "TCP") || !strings.EqualFold(f[3], "ESTABLISHED") {
-			continue
-		}
-		if p := hostPortSplit(f[1]); p != "80" && p != "443" {
-			continue
-		}
-		ip := ipFromHostPort(f[2])
-		if ip == "" {
-			continue
-		}
-		if _, local := locals[ip]; local {
-			continue
-		}
-		if parsed := net.ParseIP(ip); parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified() {
-			continue
-		}
-		seen[ip] = struct{}{}
-	}
-	out2 := make([]string, 0, len(seen))
-	for ip := range seen {
-		out2 = append(out2, ip)
-	}
-	return out2
+	return platformWebClientIPs()
 }
 
 func hostPortSplit(hp string) string { // ritorna la porta

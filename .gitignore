@@ -51,6 +51,15 @@ Thumbs.db
 # Uninstaller a-un-file, prodotto da packaging\make-uninstaller.ps1
 /opensagra-uninstaller.exe
 
+# Cache degli asset di FrankenPHP scaricati e verificati dagli script di
+# packaging (Get-FrankenPHP.ps1 / make-unix-package.sh) - non va nei pacchetti
+# come file dell'app ne' nel repo.
+/.cache/
+
+# Pacchetti di release Linux/macOS, prodotti da packaging/make-unix-package.sh
+/opensagra-*-linux-*.tar.gz
+/opensagra-*-macos-*.tar.gz
+
 # Pacchetto di aggiornamento leggero (solo codice app + vendor/), prodotto da
 # packaging\make-update.ps1 - allegato alle release solo quando wrapper/
 # installer/uninstaller non sono cambiati (vedi release.yml)

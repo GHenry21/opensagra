@@ -160,8 +160,21 @@ $Script:ExcludeFromCopy = @(
     'uninstall.ps1',
     # Letto sopra per valorizzare $Script:AppVersion - e' metadato del
     # pacchetto, non un file dell'app.
-    'VERSION'
+    'VERSION',
+    # Zip di FrankenPHP incluso nel pacchetto: lo estrae Install-FrankenPHP
+    # in $Script:FrankenDir, non va copiato nella webroot.
+    'frankenphp',
+    # Script Unix (stesso repo, non servono su Windows).
+    'install.sh', 'install-macos.sh', 'uninstall.sh', 'uninstall-macos.sh'
 )
+
+# FrankenPHP: UNA versione fissata per tutti gli OS, non "latest" - vedi
+# packaging\frankenphp.sha256 (perche' la v1.12.6, impronte verificate quando
+# si costruisce il pacchetto) e php/frankenphp#2685. Il pacchetto di release
+# include gia' lo zip (frankenphp\frankenphp-windows-x86_64.zip): nessun
+# download all'installazione. Il download diretto di QUESTA versione resta
+# solo come ripiego per chi lancia install.ps1 da una copia del repo.
+$Script:FrankenPhpVersion = '1.12.6'
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
 # (`cd wrapper; go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...`).
@@ -371,10 +384,38 @@ function Install-VCRedist {
     Add-InstallChecklistItem 'Visual C++ Redistributable installato'
 }
 
+function Get-FrankenPhpInstalledVersion {
+    $exe = "$Script:FrankenDir\frankenphp.exe"
+    if (-not (Test-Path $exe)) { return $null }
+    # Invoke-NativeCaptured, non `& $exe`: dall'exe ps2exe -noConsole una
+    # chiamata diretta con cattura dell'output puo' bloccarsi (conhost orfano,
+    # vedi commento di Invoke-NativeCaptured).
+    try {
+        $out = (Invoke-NativeCaptured -FilePath $exe -ArgumentList @('version')).Output
+        if ($out -match '(\d+\.\d+\.\d+)') { return $Matches[1] }
+    } catch { }
+    return 'sconosciuta'
+}
+
 function Install-FrankenPHP {
-    if (Test-Path "$Script:FrankenDir\frankenphp.exe") {
-        Add-InstallChecklistItem 'FrankenPHP gia'' presente'
+    $current = Get-FrankenPhpInstalledVersion
+    if ($current -eq $Script:FrankenPhpVersion) {
+        Add-InstallChecklistItem "FrankenPHP $current gia' presente"
         return
+    }
+    if ($current) {
+        # Versione diversa da quella fissata (es. una "latest" di
+        # un'installazione precedente). Si prova a sostituirla; se
+        # frankenphp.exe e' in uso (OpenSagra aperto) NON si blocca
+        # l'installazione: le versioni Windows finora pubblicate hanno tutte
+        # Mercure 0.x, compatibile con il Caddyfile generato qui (vedi
+        # packaging\frankenphp.sha256). Verra' sostituita al prossimo rilancio.
+        try {
+            Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction Stop
+        } catch {
+            Add-InstallChecklistItem "FrankenPHP $current lasciato (in uso, non sostituibile ora - atteso $Script:FrankenPhpVersion)"
+            return
+        }
     }
     # Bug reale (2026-09-16, VM Windows con installazioni ripetute): lo
     # script ufficiale di frankenphp.dev (eseguito inline con
@@ -389,19 +430,26 @@ function Install-FrankenPHP {
     # .NET (stesso meccanismo gia' usato in packaging/installer-bootstrap.ps1
     # per il proprio payload) - bypassa sia lo script di terze parti sia
     # Expand-Archive del tutto.
-    $zipPath = Join-Path $env:TEMP "frankenphp-windows-$PID.zip"
-    Invoke-WebRequest -Uri 'https://github.com/php/frankenphp/releases/latest/download/frankenphp-windows-x86_64.zip' -OutFile $zipPath
+    $bundledZip = if ($Script:SourcePath) { Join-Path $Script:SourcePath 'frankenphp\frankenphp-windows-x86_64.zip' } else { $null }
+    $downloaded = $false
+    if ($bundledZip -and (Test-Path $bundledZip)) {
+        $zipPath = $bundledZip
+    } else {
+        $zipPath = Join-Path $env:TEMP "frankenphp-windows-$PID.zip"
+        Invoke-WebRequest -Uri "https://github.com/php/frankenphp/releases/download/v$($Script:FrankenPhpVersion)/frankenphp-windows-x86_64.zip" -OutFile $zipPath
+        $downloaded = $true
+    }
     # Se una cartella parziale resta da un tentativo precedente interrotto,
     # va svuotata prima - stesso motivo del fix sulla data\ di MariaDB.
     if (Test-Path $Script:FrankenDir) { Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Force -Path $Script:FrankenDir | Out-Null
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $Script:FrankenDir)
-    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    if ($downloaded) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
     if (-not (Test-Path "$Script:FrankenDir\frankenphp.exe")) {
         throw 'Installazione di FrankenPHP non riuscita.'
     }
-    Add-InstallChecklistItem 'FrankenPHP installato'
+    Add-InstallChecklistItem "FrankenPHP $($Script:FrankenPhpVersion) installato"
 }
 
 # NOTA: Install-WinSW e Register-FrankenPHPService sono state RIMOSSE con la
@@ -668,25 +716,15 @@ function New-CaddyConfig {
     if ($lanIp) { $hostList += $lanIp }
 
     $httpsHosts = ($hostList | ForEach-Object { "https://$_" }) -join ', '
-    $httpCors = ($hostList | ForEach-Object { "http://$_" }) -join ' '
     $httpsCors = ($hostList | ForEach-Object { "https://$_" }) -join ' '
 
-    # Hub Mercure (Fase 4) dentro ogni blocco di sito - NON a livello globale
+    # Hub Mercure (Fase 4) dentro il blocco di sito - NON a livello globale
     # (Caddy: "must appear in a site block"). Stesso segreto di variabili.env.
     # cookie_name: obbligatorio, senza l'hub rifiuta con 401 il cookie
     # mercure_authorization, l'unico modo in cui EventSource nel browser
     # autentica. cors_origins: ogni hostname da cui e' servito billing.php.
     # heartbeat: tiene viva una connessione SSE ferma (i sottoscrittori CLI la
     # abortiscono a 45s, l'EventSource del browser flappa).
-    $httpMercure = @"
-	mercure {
-		publisher_jwt $MercureSecret
-		subscriber_jwt $MercureSecret
-		cookie_name mercure_authorization
-		cors_origins $httpCors
-		heartbeat 20s
-	}
-"@
     $httpsMercure = @"
 	mercure {
 		publisher_jwt $MercureSecret
@@ -718,20 +756,27 @@ function New-CaddyConfig {
 	}
 "@
 
+    # Solo HTTPS - niente piu' un blocco http://:80 che serve l'app in chiaro.
+    # Motivo storico dell'HTTP (vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md,
+    # "Appendice C"): QZ Tray, il vecchio metodo di stampa condivisa via
+    # WebSocket dal browser, andava in mixed-content su Firefox/WebKit se la
+    # pagina era in HTTPS. QZ Tray e' stato rimosso (Fase 4, bridge nativo via
+    # Mercure - stampa lato server/PHP, mai lato browser), quindi quel motivo
+    # non c'e' piu'. Rimuovendo `auto_https disable_redirects`, Caddy aggiunge
+    # da solo un redirect 308 da :80 a https:// per ogni host elencato sotto.
+    #
+    # skip_install_trust: FrankenPHP NON prova a installare da solo la propria
+    # CA nel trust store dell'UTENTE. Su Windows quel tentativo fa comparire
+    # l'"Avviso di sicurezza" (Si'/No) e blocca Caddy finche' qualcuno non
+    # risponde (porte 80/443 chiuse) - e il dialogo finiva DIETRO la finestra
+    # dell'installer (visto su VM, 2026-10-02). La CA la importa invece
+    # Register-LocalCaTrust nel trust store del COMPUTER (LocalMachine\Root):
+    # l'installer e' gia' elevato, quindi in silenzio, nessun dialogo.
     $caddyPath = Join-Path $Script:InstallPath 'Caddyfile'
     @"
 {
 	frankenphp
-	auto_https disable_redirects
-}
-
-http://:80 {
-	root * $Script:InstallPath
-	encode zstd gzip
-	php_server
-
-$dbRoute
-$httpMercure
+	skip_install_trust
 }
 
 $httpsHosts {
@@ -919,42 +964,49 @@ function Start-Wrapper {
     }
 }
 
-function Register-LocalCaTrust {
-    # Tentativo di anticipare la finestra di sicurezza certificati di Windows
-    # ("vuoi installare questo certificato?") che Caddy/FrankenPHP fa apparire
-    # da solo alla prima connessione HTTPS reale (tls internal), generando E
-    # installando la CA locale tramite la stessa API di wizard che Windows
-    # presidia con quel dialogo - confermato testando su una VM pulita
-    # (2026-09-12). `frankenphp trust` e' il comando ufficiale pensato apposta
-    # per "il processo server gira come utente non privilegiato" (il nostro
-    # caso: il wrapper fa girare FrankenPHP de-elevato) - se arriva PRIMA che
-    # qualcuno apra l'app in un browser, con un po' di fortuna Caddy trova la
-    # CA gia' fidata e salta il proprio tentativo (quello con il dialogo).
-    # Best-effort: se non funziona, resta comunque il vecchio comportamento
-    # (un dialogo una-tantum alla prima apertura) - non fa fallire l'installer.
-    $frankenphp = Join-Path $Script:FrankenDir 'frankenphp.exe'
-    if (-not (Test-Path $frankenphp)) { return }
+function Find-LocalCaRootFile {
+    # La CA la genera FrankenPHP al primo avvio (tls internal) nel profilo
+    # dell'utente con cui gira - il wrapper, de-elevato, nella sessione
+    # interattiva. Di norma e' lo stesso utente dell'installer elevato
+    # ($env:APPDATA), ma se l'elevazione e' avvenuta con le credenziali di un
+    # ALTRO amministratore il profilo e' diverso: si cerca quindi il root.crt
+    # piu' recente fra tutti i profili.
+    $candidates = @(Join-Path $env:APPDATA 'Caddy\pki\authorities\local\root.crt')
+    $candidates += Get-ChildItem 'C:\Users\*\AppData\Roaming\Caddy\pki\authorities\local\root.crt' -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName }
+    $candidates | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+}
 
-    $adminUp = $false
-    for ($i = 0; $i -lt 20; $i++) {
-        try {
-            Invoke-WebRequest -Uri 'http://127.0.0.1:2019/config/' -TimeoutSec 2 -UseBasicParsing | Out-Null
-            $adminUp = $true
-            break
-        } catch {
-            Start-Sleep -Seconds 1
-        }
+function Register-LocalCaTrust {
+    # Il Caddyfile ha skip_install_trust (vedi New-CaddyConfig): FrankenPHP non
+    # tocca piu' nessun trust store, quindi nessun "Avviso di sicurezza" di
+    # Windows. La CA la importa qui l'installer, gia' elevato, nel trust store
+    # del COMPUTER (LocalMachine\Root): da amministratore e' un'operazione
+    # silenziosa, e Edge/Chrome/Firefox la riconoscono. Prima (fino al
+    # 2026-10-02) FrankenPHP la installava nello store dell'UTENTE, che
+    # Windows presidia con un dialogo Si'/No: Caddy restava bloccato fino alla
+    # risposta e il dialogo finiva dietro la finestra dell'installer.
+    # Best-effort: se non riesce, il browser mostra l'avviso al primo accesso.
+    $rootFile = $null
+    for ($i = 0; $i -lt 30 -and -not $rootFile; $i++) {
+        $rootFile = Find-LocalCaRootFile
+        if (-not $rootFile) { Start-Sleep -Seconds 1 }
     }
-    if (-not $adminUp) {
-        "[$(Get-Date -Format o)] Register-LocalCaTrust: admin API di Caddy (127.0.0.1:2019) non risponde dopo 20s, salto." | Out-File $Script:LogPath -Append -Encoding utf8
+    if (-not $rootFile) {
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: root.crt della CA locale non trovato dopo 30s, salto." | Out-File $Script:LogPath -Append -Encoding utf8
+        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo accesso (dettagli in $Script:LogPath)"
         return
     }
-
-    $trustResult = Invoke-NativeCaptured -FilePath $frankenphp -ArgumentList @('trust', '--address', '127.0.0.1:2019')
-    if ($trustResult.ExitCode -eq 0) {
+    try {
+        $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($rootFile)
+        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
+        $store.Open('ReadWrite')
+        try { $store.Add($cert) } finally { $store.Close() }
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: CA $($cert.Subject) ($($cert.Thumbprint)) importata in LocalMachine\Root da $rootFile" | Out-File $Script:LogPath -Append -Encoding utf8
         Add-InstallChecklistItem 'Certificato locale HTTPS fidato'
-    } else {
-        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo avvio (dettagli in $Script:LogPath)"
+    } catch {
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: importazione fallita: $($_.Exception.Message)" | Out-File $Script:LogPath -Append -Encoding utf8
+        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo accesso (dettagli in $Script:LogPath)"
     }
 }
 

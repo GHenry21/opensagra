@@ -20,6 +20,10 @@ type Config struct {
 	AppURL            string // URL dell'app vera ("Apri OpenSagra")
 	Autostarted       bool   // avviato dall'autostart (-autostarted): non aprire la finestra da solo
 	RegisterAutostart bool   // -register-autostart: scrivi la chiave Run e prosegui (usato dall'installer)
+	// Quit: -quit, ferma un'istanza gia' in esecuzione (dopo conferma) ed esce
+	// subito, senza avviare nulla. Serve al lanciatore desktop "Ferma OpenSagra"
+	// su Linux/macOS (niente tray li' per fare da menu "Esci" come su Windows).
+	Quit bool
 	// BridgeEnabled: PRINT_BRIDGE_CASSE non vuoto -> questo PC fa da ponte di
 	// stampa. Un solo processo bridge (topic Mercure fisso, punto-punto): non
 	// serve piu' un id per cassa, il valore stesso non conta piu', solo se e'
@@ -73,6 +77,7 @@ func loadConfig() (*Config, error) {
 		urlFlag  = flag.String("appurl", "", "URL dell'app per \"Apri OpenSagra\" (default: https://localhost/)")
 		autoFlag = flag.Bool("autostarted", false, "avviato dall'autostart: non aprire la finestra di stato all'avvio")
 		regFlag  = flag.Bool("register-autostart", false, "scrivi la chiave di autostart poi prosegui (usato dall'installer)")
+		quitFlag = flag.Bool("quit", false, "ferma un'istanza gia' in esecuzione (con conferma) ed esce")
 	)
 	flag.Parse()
 
@@ -104,6 +109,7 @@ func loadConfig() (*Config, error) {
 		AppURL:            firstNonEmpty(*urlFlag, os.Getenv("OPENSAGRA_APP_URL"), "https://localhost/"),
 		Autostarted:       *autoFlag,
 		RegisterAutostart: *regFlag,
+		Quit:              *quitFlag,
 		BridgeEnabled:     strings.TrimSpace(env["PRINT_BRIDGE_CASSE"]) != "",
 		dbHost:            valueOr(env["DB_POS_HOST"], "127.0.0.1"),
 		DBUser:            env["DB_POS_USER"],

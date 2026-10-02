@@ -1,6 +1,7 @@
 # build
 /opensagra-wrapper
 /opensagra-wrapper.exe
+/opensagra-wrapper-darwin-*
 *.exe
 *.exe~
 # Icona/manifest/info versione: generati da build.ps1 via goversioninfo ad

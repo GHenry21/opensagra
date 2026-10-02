@@ -57,6 +57,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Out) { $Out = Join-Path $RepoRoot 'opensagra-installer.exe' }
 
 . (Join-Path $PSScriptRoot 'Get-ReleaseVersion.ps1')
+. (Join-Path $PSScriptRoot 'Get-FrankenPHP.ps1')
 
 $Work = Join-Path $env:TEMP ('opensagra-pkg-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
@@ -91,6 +92,11 @@ try {
     $versionFile = Join-Path $Work 'VERSION'
     Set-Content -Path $versionFile -Value $releaseVersion -NoNewline -Encoding ascii
 
+    # FrankenPHP incluso nel payload (versione fissata, impronta verificata):
+    # install.ps1 lo estrae da qui invece di scaricarlo - vedi Get-FrankenPHP.ps1.
+    $frankenZip = Get-FrankenPhpAsset -RepoRoot $RepoRoot -Name 'frankenphp-windows-x86_64.zip'
+    Write-Host "     FrankenPHP: $(Split-Path $frankenZip -Leaf) (impronta verificata)" -ForegroundColor DarkGray
+
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::Open($payloadZip, 'Create')
     try {
@@ -106,6 +112,10 @@ try {
             $zip, $uninstallerExe, 'opensagra-uninstaller.exe') | Out-Null
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $versionFile, 'VERSION') | Out-Null
+        # Gia' compresso: NoCompression evita di ricomprimere 56 MB per niente.
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $frankenZip, 'frankenphp/frankenphp-windows-x86_64.zip',
+            [System.IO.Compression.CompressionLevel]::NoCompression) | Out-Null
 
         $vendorDir = Join-Path $RepoRoot 'vendor'
         if (Test-Path $vendorDir) {

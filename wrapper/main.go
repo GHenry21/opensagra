@@ -18,14 +18,17 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	"fyne.io/systray"
 )
 
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	if cfg.Quit {
+		requestQuit(cfg)
+		return
 	}
 
 	if err := os.MkdirAll(cfg.LogDir, 0o755); err != nil {
@@ -90,6 +93,9 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Prima di avviare i figli: chiudi quelli rimasti orfani da un'istanza
+	// precedente morta di colpo (macOS/Linux - vedi childPidsFile).
+	reapStaleChildren(cfg.LogDir)
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
 	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
@@ -119,7 +125,10 @@ func main() {
 	// snapshot (il relay si autoregola gia' da solo con exit(0)).
 	go watchDbHost(ctx, cfg, sup)
 
-	// Sequenza di uscita pulita, invocata dal menu tray dopo conferma.
+	// Sequenza di uscita pulita. Su Windows e' il menu tray "Esci" (dopo
+	// conferma) a invocarla; su Linux/macOS la invoca runEventLoop quando
+	// arriva un segnale di arresto (systemctl/launchctl stop) o -quit
+	// (requestQuit, sotto) lo richiede da un'altra invocazione del wrapper.
 	quit := func() {
 		log.Print("wrapper: uscita richiesta")
 		removeLock(cfg.LogDir)
@@ -130,9 +139,30 @@ func main() {
 		if job != nil {
 			job.close() // rete di sicurezza per eventuali superstiti
 		}
-		systray.Quit()
 	}
 
-	t := &tray{ctx: ctx, cfg: cfg, sup: sup, status: status, quit: quit}
-	systray.Run(t.onReady, t.onExit) // blocca finche' systray.Quit()
+	// runEventLoop: bloccante, implementazione diversa per OS (main_windows.go:
+	// tray + systray.Run; main_unix.go: attesa di un segnale) - vedi i due file.
+	runEventLoop(ctx, cfg, sup, status, quit)
+}
+
+// requestQuit (-quit): chiede a un'istanza gia' in esecuzione di terminare,
+// con lo stesso avviso mostrato dal menu tray su Windows - rilevante ovunque,
+// non solo li', perche' fermare il PC server rompe le casse client collegate.
+// Pensato per un lanciatore desktop "Ferma OpenSagra" su Linux/macOS (niente
+// tray la' per ospitare una voce "Esci"), ma non e' specifico di un OS.
+func requestQuit(cfg *Config) {
+	pid, alive := lockPID(cfg.LogDir)
+	if !alive {
+		log.Print("wrapper: -quit, nessuna istanza in esecuzione")
+		return
+	}
+	if !confirmQuit("OpenSagra",
+		"Vuoi davvero chiudere OpenSagra?",
+		"⚠️ Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra.") {
+		return
+	}
+	if err := signalQuit(pid); err != nil {
+		log.Printf("wrapper: -quit, impossibile fermare il processo %d: %v", pid, err)
+	}
 }

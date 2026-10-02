@@ -1,30 +1,5 @@
 {
 	frankenphp
-	auto_https disable_redirects
-}
-
-http://:80 {
-	root * C:\xampp\htdocs\opensagra
-	encode zstd gzip
-	php_server
-
-	# Realtime Mercure (Fase 4) - stesso segreto di config/variabili.env
-	# (MERCURE_JWT_SECRET), genera il tuo con:  openssl rand -base64 48
-	# - cookie_name: OBBLIGATORIO, senza l'hub non legge il cookie e le
-	#   sottoscrizioni da browser (EventSource) prendono 401 - il modulo
-	#   Caddy non applica un default.
-	# - cors_origins: ogni hostname da cui e' servito billing.php; l'hub
-	#   valida l'Origin/Referer della richiesta col cookie contro questa lista.
-	# - heartbeat: senza, una connessione SSE ferma (nessun evento) viene
-	#   abortita e riaperta di continuo dai sottoscrittori CLI (relay/bridge,
-	#   soglia 45s) e fa flappare l'EventSource del browser. 20s la tiene viva.
-	# mercure {
-	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
-	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
-	# 	cookie_name mercure_authorization
-	# 	cors_origins http://localhost
-	# 	heartbeat 20s
-	# }
 }
 
 https://localhost {
@@ -33,6 +8,26 @@ https://localhost {
 	php_server
 	tls internal
 
+	# Realtime Mercure (Fase 4) - stesso segreto di config/variabili.env
+	# (MERCURE_JWT_SECRET), genera il tuo con:  openssl rand -base64 48
+	# Solo HTTPS - niente blocco http://:80: serviva solo per QZ Tray (vecchio
+	# metodo di stampa condiviso via WebSocket, mixed-content su Firefox/
+	# WebKit in HTTPS), rimosso in Fase 4 (bridge nativo via Mercure, stampa
+	# lato server/PHP, mai lato browser). Senza `auto_https disable_redirects`
+	# nel blocco globale sopra, Caddy aggiunge da solo un redirect 308 da :80.
+	# - publisher_jwt/subscriber_jwt: sintassi Mercure 0.x, quella del
+	#   FrankenPHP fissato dagli installer (v1.12.6, Mercure v0.24.2 su tutti
+	#   gli OS). NON la sintassi Mercure 1.0 (blocco `issuer`): gli asset
+	#   ufficiali di una stessa release di FrankenPHP hanno Mercure diversi a
+	#   seconda dell'OS (php/frankenphp#2685) - vedi piano, Fase 4.
+	# - cookie_name: OBBLIGATORIO, senza l'hub non legge il cookie e le
+	#   sottoscrizioni da browser (EventSource) prendono 401 - il modulo
+	#   Caddy non applica un default.
+	# - cors_origins: ogni hostname da cui e' servito billing.php; l'hub
+	#   valida l'Origin/Referer della richiesta col cookie contro questa lista.
+	# - heartbeat: senza, una connessione SSE ferma (nessun evento) viene
+	#   abortita e riaperta di continuo dai sottoscrittori CLI (relay/bridge,
+	#   soglia 45s) e fa flappare l'EventSource del browser. 20s la tiene viva.
 	# mercure {
 	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
 	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO

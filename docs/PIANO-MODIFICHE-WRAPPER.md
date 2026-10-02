@@ -145,7 +145,7 @@ wrapper.
 
 ---
 
-## 5. Pannello per server desktop macOS / Linux — DIFFERITO (analisi 2026-09-10)
+## 5. Pannello per server desktop macOS / Linux — ✅ FATTO (2026-09-29), analisi originale 2026-09-10 sotto
 
 **Domanda:** un'installazione **indipendente / server** su un desktop Linux o
 Mac, gestita da un utente che non usa il terminale — serve il wrapper? Se no,
@@ -177,11 +177,140 @@ Windows-only sono solo: tray, dialogo Esci (TaskDialog), kill-anti-orfani
   plist + `osascript` per la conferma + un `.app`/`.command`.
 - stima ~1 gg Linux (grosso = riuso del pannello esistente), simile macOS.
 
-**Decisione:** **non farlo ora.** Nessun server desktop macOS/Linux è nei
-piani (server = Windows col wrapper; Pi = client headless con systemd, nessuna
-interazione operatore). Se salta fuori un desktop Linux/Mac come server per un
-non-tecnico, il percorso è questo e costa poco. Le voci "tray nativa macOS/
-Linux" del `README.md` si leggono come **"non si fa salvo necessità"**.
+**Decisione originale (2026-09-10): non farlo ora.** Nessun server desktop
+macOS/Linux era nei piani (server = Windows col wrapper; Pi = client headless
+con systemd, nessuna interazione operatore).
+
+**Aggiornamento 2026-09-29: decisione ribaltata, fatto.** Il percorso
+tratteggiato sopra è esattamente quello implementato:
+
+- Wrapper diviso in file per-OS (`main_unix.go`/`main_windows.go`,
+  `platform_linux.go`/`platform_darwin.go`/`platform_unix.go` al posto dello
+  stub `platform_other.go`) - `flock` per l'istanza singola, zenity/kdialog/
+  osascript per la conferma Esci (fallback stdin), `Setpgid`+`Pdeathsig`
+  (Linux) o solo `Setpgid` (macOS, nessun equivalente di Pdeathsig - limite
+  noto) per gli orfani, autostart `systemd --user`/`LaunchAgent`. Nuovo flag
+  `-quit` per fermare un'istanza viva da un lanciatore desktop.
+- **`install.sh`** (Debian/Raspberry Pi OS): equivalente di `install.ps1` -
+  FrankenPHP (binario statico ufficiale, non pacchettizzato da Debian),
+  `setcap cap_net_bind_service` (il wrapper gira sempre non-root, serve
+  esplicitamente per legarsi alle porte 80/443), MariaDB via apt, file app,
+  Caddyfile, provisioning DB (utente di bootstrap temporaneo via `sudo
+  mariadb`, perché l'utente `root@localhost` di un mariadb-server apt usa
+  `unix_socket`, non una password TCP come su XAMPP/Windows), migrazioni,
+  wrapper + `systemd --user` + `.desktop`.
+- **Testato dal vivo** sul Pi 192.168.88.32 (ripulito dal vecchio setup
+  manuale a servizi systemd separati per frankenphp/relay/snapshot, sostituito
+  da questo modello a processi-figli del wrapper): install da zero + 3
+  rilanci idempotenti, `loginctl enable-linger` per la persistenza al boot,
+  HTTP/HTTPS/AdminNeo (`/db`, bloccato da LAN) tutti verificati. Ancora
+  attivo e stabile a distanza di giorni (uptime senza riavvii del wrapper).
+- **macOS**: vedi l'aggiornamento 2026-10-01 qui sotto.
+- ~~Resta da fare: `uninstall.sh`, `frankenphp trust` per il certificato
+  HTTPS locale su Linux~~ - fatti entrambi (commit `3678cbb`, `6747ecd`).
+
+**Aggiornamento 2026-10-01: macOS testato su Mac reale (runner GitHub).**
+
+Nessun Mac fisico disponibile; scartate la VM VMware locale (macOS ospite
+richiede di spegnere Hyper-V/VBS sul PC di sviluppo, e la licenza Apple
+consente la virtualizzazione solo su hardware Apple) e il noleggio Scaleway
+(verifica d'identità troppo onerosa, minimo 24h). Soluzione adottata: i
+**runner macOS di GitHub Actions** - il repo è pubblico, quindi sono gratuiti e
+senza limiti di minuti. Runner `macos-15`, Apple Silicon M1, macOS 15.7.
+
+- **`install-macos.sh` / `uninstall-macos.sh`**: script separati da
+  `install.sh`, perché su macOS cambia quasi ogni passo: Homebrew per MariaDB
+  (`brew services`, utente admin via `unix_socket` dell'utente macOS, niente
+  sudo), binario FrankenPHP `frankenphp-mac-*`, nessun `setcap` (da macOS 10.14
+  le porte <1024 sono libere per i non-root), rimozione dell'attributo di
+  quarantena di Gatekeeper, autorizzazione nel firewall applicativo se acceso,
+  CA locale nel portachiavi di Sistema (`frankenphp trust`), mini-app
+  `~/Applications/OpenSagra.app` con alias sulla Scrivania. bash 3.2 e
+  strumenti BSD (niente `grep -P`, `sed -i` GNU, `ip`, `timeout`).
+- **`.github/workflows/test-macos.yml`** (ogni push al branch): installa,
+  verifica (LaunchAgent attivo, HTTPS anche *senza* `-k`, DB, app, versione),
+  `kill -9` del wrapper → deve ripartire con **un solo** frankenphp figlio del
+  nuovo wrapper, verifica `PHPRC`, rilancio idempotente, disinstallazione
+  completa con backup del DB. **Verde.**
+- Sessioni interattive, attivate da una parola chiave nel messaggio di
+  commit: `[debug-mac]` apre VS Code nel browser (secret `MAC_DEBUG_TOKEN`;
+  l'URL stampato contiene `tkn=root`, da *sostituire* col token);
+  `[desktop-mac]` apre il desktop macOS nel browser (noVNC + tunnel Cloudflare
+  quick, login utente `opensagra` + secret `MAC_VNC_PASSWORD`). Per il desktop
+  servono un utente admin dedicato (la password di `runner` non è modificabile
+  su macOS 15, nemmeno da root o con `sysadminctl` + admin) e il permesso TCC
+  "Registrazione schermo" scritto nel `TCC.db` (SIP è spento sui runner):
+  senza, schermo nero e disconnessione dopo ~10 s. Attenzione: noVNC mostra la
+  sessione di `opensagra`, mentre l'app è installata per `runner`. Le prove a
+  video su `runner` si fanno via SSH (tunnel `cloudflared` verso la porta 22)
+  con `sudo launchctl asuser <uid> … screencapture` e clic simulati via System
+  Events. Gli appunti di noVNC non funzionano con il server VNC di Apple.
+
+**Difetti trovati dal vivo e corretti:**
+
+1. **FrankenPHP orfano dopo un crash del wrapper.** Senza Pdeathsig, dopo un
+   `kill -9` il frankenphp figlio restava vivo (padre = launchd) tenendo
+   `mercure.db` bloccato, e il frankenphp del wrapper riavviato falliva in
+   loop. Il primo test "crash → riparte" passava per un **falso positivo**
+   (il sito rispondeva, servito dall'orfano). Ora il wrapper annota i PID dei
+   figli in `logs/children.pids` e all'avvio chiude i superstiti, solo se
+   eseguono ancora lo stesso binario (`reapStaleChildren`). Vale anche per
+   Linux; su Windows non fa nulla (c'è il Job Object).
+2. **`php.ini` non letto.** La build statica di FrankenPHP per macOS non
+   cerca il file accanto al binario (`upload_max_filesize` restava 2M). Ora
+   `PHPRC` viene passato ai figli (`childEnv`) e ai `php-cli` dell'installer,
+   che fallisce se il file non viene letto.
+3. **LaunchAgent in loop.** `KeepAlive=true` avrebbe riavviato anche
+   un'uscita pulita, compreso "Esci". Ora `KeepAlive/SuccessfulExit=false`,
+   come `Restart=on-failure` di systemd. `bootstrap`/`enable` al posto di
+   `load`/`unload` (deprecati), e mai `bootout` da `setAutostart`, che
+   chiuderebbe il wrapper stesso.
+4. **Doppio clic dopo "Esci" fuori da launchd.** Il lanciatore dell'app ora
+   fa `launchctl kickstart` del LaunchAgent e poi apre solo la finestra di
+   stato.
+5. **"Welcome to Google Chrome" sopra la finestra di stato** al primo avvio
+   (profilo dedicato): aggiunti `--no-first-run --no-default-browser-check`
+   anche su macOS/Linux (Windows li aveva già). Inoltre la pagina di stato è
+   marcata `notranslate`, contro il popup "Traduci" di un Chrome in altra
+   lingua.
+
+**Verificati ok senza modifiche:** alias sulla Scrivania; doppio clic con
+istanza viva → finestra di stato (Chrome in modalità app); finestra di stato
+("Server attivo", pulsanti, "Avvia all'accensione" spuntato); dialogo Esci
+nativo (`osascript`): Annulla lascia OpenSagra attivo, Esci lo ferma con
+codice 0 e launchd non lo riavvia; certificato HTTPS fidato dal sistema.
+
+**Resta da fare (macOS):**
+
+- prove su un **Mac fisico** per quello che il runner non copre: stampante
+  ESC/POS e telefoni in LAN, login automatico + avvio al boot, Safari da un
+  altro dispositivo, Mac Intel (il wrapper `darwin/amd64` compila ma non è mai
+  stato eseguito);
+- ~~**pacchetto di release** per macOS~~ - **fatto (2026-10-02)**:
+  `packaging/make-unix-package.sh` produce `opensagra-<ver>-macos-<arm64|
+  x86_64>.tar.gz` (e i due Linux), con FrankenPHP incluso; `release.yml` li
+  allega alla release (job `unix-packages`). La CI macOS ora installa dal
+  pacchetto, non dalla copia del repo;
+- **icona** dell'app `.app` (oggi generica);
+- unione del branch in `main`: ~~bloccata lato Windows~~ **sbloccata
+  (2026-10-02)**. Il modern mode di Mercure è stato tolto dal branch
+  (`7de48b4`): FrankenPHP v1.12.6 fissato su tutti gli OS e sintassi Mercure
+  classica, quindi `config/mercure.php` è di nuovo **identico a `main`** e
+  un'installazione Windows esistente non cambia comportamento con un
+  aggiornamento leggero. Dettagli e diagnosi in `PIANO-MIGRAZIONE-
+  FRANKENPHP.md`, Fase 4 (php/frankenphp#2685). **Test prima dell'unione
+  fatti (2026-10-02):** Pi aggiornato dal pacchetto linux-aarch64, e
+  installazione da zero + wrapper + disinstallazione su VM Windows 11. Tutto
+  verde, più due bug del disinstaller Windows (preesistenti) corretti. Il
+  wrapper ristrutturato per-OS si comporta su Windows come prima: tray,
+  finestra di stato, Riavvia tutto, Esci, Job Object. Dettagli nel piano di
+  migrazione, Fase 4. **Unico cambio voluto per gli utenti Windows:** solo
+  HTTPS, quindi i dispositivi in LAN senza la CA installata vedono l'avviso del
+  browser.
+
+**Stato CI a fine giornata (2026-10-01):** `test-macos.yml` verde su tutti i
+commit del branch, compresi `8c15d40` (lanciatore + finestra di stato) e
+`112b72d` (questo aggiornamento del piano).
 
 ---
 
