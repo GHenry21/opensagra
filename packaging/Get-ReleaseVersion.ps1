@@ -30,10 +30,15 @@ function Get-ReleaseVersion {
     $ErrorActionPreference = 'Continue'
     try {
         $exactTag = git -C $RepoRoot describe --tags --exact-match HEAD 2>$null
+        $gitExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $prevEap
     }
-    if ($LASTEXITCODE -eq 0 -and $exactTag) {
+    # Il 128 di "nessun tag" resterebbe in $LASTEXITCODE: GitHub Actions chiude
+    # uno step PowerShell con `exit $LASTEXITCODE`, e lo step risultava fallito
+    # anche con l'installer costruito correttamente (visto in CI, 2026-10-02).
+    $global:LASTEXITCODE = 0
+    if ($gitExit -eq 0 -and $exactTag) {
         return ($exactTag.Trim() -replace '^v', '')
     }
     return '0.0.0-dev'
