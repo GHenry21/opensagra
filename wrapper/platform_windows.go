@@ -3,11 +3,13 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -114,10 +116,10 @@ func (j *jobObject) close() { windows.CloseHandle(j.h) }
 // --- conferma uscita: TaskDialog (Vista+), fallback a MessageBox ---
 
 var (
-	_user32          = windows.NewLazySystemDLL("user32.dll")
-	_procMessageBoxW = _user32.NewProc("MessageBoxW")
-	_comctl32        = windows.NewLazySystemDLL("comctl32.dll")
-	_procTaskDialog  = _comctl32.NewProc("TaskDialog")
+	_user32                 = windows.NewLazySystemDLL("user32.dll")
+	_procMessageBoxW        = _user32.NewProc("MessageBoxW")
+	_comctl32               = windows.NewLazySystemDLL("comctl32.dll")
+	_procTaskDialogIndirect = _comctl32.NewProc("TaskDialogIndirect")
 )
 
 const (
@@ -127,6 +129,9 @@ const (
 	_MB_SETFOREGROUND = 0x00010000
 	_MB_TOPMOST       = 0x00040000
 	_IDYES            = 6
+	_IDNO             = 7
+
+	_TDF_ALLOW_DIALOG_CANCELLATION = 0x0008
 
 	_TDCBF_YES_BUTTON = 0x0002 // 0x0001 e' OK_BUTTON
 	_TDCBF_NO_BUTTON  = 0x0004
@@ -151,25 +156,44 @@ func confirmQuit(title, heading, body string) bool {
 
 // taskDialogYesNo: (rispostaSì, riuscito). done=false -> TaskDialog non
 // disponibile, usa il fallback.
+//
+// TaskDialogIndirect, non TaskDialog: la versione semplice non permette di
+// scegliere il pulsante predefinito e Windows metteva il focus su "Sì" -
+// Invio chiudeva OpenSagra (visto su VM, 2026-10-02; il fallback MessageBox
+// e macOS hanno gia' "No"/"Annulla" predefinito). Qui nDefaultButton = IDNO
+// e TDF_ALLOW_DIALOG_CANCELLATION: Esc / la X chiudono come "No".
 func taskDialogYesNo(title, heading, body string) (yes bool, done bool) {
-	if err := _procTaskDialog.Find(); err != nil {
-		return false, false
+	if err := _procTaskDialogIndirect.Find(); err != nil || unsafe.Sizeof(uintptr(0)) != 8 {
+		return false, false // offset sotto calcolati per x64; altrove -> MessageBox
 	}
 	tw, _ := windows.UTF16PtrFromString(title)
 	hw, _ := windows.UTF16PtrFromString(heading)
 	bw, _ := windows.UTF16PtrFromString(body)
+
+	// TASKDIALOGCONFIG e' dichiarata con #pragma pack(1) in commctrl.h: su
+	// x64 i campi NON sono allineati e una struct Go non la rappresenta.
+	// Si scrive il buffer a mano, offset x64 (sizeof = 160).
+	var cfg [160]byte
+	put32 := func(off int, v uint32) { binary.LittleEndian.PutUint32(cfg[off:], v) }
+	put64 := func(off int, v uintptr) { binary.LittleEndian.PutUint64(cfg[off:], uint64(v)) }
+	put32(0, uint32(len(cfg)))                    // cbSize
+	put32(20, _TDF_ALLOW_DIALOG_CANCELLATION)     // dwFlags
+	put32(24, _TDCBF_YES_BUTTON|_TDCBF_NO_BUTTON) // dwCommonButtons
+	put64(28, uintptr(unsafe.Pointer(tw)))        // pszWindowTitle
+	put64(36, _TD_WARNING_ICON)                   // pszMainIcon
+	put64(44, uintptr(unsafe.Pointer(hw)))        // pszMainInstruction
+	put64(52, uintptr(unsafe.Pointer(bw)))        // pszContent
+	put32(72, _IDNO)                              // nDefaultButton
+
 	var pressed int32
-	// TaskDialog(hwndParent, hInstance, pszWindowTitle, pszMainInstruction,
-	//   pszContent, dwCommonButtons, pszIcon, *pnButton) HRESULT
-	hr, _, _ := _procTaskDialog.Call(
-		0, 0,
-		uintptr(unsafe.Pointer(tw)),
-		uintptr(unsafe.Pointer(hw)),
-		uintptr(unsafe.Pointer(bw)),
-		uintptr(_TDCBF_YES_BUTTON|_TDCBF_NO_BUTTON),
-		uintptr(_TD_WARNING_ICON),
-		uintptr(unsafe.Pointer(&pressed)),
-	)
+	// TaskDialogIndirect(*TASKDIALOGCONFIG, *pnButton, *pnRadioButton,
+	//   *pfVerificationFlagChecked) HRESULT
+	hr, _, _ := _procTaskDialogIndirect.Call(uintptr(unsafe.Pointer(&cfg[0])), uintptr(unsafe.Pointer(&pressed)), 0, 0)
+	// I puntori ai testi sono stati scritti nel buffer come numeri: il GC non
+	// li vede piu' come riferimenti, vanno tenuti vivi fino a dopo la chiamata.
+	runtime.KeepAlive(tw)
+	runtime.KeepAlive(hw)
+	runtime.KeepAlive(bw)
 	if hr != 0 { // non S_OK
 		return false, false
 	}

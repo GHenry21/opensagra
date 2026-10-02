@@ -444,7 +444,36 @@ function Remove-FrankenPHP {
     # Windows lo rifiuta o si blocca, si prosegue comunque: non vale
     # bloccare tutta la disinstallazione per un certificato residuo innocuo.
     $caRoot = Join-Path $env:APPDATA 'Caddy\pki\authorities\local\root.crt'
-    if (Test-Path $caRoot) {
+
+    # Installazioni dal 2026-10-02: la CA sta nello store del COMPUTER
+    # (Register-LocalCaTrust in install.ps1). Da amministratore la rimozione e'
+    # silenziosa. Solo il certificato con la stessa impronta della CA di
+    # OpenSagra, mai altre "Caddy Local Authority" (es. un Caddy di sviluppo).
+    $caFiles = @($caRoot) + @(Get-ChildItem 'C:\Users\*\AppData\Roaming\Caddy\pki\authorities\local\root.crt' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $thumbs = $caFiles | Where-Object { Test-Path $_ } | Select-Object -Unique | ForEach-Object {
+        try { [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($_).Thumbprint } catch {}
+    }
+    foreach ($tp in $thumbs) {
+        try {
+            $lm = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
+            $lm.Open('ReadWrite')
+            try { $lm.Certificates.Find('FindByThumbprint', $tp, $false) | ForEach-Object { $lm.Remove($_) } } finally { $lm.Close() }
+        } catch {}
+    }
+
+    # Installazioni precedenti: la CA l'aveva messa FrankenPHP nello store
+    # dell'UTENTE, la cui rimozione Windows presidia con un dialogo Si'/No (e
+    # che dentro l'exe si e' gia' bloccata, vedi sotto). Si tenta SOLO se il
+    # certificato c'e' davvero, cosi' le installazioni nuove non vedono alcun
+    # dialogo in disinstallazione.
+    $inUserStore = $false
+    try {
+        $cu = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+        $cu.Open('ReadOnly')
+        try { $inUserStore = [bool]($thumbs | Where-Object { $cu.Certificates.Find('FindByThumbprint', $_, $false).Count -gt 0 }) } finally { $cu.Close() }
+    } catch {}
+
+    if ($inUserStore -and (Test-Path $caRoot)) {
         try {
             $job = Start-Job -ScriptBlock {
                 param($path)

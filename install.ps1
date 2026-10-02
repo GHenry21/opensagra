@@ -764,10 +764,19 @@ function New-CaddyConfig {
     # Mercure - stampa lato server/PHP, mai lato browser), quindi quel motivo
     # non c'e' piu'. Rimuovendo `auto_https disable_redirects`, Caddy aggiunge
     # da solo un redirect 308 da :80 a https:// per ogni host elencato sotto.
+    #
+    # skip_install_trust: FrankenPHP NON prova a installare da solo la propria
+    # CA nel trust store dell'UTENTE. Su Windows quel tentativo fa comparire
+    # l'"Avviso di sicurezza" (Si'/No) e blocca Caddy finche' qualcuno non
+    # risponde (porte 80/443 chiuse) - e il dialogo finiva DIETRO la finestra
+    # dell'installer (visto su VM, 2026-10-02). La CA la importa invece
+    # Register-LocalCaTrust nel trust store del COMPUTER (LocalMachine\Root):
+    # l'installer e' gia' elevato, quindi in silenzio, nessun dialogo.
     $caddyPath = Join-Path $Script:InstallPath 'Caddyfile'
     @"
 {
 	frankenphp
+	skip_install_trust
 }
 
 $httpsHosts {
@@ -955,42 +964,49 @@ function Start-Wrapper {
     }
 }
 
-function Register-LocalCaTrust {
-    # Tentativo di anticipare la finestra di sicurezza certificati di Windows
-    # ("vuoi installare questo certificato?") che Caddy/FrankenPHP fa apparire
-    # da solo alla prima connessione HTTPS reale (tls internal), generando E
-    # installando la CA locale tramite la stessa API di wizard che Windows
-    # presidia con quel dialogo - confermato testando su una VM pulita
-    # (2026-09-12). `frankenphp trust` e' il comando ufficiale pensato apposta
-    # per "il processo server gira come utente non privilegiato" (il nostro
-    # caso: il wrapper fa girare FrankenPHP de-elevato) - se arriva PRIMA che
-    # qualcuno apra l'app in un browser, con un po' di fortuna Caddy trova la
-    # CA gia' fidata e salta il proprio tentativo (quello con il dialogo).
-    # Best-effort: se non funziona, resta comunque il vecchio comportamento
-    # (un dialogo una-tantum alla prima apertura) - non fa fallire l'installer.
-    $frankenphp = Join-Path $Script:FrankenDir 'frankenphp.exe'
-    if (-not (Test-Path $frankenphp)) { return }
+function Find-LocalCaRootFile {
+    # La CA la genera FrankenPHP al primo avvio (tls internal) nel profilo
+    # dell'utente con cui gira - il wrapper, de-elevato, nella sessione
+    # interattiva. Di norma e' lo stesso utente dell'installer elevato
+    # ($env:APPDATA), ma se l'elevazione e' avvenuta con le credenziali di un
+    # ALTRO amministratore il profilo e' diverso: si cerca quindi il root.crt
+    # piu' recente fra tutti i profili.
+    $candidates = @(Join-Path $env:APPDATA 'Caddy\pki\authorities\local\root.crt')
+    $candidates += Get-ChildItem 'C:\Users\*\AppData\Roaming\Caddy\pki\authorities\local\root.crt' -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName }
+    $candidates | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTime } -Descending | Select-Object -First 1
+}
 
-    $adminUp = $false
-    for ($i = 0; $i -lt 20; $i++) {
-        try {
-            Invoke-WebRequest -Uri 'http://127.0.0.1:2019/config/' -TimeoutSec 2 -UseBasicParsing | Out-Null
-            $adminUp = $true
-            break
-        } catch {
-            Start-Sleep -Seconds 1
-        }
+function Register-LocalCaTrust {
+    # Il Caddyfile ha skip_install_trust (vedi New-CaddyConfig): FrankenPHP non
+    # tocca piu' nessun trust store, quindi nessun "Avviso di sicurezza" di
+    # Windows. La CA la importa qui l'installer, gia' elevato, nel trust store
+    # del COMPUTER (LocalMachine\Root): da amministratore e' un'operazione
+    # silenziosa, e Edge/Chrome/Firefox la riconoscono. Prima (fino al
+    # 2026-10-02) FrankenPHP la installava nello store dell'UTENTE, che
+    # Windows presidia con un dialogo Si'/No: Caddy restava bloccato fino alla
+    # risposta e il dialogo finiva dietro la finestra dell'installer.
+    # Best-effort: se non riesce, il browser mostra l'avviso al primo accesso.
+    $rootFile = $null
+    for ($i = 0; $i -lt 30 -and -not $rootFile; $i++) {
+        $rootFile = Find-LocalCaRootFile
+        if (-not $rootFile) { Start-Sleep -Seconds 1 }
     }
-    if (-not $adminUp) {
-        "[$(Get-Date -Format o)] Register-LocalCaTrust: admin API di Caddy (127.0.0.1:2019) non risponde dopo 20s, salto." | Out-File $Script:LogPath -Append -Encoding utf8
+    if (-not $rootFile) {
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: root.crt della CA locale non trovato dopo 30s, salto." | Out-File $Script:LogPath -Append -Encoding utf8
+        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo accesso (dettagli in $Script:LogPath)"
         return
     }
-
-    $trustResult = Invoke-NativeCaptured -FilePath $frankenphp -ArgumentList @('trust', '--address', '127.0.0.1:2019')
-    if ($trustResult.ExitCode -eq 0) {
+    try {
+        $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($rootFile)
+        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
+        $store.Open('ReadWrite')
+        try { $store.Add($cert) } finally { $store.Close() }
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: CA $($cert.Subject) ($($cert.Thumbprint)) importata in LocalMachine\Root da $rootFile" | Out-File $Script:LogPath -Append -Encoding utf8
         Add-InstallChecklistItem 'Certificato locale HTTPS fidato'
-    } else {
-        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo avvio (dettagli in $Script:LogPath)"
+    } catch {
+        "[$(Get-Date -Format o)] Register-LocalCaTrust: importazione fallita: $($_.Exception.Message)" | Out-File $Script:LogPath -Append -Encoding utf8
+        Add-InstallChecklistItem "Certificato locale HTTPS: da confermare al primo accesso (dettagli in $Script:LogPath)"
     }
 }
 
