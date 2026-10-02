@@ -1,0 +1,125 @@
+name: Test installer grafico macOS
+
+# Prova installer/ (finestra Go + WKWebView) su un Mac Apple Silicon pulito -
+# runner GitHub macos-15, lo stesso di test-macos.yml. L'installer si compila
+# QUI (cgo: la webview non si cross-compila da Linux), si impacchetta in un
+# bundle "Installa OpenSagra.app" dentro la cartella del pacchetto di release
+# e si lancia con `open`, come un doppio click nel Finder: l'installazione
+# vera di install-macos.sh parte dalla finestra. Il runner ha sudo senza
+# password, quindi la schermata della password non compare (la si fotografa
+# a parte con -demo password).
+#
+# Gli screenshot (screencapture) finiscono negli artifact del job.
+
+on:
+  push:
+    branches: [gui-installer]
+  workflow_dispatch: {}
+
+jobs:
+  gui-install:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: |
+            wrapper/go.sum
+            installer/go.sum
+
+      - name: Compila l'installer grafico (cgo + WKWebView)
+        working-directory: installer
+        run: |
+          go vet ./...
+          CGO_ENABLED=1 go build -trimpath -o opensagra-installer .
+          file opensagra-installer
+
+      - name: Pacchetto macOS arm64 + bundle "Installa OpenSagra.app"
+        run: |
+          bash packaging/make-unix-package.sh macos arm64
+          mkdir -p "$RUNNER_TEMP/pkg"
+          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
+          pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
+          app="$pkg/Installa OpenSagra.app"
+          mkdir -p "$app/Contents/MacOS"
+          cp installer/opensagra-installer "$app/Contents/MacOS/"
+          cat > "$app/Contents/Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>opensagra-installer</string>
+            <key>CFBundleIdentifier</key><string>com.opensagra.installer</string>
+            <key>CFBundleName</key><string>Installa OpenSagra</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>13.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          EOF
+          plutil -lint "$app/Contents/Info.plist"
+          ls -la "$pkg"
+          echo "PKG=$pkg" >> "$GITHUB_ENV"
+          echo "APP=$app" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/shots"
+          echo "SHOTS=$RUNNER_TEMP/shots" >> "$GITHUB_ENV"
+
+      - name: Screenshot delle schermate demo (password, errore)
+        run: |
+          bin="$APP/Contents/MacOS/opensagra-installer"
+          "$bin" -demo password & pid=$!
+          sleep 5; screencapture -x "$SHOTS/demo-password.png" || echo "::warning::screencapture fallito"
+          kill $pid 2>/dev/null || true; sleep 1
+          "$bin" -demo error & pid=$!
+          sleep 9; screencapture -x "$SHOTS/demo-error.png" || true
+          kill $pid 2>/dev/null || true
+
+      - name: Installazione reale dalla finestra (open, come un doppio click)
+        timeout-minutes: 25
+        run: |
+          ( i=0; while :; do sleep 5; i=$((i+1)); screencapture -x "$SHOTS/real-$(printf %03d $i).png" 2>/dev/null || true; done ) &
+          shooter=$!
+          start=$(date +%s)
+          open -W -n "$APP"
+          kill $shooter 2>/dev/null || true
+          echo "finestra chiusa dopo $(( $(date +%s) - start )) s"
+          tail -n 5 /tmp/opensagra-install.log
+          # A buon fine l'installer si chiude da solo; in errore resterebbe
+          # aperto su "Chiudi" e il passo andrebbe in timeout.
+          grep -q 'Installazione completata' /tmp/opensagra-install.log
+
+      - name: Verifica installazione
+        run: |
+          set -x
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|pid'
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)
+          echo "https://localhost -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          "$HOME/.frankenphp/frankenphp" version
+          test -d "$HOME/Applications/OpenSagra.app"
+          # Nessun residuo dell'installer (sostituto di sudo, askpass).
+          ls -d "${TMPDIR:-/tmp}"/opensagra-installer-* 2>/dev/null && exit 1 || true
+
+      - name: Log
+        if: always()
+        run: |
+          [ -f /tmp/opensagra-install.log ] && cp /tmp/opensagra-install.log "$SHOTS/" || true
+          ls -la "$SHOTS" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gui-installer-macos
+          path: ${{ env.SHOTS }}
+          retention-days: 14
