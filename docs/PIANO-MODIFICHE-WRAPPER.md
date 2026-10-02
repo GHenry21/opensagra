@@ -286,21 +286,22 @@ codice 0 e launchd non lo riavvia; certificato HTTPS fidato dal sistema.
   ESC/POS e telefoni in LAN, login automatico + avvio al boot, Safari da un
   altro dispositivo, Mac Intel (il wrapper `darwin/amd64` compila ma non è mai
   stato eseguito);
-- **pacchetto di release** per macOS (archivio con app, `vendor/` e i due
-  wrapper darwin) generato da `release.yml`;
+- ~~**pacchetto di release** per macOS~~ - **fatto (2026-10-02)**:
+  `packaging/make-unix-package.sh` produce `opensagra-<ver>-macos-<arm64|
+  x86_64>.tar.gz` (e i due Linux), con FrankenPHP incluso; `release.yml` li
+  allega alla release (job `unix-packages`). La CI macOS ora installa dal
+  pacchetto, non dalla copia del repo;
 - **icona** dell'app `.app` (oggi generica);
-- unione del branch in `main`: **bloccata lato Windows**. Il branch porta
-  anche la migrazione di Mercure al modern mode (codice condiviso:
-  `config/mercure.php`, Caddyfile di `install.ps1`), e a oggi la build "latest"
-  di FrankenPHP per Windows **ignora** `issuer`/`resource_identifier` (vedi
-  `PIANO-MIGRAZIONE-FRANKENPHP.md`, Fase 4, "Migrazione a Mercure modern
-  mode", punto *Aperto*). Prima dell'unione servono: una build Windows che li
-  capisca, poi un test su VM sia dell'installazione da zero sia
-  dell'**aggiornamento leggero** sopra un'installazione esistente (vecchio
-  Caddyfile e vecchio FrankenPHP con il nuovo `mercure.php`: il realtime
-  rischia di rompersi, se serve l'aggiornamento dovrà rigenerare il Caddyfile).
-  `main` è già stato unito nel branch (commit `cef6d5c`, nessun conflitto
-  reale), quindi l'unione inversa resterà semplice.
+- unione del branch in `main`: ~~bloccata lato Windows~~ **sbloccata
+  (2026-10-02)**. Il modern mode di Mercure è stato tolto dal branch
+  (`7de48b4`): FrankenPHP v1.12.6 fissato su tutti gli OS e sintassi Mercure
+  classica, quindi `config/mercure.php` è di nuovo **identico a `main`** e
+  un'installazione Windows esistente non cambia comportamento con un
+  aggiornamento leggero. Dettagli e diagnosi in `PIANO-MIGRAZIONE-
+  FRANKENPHP.md`, Fase 4 (php/frankenphp#2685). Restano da provare prima
+  dell'unione: `install.ps1` da zero su VM Windows (FrankenPHP dallo zip
+  incluso, Caddyfile solo HTTPS) e il rilancio dell'installer sul Pi (che oggi
+  ha la "latest" in modern mode e va riportato alla v1.12.6).
 
 **Stato CI a fine giornata (2026-10-01):** `test-macos.yml` verde su tutti i
 commit del branch, compresi `8c15d40` (lanciatore + finestra di stato) e

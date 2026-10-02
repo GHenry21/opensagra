@@ -20,7 +20,19 @@
 
 function Get-ReleaseVersion {
     param([Parameter(Mandatory)][string]$RepoRoot)
-    $exactTag = git -C $RepoRoot describe --tags --exact-match HEAD 2>$null
+    # Fuori da un tag `git describe` scrive "fatal: no tag exactly matches" su
+    # stderr: in Windows PowerShell 5.1, con $ErrorActionPreference='Stop' del
+    # chiamante (make-installer.ps1), quella riga diventa un NativeCommandError
+    # TERMINANTE nonostante 2>$null (visto in CI, 2026-10-02: la release lanciata
+    # a mano su un branch falliva qui). Il caso "nessun tag" e' normale, non un
+    # errore: Continue solo per questa chiamata, l'esito si legge da $LASTEXITCODE.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $exactTag = git -C $RepoRoot describe --tags --exact-match HEAD 2>$null
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
     if ($LASTEXITCODE -eq 0 -and $exactTag) {
         return ($exactTag.Trim() -replace '^v', '')
     }
