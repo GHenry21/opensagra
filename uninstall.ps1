@@ -93,9 +93,16 @@ $Script:CurrentExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModul
 if ($Script:CurrentExe -like "$Script:InstallPath\*") {
     $tempCopy = Join-Path $env:TEMP ('opensagra-uninstall-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.exe')
     Copy-Item $Script:CurrentExe $tempCopy -Force
-    $relaunchArgs = @()
-    if ($Force) { $relaunchArgs += '-Force' }
-    Start-Process -FilePath $tempCopy -ArgumentList $relaunchArgs
+    # -ArgumentList solo se c'e' davvero qualcosa da passare: Windows
+    # PowerShell 5.1 rifiuta un array vuoto ("Impossibile convalidare
+    # l'argomento sul parametro 'ArgumentList'") - bug reale trovato su VM il
+    # 2026-10-02: la disinstallazione da Impostazioni > App (senza -Force, il
+    # caso normale) si fermava qui con un errore, senza togliere nulla.
+    if ($Force) {
+        Start-Process -FilePath $tempCopy -ArgumentList '-Force'
+    } else {
+        Start-Process -FilePath $tempCopy
+    }
     # NIENTE -Wait: bug reale confermato dal vivo - se questo processo resta
     # in attesa, il SUO file .exe (dentro C:\opensagra) resta bloccato per
     # tutta la durata, esattamente mentre la copia in %TEMP% prova a
@@ -358,6 +365,19 @@ function Stop-OpenSagraWrapper {
     }
 
     Get-Process -Name 'opensagra-wrapper' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    # Finestra di stato del wrapper ancora aperta: e' un browser Chromium in
+    # modalita' app con il profilo DENTRO l'installazione
+    # (<InstallPath>\logs\.statuswin, vedi appWindowCmd nel wrapper) - finche'
+    # e' viva tiene bloccati quei file e Remove-AppFiles lascia C:\opensagra
+    # in piedi (bug reale su VM, 2026-10-02: 168 file rimasti dopo una
+    # disinstallazione fatta col pannello aperto). Si chiudono SOLO i processi
+    # del browser che usano quel profilo, mai le altre finestre dell'utente.
+    $statusProfile = Join-Path $Script:InstallPath 'logs\.statuswin'
+    Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe' OR Name='brave.exe' OR Name='vivaldi.exe' OR Name='chromium.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*$statusProfile*" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
     # Difensivo: nel caso un'installazione precedente sia stata interrotta a
     # meta' (install.ps1 lo disiscrive da solo a fine passo, in teoria non
     # dovrebbe mai essere qui).

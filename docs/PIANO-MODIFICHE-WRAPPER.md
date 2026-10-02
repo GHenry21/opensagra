@@ -298,10 +298,15 @@ codice 0 e launchd non lo riavvia; certificato HTTPS fidato dal sistema.
   classica, quindi `config/mercure.php` è di nuovo **identico a `main`** e
   un'installazione Windows esistente non cambia comportamento con un
   aggiornamento leggero. Dettagli e diagnosi in `PIANO-MIGRAZIONE-
-  FRANKENPHP.md`, Fase 4 (php/frankenphp#2685). Restano da provare prima
-  dell'unione: `install.ps1` da zero su VM Windows (FrankenPHP dallo zip
-  incluso, Caddyfile solo HTTPS) e il rilancio dell'installer sul Pi (che oggi
-  ha la "latest" in modern mode e va riportato alla v1.12.6).
+  FRANKENPHP.md`, Fase 4 (php/frankenphp#2685). **Test prima dell'unione
+  fatti (2026-10-02):** Pi aggiornato dal pacchetto linux-aarch64, e
+  installazione da zero + wrapper + disinstallazione su VM Windows 11. Tutto
+  verde, più due bug del disinstaller Windows (preesistenti) corretti. Il
+  wrapper ristrutturato per-OS si comporta su Windows come prima: tray,
+  finestra di stato, Riavvia tutto, Esci, Job Object. Dettagli nel piano di
+  migrazione, Fase 4. **Unico cambio voluto per gli utenti Windows:** solo
+  HTTPS, quindi i dispositivi in LAN senza la CA installata vedono l'avviso del
+  browser.
 
 **Stato CI a fine giornata (2026-10-01):** `test-macos.yml` verde su tutti i
 commit del branch, compresi `8c15d40` (lanciatore + finestra di stato) e
