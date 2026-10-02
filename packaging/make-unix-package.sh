@@ -80,7 +80,9 @@ mkdir -p "$stage"
 (cd "$REPO_ROOT" && git ls-files -z --cached --others --exclude-standard) |
     while IFS= read -r -d '' rel; do
         case "$rel" in
-            .github/*|.claude/*|e2e/*|docs/*|node_modules/*|wrapper/*|packaging/*|private/*) continue ;;
+            # installer/: sorgente Go dell'installer grafico (branch gui-installer) -
+            # come per wrapper/, nel pacchetto andra' solo il binario compilato.
+            .github/*|.claude/*|e2e/*|docs/*|node_modules/*|wrapper/*|installer/*|packaging/*|private/*) continue ;;
             *.ps1) continue ;; # installer/uninstaller Windows: non servono qui
             package.json|package-lock.json|playwright.config.js|bt.html|"navbar example.html"|.gitignore|.gitattributes) continue ;;
         esac
