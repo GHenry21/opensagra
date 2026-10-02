@@ -4,10 +4,10 @@
 // sanno di avere una GUI davanti (vedi progress.go per come si legge il loro
 // output).
 //
-// Uso (doppio click, nessun argomento): cerca lo script accanto a se' - o,
-// dentro un bundle .app, accanto al bundle o in Contents/Resources/payload -
-// e lo esegue come utente normale; le richieste di password di sudo passano
-// dalla finestra (sudo_unix.go).
+// Uso (doppio click, nessun argomento): cerca lo script - su Linux accanto a
+// se', su macOS dentro il bundle in Contents/Resources/payload (vedi
+// findScript) - e lo esegue come utente normale; le richieste di password di
+// sudo passano dalla finestra (sudo_unix.go).
 //
 // Per lavorare sulla grafica senza installare nulla (anche da Windows):
 //
@@ -151,21 +151,27 @@ func findScript(override string) (string, error) {
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
-	// App Translocation di macOS: un'app scaricata (attributo quarantine) e
-	// aperta senza essere stata spostata gira da una copia in un percorso
-	// casuale di sola lettura - i file accanto al bundle li' non ci sono.
-	if strings.Contains(exe, "/AppTranslocation/") {
-		return "", errors.New("macOS ha aperto l'installer da una copia temporanea. Sposta la cartella estratta (per esempio sulla Scrivania) e riapri l'installer da li'")
-	}
-	dirs := []string{filepath.Dir(exe)}
+	// macOS: il pacchetto sta DENTRO il bundle (Contents/Resources/payload),
+	// non accanto - per due motivi:
+	//   - App Translocation: un'app scaricata (attributo quarantine) e aperta
+	//     senza essere stata spostata gira da una copia in un percorso casuale
+	//     di sola lettura, che contiene solo il bundle. Lo script legge e basta
+	//     dalla cartella del pacchetto, quindi la sola lettura non e' un problema.
+	//   - install-macos.sh copia tutto il contenuto della sua cartella in
+	//     ~/opensagra: un bundle accanto agli script finirebbe copiato anche lui.
+	var dirs []string
 	if i := strings.Index(exe, ".app/Contents/MacOS/"); i >= 0 {
-		bundle := exe[:i+len(".app")]
-		dirs = append(dirs, filepath.Join(bundle, "Contents", "Resources", "payload"), filepath.Dir(bundle))
+		dirs = append(dirs, filepath.Join(exe[:i+len(".app")], "Contents", "Resources", "payload"))
+	} else {
+		dirs = append(dirs, filepath.Dir(exe)) // Linux: eseguibile accanto a install.sh
 	}
 	for _, d := range dirs {
 		if p := filepath.Join(d, scriptName()); fileExists(p) {
 			return p, nil
 		}
+	}
+	if strings.Contains(exe, "/AppTranslocation/") {
+		return "", errors.New("macOS ha aperto l'installer da una copia temporanea incompleta: trascina l'app sulla Scrivania e riaprila da li'")
 	}
 	return "", fmt.Errorf("non trovo %s accanto all'installer: estrai tutto l'archivio e lancia l'installer dalla cartella estratta", scriptName())
 }

@@ -3,9 +3,12 @@ name: Test installer grafico macOS
 # Prova installer/ (finestra Go + WKWebView) su un Mac Apple Silicon pulito -
 # runner GitHub macos-15, lo stesso di test-macos.yml. L'installer si compila
 # QUI (cgo: la webview non si cross-compila da Linux), si impacchetta in un
-# bundle "Installa OpenSagra.app" dentro la cartella del pacchetto di release
-# e si lancia con `open`, come un doppio click nel Finder: l'installazione
-# vera di install-macos.sh parte dalla finestra. Il runner ha sudo senza
+# bundle "Installa OpenSagra.app" con DENTRO il pacchetto di release
+# (Contents/Resources/payload - vedi findScript in installer/main.go), zippato
+# come lo scaricherebbe un utente, e si lancia con `open` come un doppio click
+# nel Finder: l'installazione vera di install-macos.sh parte dalla finestra.
+# Prima, su una copia "scaricata" (attributo quarantine), si fotografano i
+# messaggi di Gatekeeper per la guida utente: l'app non e' firmata da Apple. Il runner ha sudo senza
 # password, quindi la schermata della password non compare (la si fotografa
 # a parte con -demo password).
 #
@@ -47,15 +50,16 @@ jobs:
           CGO_ENABLED=1 go build -trimpath -o opensagra-installer .
           file opensagra-installer
 
-      - name: Pacchetto macOS arm64 + bundle "Installa OpenSagra.app"
+      - name: Pacchetto macOS arm64 + bundle "Installa OpenSagra.app" (zip)
         run: |
           bash packaging/make-unix-package.sh macos arm64
-          mkdir -p "$RUNNER_TEMP/pkg"
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/build"
           tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
           pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
-          app="$pkg/Installa OpenSagra.app"
-          mkdir -p "$app/Contents/MacOS"
+          app="$RUNNER_TEMP/build/Installa OpenSagra.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/payload"
           cp installer/opensagra-installer "$app/Contents/MacOS/"
+          cp -Rp "$pkg/." "$app/Contents/Resources/payload/"
           cat > "$app/Contents/Info.plist" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -69,9 +73,11 @@ jobs:
           </dict></plist>
           EOF
           plutil -lint "$app/Contents/Info.plist"
-          ls -la "$pkg"
-          echo "PKG=$pkg" >> "$GITHUB_ENV"
+          # ditto: lo zip "alla Apple" (mantiene permessi e attributi del bundle)
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip"
+          ls -la "$RUNNER_TEMP"/*.zip
           echo "APP=$app" >> "$GITHUB_ENV"
+          echo "ZIP=$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/shots"
           echo "SHOTS=$RUNNER_TEMP/shots" >> "$GITHUB_ENV"
 
@@ -84,6 +90,36 @@ jobs:
           "$bin" -demo error & pid=$!
           sleep 9; screencapture -x "$SHOTS/demo-error.png" || true
           kill $pid 2>/dev/null || true
+
+      # Simula il download da un browser: zip estratto in ~/Downloads con
+      # l'attributo com.apple.quarantine (quello che Safari/Chrome mettono e
+      # Archive Utility propaga). Gatekeeper blocca l'app non notarizzata: si
+      # fotografa il messaggio e la pagina Privacy e sicurezza con "Apri
+      # comunque". Lingua di sistema in italiano, come per i nostri utenti.
+      - name: Gatekeeper - screenshot per la guida (app "scaricata")
+        continue-on-error: true
+        run: |
+          defaults write -g AppleLanguages -array it-IT
+          defaults write -g AppleLocale it_IT
+          killall cfprefsd CoreServicesUIAgent 2>/dev/null || true
+          dl="$HOME/Downloads/gk"; rm -rf "$dl"; mkdir -p "$dl"
+          ditto -x -k "$ZIP" "$dl"
+          q="0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)"
+          xattr -w -r com.apple.quarantine "$q" "$dl/Installa OpenSagra.app"
+          xattr -l "$dl/Installa OpenSagra.app" | head -3
+          spctl --assess --type execute -vv "$dl/Installa OpenSagra.app" 2>&1 || true
+          open "$dl/Installa OpenSagra.app" || true
+          sleep 6; screencapture -x "$SHOTS/gatekeeper-1-avviso.png"
+          killall CoreServicesUIAgent 2>/dev/null || true
+          open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension" || true
+          sleep 8; screencapture -x "$SHOTS/gatekeeper-2-privacy.png"
+          # "Apri comunque" sta in fondo alla pagina: si scorre con la tastiera.
+          osascript -e 'tell application "System Events" to key code 119' 2>/dev/null || true
+          sleep 3; screencapture -x "$SHOTS/gatekeeper-3-apri-comunque.png"
+          killall "System Settings" 2>/dev/null || true
+          pgrep -fl opensagra-installer && echo "::warning::l'installer quarantinato e' partito?!" || echo "bloccato da Gatekeeper, come atteso"
+          pkill -f opensagra-installer || true
+          rm -rf "$dl"
 
       - name: Installazione reale dalla finestra (open, come un doppio click)
         timeout-minutes: 25
