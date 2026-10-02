@@ -54,13 +54,21 @@ jobs:
           go-version-file: wrapper/go.mod
           cache-dependency-path: wrapper/go.sum
 
-      - name: Compila il wrapper (darwin/arm64)
+      - name: go vet del wrapper
         working-directory: wrapper
-        env:
-          CGO_ENABLED: "0"
+        run: go vet ./...
+
+      # Si installa dal PACCHETTO DI RELEASE (come un utente), non dalla copia
+      # del repo: copre make-unix-package.sh e il FrankenPHP incluso (nessun
+      # download all'installazione).
+      - name: Costruisci ed estrai il pacchetto macOS arm64
         run: |
-          go vet ./...
-          go build -o opensagra-wrapper-darwin-arm64 .
+          bash packaging/make-unix-package.sh macos arm64
+          mkdir -p "$RUNNER_TEMP/pkg"
+          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
+          pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
+          ls "$pkg" "$pkg/frankenphp" "$pkg/wrapper"
+          echo "PKG=$pkg" >> "$GITHUB_ENV"
 
       - name: Ambiente del runner
         run: |
@@ -71,7 +79,7 @@ jobs:
 
       - name: install-macos.sh (prima installazione)
         timeout-minutes: 25
-        run: bash ./install-macos.sh
+        run: bash "$PKG/install-macos.sh"
 
       - name: Verifica installazione
         run: |
@@ -92,6 +100,10 @@ jobs:
           v=$(cat "$HOME/opensagra/config/.installed_version"); echo "versione installata: $v"
           [ -n "$v" ]
           test ! -e "$HOME/opensagra/VERSION"
+          # FrankenPHP: la versione fissata, presa dal pacchetto (nessun download)
+          "$HOME/.frankenphp/frankenphp" version | grep -E '(^| |v)1\.12\.6( |$)'
+          if grep -q 'Scarico FrankenPHP' /tmp/opensagra-install.log; then echo "::error::FrankenPHP scaricato invece di usare quello del pacchetto"; exit 1; fi
+          test ! -e "$HOME/opensagra/frankenphp"
 
       - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
         run: |
@@ -141,7 +153,7 @@ jobs:
       - name: install-macos.sh (rilancio, deve essere idempotente)
         timeout-minutes: 15
         run: |
-          bash ./install-macos.sh
+          bash "$PKG/install-macos.sh"
           curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
 
       - name: Log
@@ -261,7 +273,7 @@ jobs:
       - name: uninstall-macos.sh
         if: always()
         run: |
-          bash "$HOME/opensagra/uninstall-macos.sh" --force || bash ./uninstall-macos.sh --force
+          bash "$HOME/opensagra/uninstall-macos.sh" --force || bash "$PKG/uninstall-macos.sh" --force
           set -x
           # (`! cmd` non fa fallire lo step sotto set -e: si usa test ! / if)
           test ! -e "$HOME/opensagra"

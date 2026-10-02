@@ -5,6 +5,9 @@ name: Release
 # "v*" - stessa identica pipeline usata in locale (wrapper/build.ps1 +
 # packaging/make-installer.ps1 + make-uninstaller.ps1), nessuna logica
 # duplicata qui dentro: se cambia il modo di impacchettare, cambia solo li'.
+# Il job unix-packages allega anche i pacchetti Linux/macOS
+# (packaging/make-unix-package.sh). Entrambi includono FrankenPHP della
+# versione fissata in packaging/frankenphp.sha256.
 
 on:
   push:
@@ -114,3 +117,60 @@ jobs:
             opensagra-uninstaller.exe
             opensagra-update.zip
           generate_release_notes: true
+
+  # Pacchetti Linux/macOS (packaging/make-unix-package.sh): un archivio per
+  # OS/architettura con codice app, vendor/, wrapper e FrankenPHP della versione
+  # fissata (impronta verificata: se FrankenPHP ha ricompilato l'asset, fallisce
+  # QUESTO job, non l'installazione di un utente). Runner Linux per tutti: il
+  # wrapper si cross-compila (pure Go) e FrankenPHP si scarica soltanto.
+  unix-packages:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: linux, arch: x86_64 }
+          - { os: linux, arch: aarch64 }
+          - { os: macos, arch: arm64 }
+          - { os: macos, arch: x86_64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tag esatto su HEAD -> file VERSION del pacchetto
+
+      - name: Versione FrankenPHP coerente tra installer e packaging/frankenphp.sha256
+        run: |
+          lock=$(sed -n 's/^#[[:space:]]*version:[[:space:]]*\([^[:space:]]*\).*/\1/p' packaging/frankenphp.sha256)
+          echo "lock: $lock"
+          grep -q "^FRANKENPHP_VERSION=\"$lock\"" install.sh
+          grep -q "^FRANKENPHP_VERSION=\"$lock\"" install-macos.sh
+          grep -q "^\$Script:FrankenPhpVersion = '$lock'" install.ps1
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Costruisci il pacchetto ${{ matrix.target.os }}-${{ matrix.target.arch }}
+        run: bash packaging/make-unix-package.sh ${{ matrix.target.os }} ${{ matrix.target.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opensagra-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: opensagra-*-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz
+          retention-days: 30
+
+      - name: Allega alla Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: opensagra-*-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz
