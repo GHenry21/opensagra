@@ -13,6 +13,12 @@ name: Test installer grafico macOS
 # a parte con -demo password).
 #
 # Gli screenshot (screencapture) finiscono negli artifact del job.
+#
+# Con "[desktop-mac]" nel messaggio del commit, al posto dell'installazione
+# automatica si apre il desktop del Mac nel browser (noVNC, come in
+# test-macos.yml): l'app "scaricata" (quarantena) e' sulla Scrivania e una
+# persona fa il percorso vero - doppio click, Fine, Privacy e sicurezza ->
+# Apri comunque, installazione - mentre uno screenshot ogni 5 s registra tutto.
 
 on:
   push:
@@ -104,6 +110,7 @@ jobs:
       # fotografa il messaggio e la pagina Privacy e sicurezza con "Apri
       # comunque". Lingua di sistema in italiano, come per i nostri utenti.
       - name: Gatekeeper - screenshot per la guida (app "scaricata")
+        if: ${{ !contains(github.event.head_commit.message, '[desktop-mac]') }}
         continue-on-error: true
         timeout-minutes: 5
         run: |
@@ -143,6 +150,7 @@ jobs:
           defaults delete -g AppleLocale 2>/dev/null || true
 
       - name: Installazione reale dalla finestra (open, come un doppio click)
+        if: ${{ !contains(github.event.head_commit.message, '[desktop-mac]') }}
         timeout-minutes: 25
         run: |
           ( i=0; while :; do sleep 5; i=$((i+1)); screencapture -x "$SHOTS/real-$(printf %03d $i).png" 2>/dev/null || true; done ) &
@@ -157,6 +165,7 @@ jobs:
           grep -q 'Installazione completata' /tmp/opensagra-install.log
 
       - name: Verifica installazione
+        if: ${{ !contains(github.event.head_commit.message, '[desktop-mac]') }}
         run: |
           set -x
           launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|pid'
@@ -167,6 +176,67 @@ jobs:
           test -d "$HOME/Applications/OpenSagra.app"
           # Nessun residuo dell'installer (sostituto di sudo, askpass).
           ls -d "${TMPDIR:-/tmp}"/opensagra-installer-* 2>/dev/null && exit 1 || true
+
+      # Percorso Gatekeeper fatto da una persona: stesso desktop remoto di
+      # test-macos.yml (Condivisione Schermo -> noVNC -> tunnel Cloudflare,
+      # protetto dalla password nel secret MAC_VNC_PASSWORD; per i dettagli e
+      # il perche' di ogni passo vedi li'). Chiusura: `touch ~/stop` nel
+      # Terminale del Mac, annullando il job, o dopo 50 minuti.
+      - name: Desktop remoto - Gatekeeper a mano (noVNC + Cloudflare)
+        if: ${{ contains(github.event.head_commit.message, '[desktop-mac]') }}
+        timeout-minutes: 58
+        env:
+          VNC_PASSWORD: ${{ secrets.MAC_VNC_PASSWORD }}
+        run: |
+          [ -n "$VNC_PASSWORD" ] || { echo "::error::Manca il secret MAC_VNC_PASSWORD"; exit 1; }
+          echo "::add-mask::$VNC_PASSWORD"
+          sudo sysadminctl -addUser opensagra -fullName "OpenSagra test" -password "$VNC_PASSWORD" -admin 2>&1 | grep -v -i 'secure token' || true
+          if csrutil status 2>/dev/null | grep -qi disabled; then
+            db="/Library/Application Support/com.apple.TCC/TCC.db"
+            for client in com.apple.screensharing.agent com.apple.RemoteDesktopAgent; do
+              for svc in kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility; do
+                sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('$svc','$client',0,2,4,1,'UNUSED',0,CAST(strftime('%s','now') AS INTEGER));" || true
+              done
+            done
+          fi
+
+          # Mac "da utente": Gatekeeper acceso, lingua italiana, l'app appena
+          # "scaricata" (zip estratto + quarantena) sulla Scrivania.
+          sudo spctl --global-enable 2>&1 || sudo spctl --master-enable 2>&1 || true
+          spctl --status || true
+          defaults write -g AppleLanguages -array it-IT it
+          defaults write -g AppleLocale it_IT
+          sudo defaults write /Library/Preferences/.GlobalPreferences AppleLanguages -array it-IT it || true
+          killall cfprefsd CoreServicesUIAgent Finder Dock SystemUIServer 2>/dev/null || true
+          ditto -x -k "$ZIP" "$HOME/Desktop"
+          q="0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)"
+          xattr -w -r com.apple.quarantine "$q" "$HOME/Desktop/Installa OpenSagra.app"
+          ls -la "$HOME/Desktop"
+
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart             -activate -configure -access -on -privs -all -allowAccessFor -allUsers             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD"             -restart -agent -console >/dev/null
+          for i in $(seq 1 20); do nc -z 127.0.0.1 5900 && break; sleep 1; done
+          nc -z 127.0.0.1 5900 || { echo "::error::Il server VNC di macOS non e' partito"; exit 1; }
+          git clone --depth 1 -q https://github.com/novnc/noVNC.git "$RUNNER_TEMP/novnc"
+          nohup "$RUNNER_TEMP/novnc/utils/novnc_proxy" --vnc 127.0.0.1:5900 --listen 6080 >"$RUNNER_TEMP/novnc.log" 2>&1 &
+          brew install -q cloudflared >/dev/null
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:6080 >"$RUNNER_TEMP/cf.log" 2>&1 &
+          url=""
+          for i in $(seq 1 30); do
+            url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cf.log" | head -1 || true)
+            [ -n "$url" ] && break; sleep 2
+          done
+          [ -n "$url" ] || { cat "$RUNNER_TEMP/cf.log"; echo "::error::Tunnel Cloudflare non partito"; exit 1; }
+          echo "::notice title=Desktop Mac::Apri $url/vnc.html?autoconnect=1&resize=scale  (utente opensagra, password = secret MAC_VNC_PASSWORD; per chiudere: touch ~/stop nel Terminale del Mac)"
+          echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale   (utente: opensagra)"
+
+          # Uno screenshot ogni 5 s (JPEG, per non gonfiare l'artifact).
+          end=$(( $(date +%s) + 3000 )); i=0
+          while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do
+            sleep 5; i=$((i+1)); f="$SHOTS/desk-$(printf %04d $i)"
+            screencapture -x "$f.png" 2>/dev/null && sips -s format jpeg -s formatOptions 60 "$f.png" --out "$f.jpg" >/dev/null 2>&1 && rm -f "$f.png"
+            [ $((i % 12)) -eq 0 ] && { echo "--- $(date +%T) installer: $(pgrep -fl opensagra-installer | head -1)"; tail -2 /tmp/opensagra-install.log 2>/dev/null; }
+          done
+          echo "Sessione desktop chiusa"
 
       - name: Log
         if: always()
