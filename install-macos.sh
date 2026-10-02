@@ -72,6 +72,7 @@ EXCLUDE_FROM_COPY=(
     private packaging
     wrapper
     VERSION # metadato del pacchetto (letto da app_version), non un file dell'app
+    frankenphp # binario incluso nel pacchetto, lo installa install_frankenphp
 )
 
 # --- helper variabili.env: sostituti BSD di grep -P / sed -i GNU ---
@@ -138,13 +139,24 @@ install_homebrew() {
     export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
 }
 
-# install_frankenphp: binario statico ufficiale per macOS (stessa logica di
-# install.sh: "latest", serve una build con Mercure modern mode). Il binario
-# e' firmato ad-hoc ma non notarizzato: scaricato con curl non riceve
-# l'attributo di quarantena, lo si toglie comunque per sicurezza.
+# install_frankenphp: binario statico ufficiale per macOS, stessa logica di
+# install.sh - UNA versione fissata per tutti gli OS (mai "latest", vedi
+# packaging/frankenphp.sha256 e php/frankenphp#2685), presa dal pacchetto di
+# release se c'e' (frankenphp/<asset>), altrimenti scaricata (copia del
+# repo). Una versione diversa gia' presente viene sostituita (rm+mv, sicuro
+# anche col processo attivo). Il binario e' firmato ad-hoc ma non
+# notarizzato: si toglie l'eventuale attributo di quarantena.
+FRANKENPHP_VERSION="1.12.6"
+
+frankenphp_installed_version() {
+    [ -x "$FRANKEN_DIR/frankenphp" ] || return 0
+    "$FRANKEN_DIR/frankenphp" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
+}
+
 install_frankenphp() {
-    if [ -x "$FRANKEN_DIR/frankenphp" ]; then
-        ok "FrankenPHP gia' presente"
+    local current; current="$(frankenphp_installed_version)"
+    if [ "$current" = "$FRANKENPHP_VERSION" ]; then
+        ok "FrankenPHP $current gia' presente"
         return
     fi
     local arch asset
@@ -155,13 +167,24 @@ install_frankenphp() {
         *) die "Architettura non supportata: $arch" ;;
     esac
     mkdir -p "$FRANKEN_DIR"
-    local url="https://github.com/php/frankenphp/releases/latest/download/$asset"
-    log "Scarico FrankenPHP ($asset)..."
-    curl -fL --retry 3 -o "$FRANKEN_DIR/frankenphp" "$url" || die "Download di FrankenPHP fallito ($url)"
-    chmod +x "$FRANKEN_DIR/frankenphp"
-    xattr -d com.apple.quarantine "$FRANKEN_DIR/frankenphp" 2>/dev/null || true
-    "$FRANKEN_DIR/frankenphp" version >/dev/null 2>&1 || die "FrankenPHP scaricato ma non si avvia (dettagli: $FRANKEN_DIR/frankenphp version)"
-    ok "FrankenPHP installato ($asset)"
+    local tmp="$FRANKEN_DIR/frankenphp.new"
+    if [ -f "$SOURCE_DIR/frankenphp/$asset" ]; then
+        cp "$SOURCE_DIR/frankenphp/$asset" "$tmp"
+    else
+        local url="https://github.com/php/frankenphp/releases/download/v$FRANKENPHP_VERSION/$asset"
+        log "Scarico FrankenPHP $FRANKENPHP_VERSION ($asset)..."
+        curl -fL --retry 3 -o "$tmp" "$url" || die "Download di FrankenPHP fallito ($url)"
+    fi
+    chmod +x "$tmp"
+    xattr -d com.apple.quarantine "$tmp" 2>/dev/null || true
+    "$tmp" version >/dev/null 2>&1 || { rm -f "$tmp"; die "FrankenPHP non si avvia (binario incompatibile con questo Mac?)"; }
+    rm -f "$FRANKEN_DIR/frankenphp"
+    mv "$tmp" "$FRANKEN_DIR/frankenphp"
+    if [ -n "$current" ]; then
+        ok "FrankenPHP $current sostituito con $FRANKENPHP_VERSION ($asset)"
+    else
+        ok "FrankenPHP $FRANKENPHP_VERSION installato ($asset)"
+    fi
 }
 
 # set_php_ini: come install.sh - la build statica ha gia' le estensioni, il
@@ -341,15 +364,8 @@ $https_hosts {
 	}
 
 	mercure {
-		issuer opensagra-hub {
-			publisher {
-				jwt $mercure_secret
-			}
-			subscriber {
-				jwt $mercure_secret
-			}
-		}
-		resource_identifier https://opensagra-hub/.well-known/mercure
+		publisher_jwt $mercure_secret
+		subscriber_jwt $mercure_secret
 		cookie_name mercure_authorization
 		cors_origins $https_cors
 		heartbeat 20s

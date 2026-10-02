@@ -160,8 +160,21 @@ $Script:ExcludeFromCopy = @(
     'uninstall.ps1',
     # Letto sopra per valorizzare $Script:AppVersion - e' metadato del
     # pacchetto, non un file dell'app.
-    'VERSION'
+    'VERSION',
+    # Zip di FrankenPHP incluso nel pacchetto: lo estrae Install-FrankenPHP
+    # in $Script:FrankenDir, non va copiato nella webroot.
+    'frankenphp',
+    # Script Unix (stesso repo, non servono su Windows).
+    'install.sh', 'install-macos.sh', 'uninstall.sh', 'uninstall-macos.sh'
 )
+
+# FrankenPHP: UNA versione fissata per tutti gli OS, non "latest" - vedi
+# packaging\frankenphp.sha256 (perche' la v1.12.6, impronte verificate quando
+# si costruisce il pacchetto) e php/frankenphp#2685. Il pacchetto di release
+# include gia' lo zip (frankenphp\frankenphp-windows-x86_64.zip): nessun
+# download all'installazione. Il download diretto di QUESTA versione resta
+# solo come ripiego per chi lancia install.ps1 da una copia del repo.
+$Script:FrankenPhpVersion = '1.12.6'
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
 # (`cd wrapper; go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...`).
@@ -371,10 +384,38 @@ function Install-VCRedist {
     Add-InstallChecklistItem 'Visual C++ Redistributable installato'
 }
 
+function Get-FrankenPhpInstalledVersion {
+    $exe = "$Script:FrankenDir\frankenphp.exe"
+    if (-not (Test-Path $exe)) { return $null }
+    # Invoke-NativeCaptured, non `& $exe`: dall'exe ps2exe -noConsole una
+    # chiamata diretta con cattura dell'output puo' bloccarsi (conhost orfano,
+    # vedi commento di Invoke-NativeCaptured).
+    try {
+        $out = (Invoke-NativeCaptured -FilePath $exe -ArgumentList @('version')).Output
+        if ($out -match '(\d+\.\d+\.\d+)') { return $Matches[1] }
+    } catch { }
+    return 'sconosciuta'
+}
+
 function Install-FrankenPHP {
-    if (Test-Path "$Script:FrankenDir\frankenphp.exe") {
-        Add-InstallChecklistItem 'FrankenPHP gia'' presente'
+    $current = Get-FrankenPhpInstalledVersion
+    if ($current -eq $Script:FrankenPhpVersion) {
+        Add-InstallChecklistItem "FrankenPHP $current gia' presente"
         return
+    }
+    if ($current) {
+        # Versione diversa da quella fissata (es. una "latest" di
+        # un'installazione precedente). Si prova a sostituirla; se
+        # frankenphp.exe e' in uso (OpenSagra aperto) NON si blocca
+        # l'installazione: le versioni Windows finora pubblicate hanno tutte
+        # Mercure 0.x, compatibile con il Caddyfile generato qui (vedi
+        # packaging\frankenphp.sha256). Verra' sostituita al prossimo rilancio.
+        try {
+            Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction Stop
+        } catch {
+            Add-InstallChecklistItem "FrankenPHP $current lasciato (in uso, non sostituibile ora - atteso $Script:FrankenPhpVersion)"
+            return
+        }
     }
     # Bug reale (2026-09-16, VM Windows con installazioni ripetute): lo
     # script ufficiale di frankenphp.dev (eseguito inline con
@@ -389,19 +430,26 @@ function Install-FrankenPHP {
     # .NET (stesso meccanismo gia' usato in packaging/installer-bootstrap.ps1
     # per il proprio payload) - bypassa sia lo script di terze parti sia
     # Expand-Archive del tutto.
-    $zipPath = Join-Path $env:TEMP "frankenphp-windows-$PID.zip"
-    Invoke-WebRequest -Uri 'https://github.com/php/frankenphp/releases/latest/download/frankenphp-windows-x86_64.zip' -OutFile $zipPath
+    $bundledZip = if ($Script:SourcePath) { Join-Path $Script:SourcePath 'frankenphp\frankenphp-windows-x86_64.zip' } else { $null }
+    $downloaded = $false
+    if ($bundledZip -and (Test-Path $bundledZip)) {
+        $zipPath = $bundledZip
+    } else {
+        $zipPath = Join-Path $env:TEMP "frankenphp-windows-$PID.zip"
+        Invoke-WebRequest -Uri "https://github.com/php/frankenphp/releases/download/v$($Script:FrankenPhpVersion)/frankenphp-windows-x86_64.zip" -OutFile $zipPath
+        $downloaded = $true
+    }
     # Se una cartella parziale resta da un tentativo precedente interrotto,
     # va svuotata prima - stesso motivo del fix sulla data\ di MariaDB.
     if (Test-Path $Script:FrankenDir) { Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Force -Path $Script:FrankenDir | Out-Null
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $Script:FrankenDir)
-    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    if ($downloaded) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
     if (-not (Test-Path "$Script:FrankenDir\frankenphp.exe")) {
         throw 'Installazione di FrankenPHP non riuscita.'
     }
-    Add-InstallChecklistItem 'FrankenPHP installato'
+    Add-InstallChecklistItem "FrankenPHP $($Script:FrankenPhpVersion) installato"
 }
 
 # NOTA: Install-WinSW e Register-FrankenPHPService sono state RIMOSSE con la
@@ -679,15 +727,8 @@ function New-CaddyConfig {
     # abortiscono a 45s, l'EventSource del browser flappa).
     $httpsMercure = @"
 	mercure {
-		issuer opensagra-hub {
-			publisher {
-				jwt $MercureSecret
-			}
-			subscriber {
-				jwt $MercureSecret
-			}
-		}
-		resource_identifier https://opensagra-hub/.well-known/mercure
+		publisher_jwt $MercureSecret
+		subscriber_jwt $MercureSecret
 		cookie_name mercure_authorization
 		cors_origins $httpsCors
 		heartbeat 20s

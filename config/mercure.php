@@ -3,11 +3,9 @@
  * Fondamenta per il realtime via Mercure (Fase 4, opzionale - vedi piano,
  * sezione "Fase 4 — Realtime via Mercure"). Due funzioni:
  *
- * - mintMercureJwt(): firma un JWT "access token" RFC 9068 (header
- *   typ=at+jwt, claim authorization_details RFC 9396) richiesto dall'hub in
- *   modern mode (Caddyfile: blocco `issuer` dentro `mercure {}`, non piu' le
- *   vecchie direttive publisher_jwt/subscriber_jwt - vedi install.sh/
- *   install.ps1/Caddyfile.example). Scritto a mano (nessuna libreria JWT
+ * - mintMercureJwt(): firma un JWT HS256 con i claim mercure.publish/
+ *   mercure.subscribe richiesti dall'hub (direttive publisher_jwt/
+ *   subscriber_jwt nel Caddyfile). Scritto a mano (nessuna libreria JWT
  *   aggiunta a composer.json) perche' serve solo firmare HS256, non
  *   verificare/decodificare ne' altri algoritmi - una libreria completa
  *   sarebbe sovradimensionata per questo scopo.
@@ -22,17 +20,6 @@
 
 require_once __DIR__ . '/env_reader.php';
 require_once __DIR__ . '/app_config.php';
-
-// Issuer/audience fissi e identici su ogni installazione (server, client,
-// PC-ponte di stampa): la verifica di "iss"/"aud" e' puramente locale a
-// ciascun hub (nessun registro condiviso tra macchine), quindi non serve
-// sincronizzarli da nessuna parte - solo tenerli identici al blocco
-// `issuer opensagra-hub {...}` / `resource_identifier ...` del Caddyfile.
-// L'audience DEVE avere forma di URL assoluto (scheme+host, no frammento):
-// l'hub la valida con url.Parse() e rifiuta la configurazione altrimenti
-// (RFC 9728) - non puo' essere un letterale nudo come l'issuer.
-const MERCURE_ISSUER = 'opensagra-hub';
-const MERCURE_AUDIENCE = 'https://opensagra-hub/.well-known/mercure';
 
 function base64UrlEncode(string $data): string
 {
@@ -91,11 +78,7 @@ function mercureHubUrl(): string
 }
 
 /**
- * Firma un JWT access token RFC 9068 con i permessi richiesti dall'hub in
- * modern mode: header typ=at+jwt, claim authorization_details RFC 9396
- * (un blocco "publish" e/o uno "subscribe", ciascuno con la lista dei topic
- * in forma {match: "<topic>"} - match_type di default "exact", che e' quello
- * che serve qui: nessun topic e' un pattern).
+ * Firma un JWT HS256 con i claim mercure richiesti dall'hub.
  *
  * @param string[] $publish   topic che questo token puo' pubblicare (es. ['*'] o ['stock/1'])
  * @param string[] $subscribe topic che questo token puo' sottoscrivere
@@ -114,23 +97,13 @@ function mintMercureJwt(array $publish = [], array $subscribe = [], int $ttlSeco
         throw new RuntimeException('MERCURE_JWT_SECRET non configurato in variabili.env - hub Mercure non attivo su questa installazione.');
     }
 
-    $header = ['typ' => 'at+jwt', 'alg' => 'HS256'];
+    $header = ['typ' => 'JWT', 'alg' => 'HS256'];
     $payload = [
-        'iss' => MERCURE_ISSUER,
-        'aud' => MERCURE_AUDIENCE,
+        'mercure' => array_filter([
+            'publish' => $publish ?: null,
+            'subscribe' => $subscribe ?: null,
+        ]),
         'exp' => time() + $ttlSeconds,
-        'authorization_details' => array_values(array_filter([
-            $publish ? [
-                'type' => 'https://mercure.rocks/authorization-detail',
-                'actions' => ['publish'],
-                'topics' => array_map(fn(string $t): array => ['match' => $t], $publish),
-            ] : null,
-            $subscribe ? [
-                'type' => 'https://mercure.rocks/authorization-detail',
-                'actions' => ['subscribe'],
-                'topics' => array_map(fn(string $t): array => ['match' => $t], $subscribe),
-            ] : null,
-        ])),
     ];
 
     $segments = base64UrlEncode(json_encode($header)) . '.' . base64UrlEncode(json_encode($payload));

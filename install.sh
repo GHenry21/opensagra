@@ -55,6 +55,7 @@ EXCLUDE_FROM_COPY=(
     # gia' compilato (wrapper/opensagra-wrapper, copiato a parte piu' sotto).
     wrapper
     VERSION # metadato del pacchetto (letto da app_version), non un file dell'app
+    frankenphp # binario incluso nel pacchetto, lo installa install_frankenphp
 )
 
 # app_version: stessa fonte di install.ps1 - il file VERSION che il pacchetto
@@ -85,23 +86,35 @@ test_prerequisites() {
 
 # install_frankenphp: binario statico ufficiale (musl, "portable" - nessuna
 # dipendenza di sistema), non un pacchetto apt (Debian/Raspbian non lo
-# impacchetta). Stessa idempotenza di Install-FrankenPHP in install.ps1:
-# se c'e' gia', salta. Posizionato in ~/.frankenphp/ come su Windows
+# impacchetta). Posizionato in ~/.frankenphp/ come su Windows
 # ($env:USERPROFILE\.frankenphp) - detectFrankenphp() nel wrapper (util.go)
 # cerca PRIMA li', poi nel $PATH: mettercelo qui evita di dover passare
 # -frankenphp a mano.
 #
-# Scarica sempre "latest", non un tag fisso: prima di migrare il Caddyfile
-# alla sintassi "issuer" (modern mode di Mercure), un tag "latest" instabile
-# (rebuild in-place di uno stesso tag - vedi CHANGELOG/timestamp asset su
-# GitHub) aveva rotto le vecchie direttive publisher_jwt/subscriber_jwt e
-# costretto a pinnare v1.12.6. Ora vale l'opposto: v1.12.6 incorpora ancora
-# Mercure pre-1.0 (verificato dal vivo - ignora silenziosamente il blocco
-# "issuer" e il Caddyfile fallisce a livello di provisioning), quindi serve
-# una build recente per la sintassi modern mode che l'app usa da qui in poi.
+# UNA versione fissata per tutti gli OS (FRANKENPHP_VERSION), mai "latest":
+# gli asset di "latest" vengono ricompilati ogni notte e quelli della v1.12.7
+# hanno Mercure 1.0 su Linux/macOS ma 0.24 su Windows (php/frankenphp#2685) -
+# un rilancio di questo script con "latest" aveva gia' rotto il Pi una volta.
+# Vedi packaging/frankenphp.sha256. Il pacchetto di release include gia' il
+# binario (frankenphp/<asset>, impronta verificata quando si costruisce il
+# pacchetto): nessun download all'installazione. Il download diretto di QUESTA
+# versione resta solo per chi lancia lo script da una copia del repo.
+# Una versione diversa gia' presente (es. una "latest" di un'installazione
+# precedente) viene sostituita: rm+mv e' sicuro anche con FrankenPHP in
+# esecuzione (il vecchio inode resta valido finche' il processo non esce; il
+# wrapper viene comunque riavviato a fine installazione). Il binario nuovo
+# perde la capability di setcap: la riapplica grant_bind_service_capability.
+FRANKENPHP_VERSION="1.12.6"
+
+frankenphp_installed_version() {
+    [ -x "$FRANKEN_DIR/frankenphp" ] || return 0
+    "$FRANKEN_DIR/frankenphp" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
+}
+
 install_frankenphp() {
-    if [ -x "$FRANKEN_DIR/frankenphp" ]; then
-        ok "FrankenPHP gia' presente"
+    local current; current="$(frankenphp_installed_version)"
+    if [ "$current" = "$FRANKENPHP_VERSION" ]; then
+        ok "FrankenPHP $current gia' presente"
         return
     fi
     local arch asset
@@ -112,12 +125,23 @@ install_frankenphp() {
         *) die "Architettura non supportata: $arch" ;;
     esac
     mkdir -p "$FRANKEN_DIR"
-    local url="https://github.com/php/frankenphp/releases/latest/download/$asset"
-    log "Scarico FrankenPHP ($asset)..."
-    curl -fL --retry 3 -o "$FRANKEN_DIR/frankenphp" "$url" || die "Download di FrankenPHP fallito ($url)"
-    chmod +x "$FRANKEN_DIR/frankenphp"
-    "$FRANKEN_DIR/frankenphp" version >/dev/null 2>&1 || die "FrankenPHP scaricato ma non si avvia (binario incompatibile con questa CPU/libc?)"
-    ok "FrankenPHP installato ($asset)"
+    local tmp="$FRANKEN_DIR/frankenphp.new"
+    if [ -f "$SOURCE_DIR/frankenphp/$asset" ]; then
+        cp "$SOURCE_DIR/frankenphp/$asset" "$tmp"
+    else
+        local url="https://github.com/php/frankenphp/releases/download/v$FRANKENPHP_VERSION/$asset"
+        log "Scarico FrankenPHP $FRANKENPHP_VERSION ($asset)..."
+        curl -fL --retry 3 -o "$tmp" "$url" || die "Download di FrankenPHP fallito ($url)"
+    fi
+    chmod +x "$tmp"
+    "$tmp" version >/dev/null 2>&1 || { rm -f "$tmp"; die "FrankenPHP non si avvia (binario incompatibile con questa CPU/libc?)"; }
+    rm -f "$FRANKEN_DIR/frankenphp"
+    mv "$tmp" "$FRANKEN_DIR/frankenphp"
+    if [ -n "$current" ]; then
+        ok "FrankenPHP $current sostituito con $FRANKENPHP_VERSION ($asset)"
+    else
+        ok "FrankenPHP $FRANKENPHP_VERSION installato ($asset)"
+    fi
 }
 
 # grant_bind_service_capability: il wrapper (e quindi FrankenPHP, suo figlio)
@@ -302,6 +326,8 @@ detect_lan_ip() {
 # collaterale: un solo hub Mercure invece di due, quindi via anche `name`/
 # `transport bolt` per-hub (necessari solo quando ce n'e' più di uno nella
 # stessa configurazione - vedi commit precedente).
+# Mercure: sintassi 0.x (publisher_jwt/subscriber_jwt), quella del FrankenPHP
+# fissato in FRANKENPHP_VERSION - vedi packaging/frankenphp.sha256.
 new_caddy_config() {
     local mercure_secret="$1"
     local lan_ip; lan_ip="$(detect_lan_ip)"
@@ -339,15 +365,8 @@ $https_hosts {
 	}
 
 	mercure {
-		issuer opensagra-hub {
-			publisher {
-				jwt $mercure_secret
-			}
-			subscriber {
-				jwt $mercure_secret
-			}
-		}
-		resource_identifier https://opensagra-hub/.well-known/mercure
+		publisher_jwt $mercure_secret
+		subscriber_jwt $mercure_secret
 		cookie_name mercure_authorization
 		cors_origins $https_cors
 		heartbeat 20s

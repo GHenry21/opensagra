@@ -1,0 +1,26 @@
+# FrankenPHP incluso nei pacchetti di OpenSagra: UNA versione fissata per
+# tutti gli OS, verificata contro queste impronte quando si costruisce un
+# pacchetto (make-installer.ps1, make-unix-package.sh, release.yml). Se
+# FrankenPHP ricompila questi asset (lo fa sugli asset dell'ultimo tag, ogni
+# notte, e su richiesta su qualunque tag), la build del NOSTRO pacchetto
+# fallisce - mai l'installazione di un utente, che usa la copia inclusa.
+#
+# Perche' v1.12.6: e' l'ultima release i cui asset hanno la STESSA Mercure
+# (v0.24.2) su Linux, macOS e Windows. Nella v1.12.7 le build statiche
+# (Linux/macOS) si sono portate dietro Mercure 1.0, quella Windows no
+# (php/frankenphp#2685, vedi PIANO-MIGRAZIONE-FRANKENPHP.md, Fase 4). Per
+# aggiornare: nuova versione qui sotto + impronte (gh api
+# repos/php/frankenphp/releases/tags/vX.Y.Z --jq '.assets[].digest'), e se
+# la nuova release ha Mercure 1.0 su tutti gli OS va riattivato il modern
+# mode (commit 4143534).
+#
+# Le stesse costanti (versione) sono negli installer: FRANKENPHP_VERSION in
+# install.sh / install-macos.sh, $Script:FrankenPhpVersion in install.ps1 -
+# release.yml verifica che coincidano con questo file.
+#
+# version: 1.12.6
+200614dc78c63fa56045929191bb97b19fedc56a9ec6043e8448b6af9e3f5f67  frankenphp-linux-aarch64
+fa74f59593d32f43be9f2803de08cdeed06e9ae5d654a912a086b92b9b290394  frankenphp-linux-x86_64
+7143cc1d629bb695d68d17b3f7b346572312d7628e328c2b9ccfe1498bb1d627  frankenphp-mac-arm64
+9d97ff79c34adb78e935f2eae9d6a224bd03881e5d2d27503e3d4d7251096776  frankenphp-mac-x86_64
+58957bbeebc47feba977064986689738bcfc0cddaeb4df37c2035435d293a8fe  frankenphp-windows-x86_64.zip
