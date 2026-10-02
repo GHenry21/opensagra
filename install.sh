@@ -212,7 +212,11 @@ EOF
 # impacchettano gia', a differenza di Windows dove va scaricata a mano) -
 # niente download diretto come per FrankenPHP.
 install_mariadb() {
-    if command -v mariadbd >/dev/null 2>&1 || command -v mysqld >/dev/null 2>&1; then
+    # dpkg -s, non `command -v mariadbd`: mariadbd sta in /usr/sbin, che una
+    # shell utente normale spesso non ha nel $PATH - il controllo dava sempre
+    # "assente" e ripeteva l'apt install a ogni rilancio (~2 minuti sul Pi,
+    # visto 2026-10-02). Stesso motivo di grant_bind_service_capability.
+    if dpkg -s mariadb-server >/dev/null 2>&1; then
         ok "MariaDB gia' presente"
     else
         log "Installo mariadb-server..."
