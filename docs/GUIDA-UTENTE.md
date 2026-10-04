@@ -72,18 +72,26 @@ Serve un Mac con macOS 13 (Ventura) o successivo, e un utente
    **Installa OpenSagra**. Trascinala sulla **Scrivania** (non è obbligatorio,
    ma la ritrovi più facilmente).
 3. Fai doppio click su **Installa OpenSagra**. La prima volta **il Mac la
-   blocca**: *"Installa OpenSagra" non aperta — Apple non ha potuto
-   verificare che "Installa OpenSagra" sia privo di malware…*. È normale:
+   blocca**: *"Installa OpenSagra non è stata aperta — Apple non è in grado
+   di verificare che Installa OpenSagra non contenga malware…"*. È normale:
    OpenSagra è un progetto gratuito e non paga ad Apple la "firma" degli
    sviluppatori — non significa che ci sia qualcosa che non va. Clicca
    **Fine** (non "Sposta nel Cestino").
 
-   ![Avviso di macOS (qui su un Mac in inglese): Apple non ha potuto verificare l'app — pulsanti Fine e Sposta nel Cestino](img/guida/22-mac-gatekeeper-avviso.png)
+   ![Avviso di macOS: Installa OpenSagra non è stata aperta — pulsanti Sposta nel Cestino e Fine](img/guida/22-mac-gatekeeper-avviso.png)
 4. Apri **Impostazioni di Sistema** → **Privacy e sicurezza** e scorri fino
    alla sezione **Sicurezza**: subito sotto *"Consenti applicazioni da"* c'è
-   la riga *"Installa OpenSagra" è stata bloccata…* con il pulsante **Apri
-   comunque**. Cliccalo, poi conferma con **Apri comunque** e, se richiesta,
-   la password del Mac.
+   la riga *"Il Mac ha bloccato Installa OpenSagra per garantire la
+   sicurezza"* con il pulsante **Apri comunque**. Cliccalo.
+
+   ![Privacy e sicurezza, sezione Sicurezza: pulsante "Apri comunque"](img/guida/23-mac-apri-comunque.png)
+
+   Il Mac chiede conferma due volte: *"Vuoi aprire Installa OpenSagra?"* →
+   clicca di nuovo **Apri comunque**; poi nome utente e password da
+   amministratore (quelli con cui accedi al Mac) → **OK**.
+
+   ![Conferma: Vuoi aprire Installa OpenSagra? — pulsante Apri comunque](img/guida/23b-mac-conferma.png)
+   ![Richiesta di nome utente e password da amministratore](img/guida/23c-mac-password-admin.png)
 
    Il pulsante resta visibile per circa un'ora dopo il blocco: se non lo
    trovi, rifai il doppio click sull'app e torna qui. Lo fai **una volta
