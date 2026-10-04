@@ -3,17 +3,23 @@ name: Controllo nuove release FrankenPHP
 # OpenSagra fissa UNA versione di FrankenPHP per tutti gli OS
 # (packaging/frankenphp.sha256), perche' gli asset di una stessa release
 # possono incorporare Mercure diverse a seconda dell'OS (php/frankenphp#2685).
-# Una volta a settimana questo workflow guarda l'ultima release di FrankenPHP:
-# se e' piu' recente di quella fissata E ha la STESSA Mercure su Linux, macOS
-# e Windows, apre un issue in questo repo con la tabella delle versioni. Finche'
-# non e' cosi' non fa nulla (nessuna notifica inutile).
+# Due volte al giorno questo workflow guarda l'ultima release di FrankenPHP:
+# se e' piu' recente di quella fissata, ha la STESSA Mercure su Linux, macOS
+# e Windows E il suo php-cli passa gli argomenti agli script (la v1.13.0 no:
+# $argv spostato e getopt() vuoto, php/frankenphp#2690 - rompe il provisioning
+# del DB), apre un issue in questo repo con la tabella delle versioni. Finche'
+# non e' cosi' non fa nulla (nessuna notifica inutile). Le release nuove le
+# pubblicano a mano i maintainer, a qualunque ora: i cron notturni di
+# FrankenPHP ricompilano solo l'ultimo tag gia' esistente.
 #
 # Nota GitHub: i workflow pianificati girano solo dal branch predefinito
 # (main) - questo file e' attivo solo una volta su main.
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # lunedi', 06:00 UTC
+    # 09:00 e 21:00 UTC: il primo giro dopo la ricompilazione Windows delle
+    # 08:00 UTC di FrankenPHP (quella Linux/macOS e' alle 00:00 UTC).
+    - cron: "0 9,21 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -65,6 +71,17 @@ jobs:
             exit 0
           fi
 
+          # php-cli deve passare gli argomenti come il php nativo: gli
+          # installer lanciano gli script con --opzioni lette da getopt().
+          chmod +x linux
+          printf '%s\n' '<?php echo json_encode(getopt("", ["a:"])), "\n";' > argv.php
+          cli=$(./linux php-cli argv.php --a=1 2>&1 || true)
+          echo "php-cli getopt: \`$cli\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$cli" != '{"a":"1"}' ]; then
+            echo "php-cli non passa gli argomenti agli script (php/frankenphp#2690?): nessun issue." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           title="FrankenPHP v$latest: Mercure $lin su tutti gli OS, si puo' aggiornare"
           if gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "\"$title\" in:title" --json number --jq '.[0].number' | grep -q .; then
             echo "Issue gia' aperto per v$latest." >> "$GITHUB_STEP_SUMMARY"
@@ -73,7 +90,7 @@ jobs:
 
           case "$lin" in
             v0.*) mode="Mercure 0.x: stessa sintassi di oggi, basta aggiornare versione e impronte." ;;
-            *)    mode="Mercure 1.x: va riattivato il **modern mode** (token RFC 9068 + blocco \`issuer\` nel Caddyfile), gia' scritto e testato su Linux/macOS nel commit \`4143534\`." ;;
+            *)    mode="Mercure 1.x: va riattivato il **modern mode** (token RFC 9068 + blocco \`issuer\` nel Caddyfile), gia' pronto sul branch \`frankenphp-1.13\` (fatto per la v1.13.0: anche sottoscrizioni con \`match=\` invece di \`topic=\`)." ;;
           esac
           body=$(printf '%s\n' \
             "La release **v$latest** di FrankenPHP ha la stessa Mercure su Linux, macOS e Windows:" "" \
