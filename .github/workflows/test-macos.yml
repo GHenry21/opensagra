@@ -101,7 +101,8 @@ jobs:
           [ -n "$v" ]
           test ! -e "$HOME/opensagra/VERSION"
           # FrankenPHP: la versione fissata, presa dal pacchetto (nessun download)
-          "$HOME/.frankenphp/frankenphp" version | grep -E '(^| |v)1\.12\.6( |$)'
+          want=$(sed -n 's/^#[[:space:]]*version:[[:space:]]*//p' packaging/frankenphp.sha256)
+          "$HOME/.frankenphp/frankenphp" version | grep -wF "$want"
           if grep -q 'Scarico FrankenPHP' /tmp/opensagra-install.log; then echo "::error::FrankenPHP scaricato invece di usare quello del pacchetto"; exit 1; fi
           test ! -e "$HOME/opensagra/frankenphp"
 
@@ -124,7 +125,7 @@ jobs:
           curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/
 
       # Mercure end-to-end col codice vero dell'app: token firmato da
-      # config/mercure.php (formato 0.x) accettato dall'hub del FrankenPHP
+      # config/mercure.php (RFC 9068, Mercure 1.0) accettato dall'hub del FrankenPHP
       # fissato, evento pubblicato e ricevuto da un sottoscrittore SSE.
       - name: Mercure - pubblica e ricevi (token dell'app)
         run: |
@@ -136,7 +137,7 @@ jobs:
           pub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt(["ci-test"], [], 300);')
           sub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt([], ["ci-test"], 300);')
           hub=https://localhost/.well-known/mercure
-          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" > /tmp/sse.txt &
+          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?match=ci-test" > /tmp/sse.txt &
           sleep 2
           id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-dal-mac "$hub")
           echo "id pubblicazione: $id"

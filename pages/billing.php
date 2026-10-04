@@ -1592,12 +1592,13 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                     }
 
                     this.teardownProductsRealtime();
-                    // L'hub vuole un parametro topic= per ogni topic sottoscritto.
+                    // L'hub vuole un parametro match= per ogni topic sottoscritto
+                    // (Mercure 1.0: il vecchio topic= viene rifiutato con 400).
                     const topics = Array.isArray(info.topics) && info.topics.length
                         ? info.topics
                         : [info.topic || 'products'];
                     const url = MERCURE_HUB_PATH + '?' + topics
-                        .map((t) => 'topic=' + encodeURIComponent(t))
+                        .map((t) => 'match=' + encodeURIComponent(t))
                         .join('&');
                     let es;
                     try {

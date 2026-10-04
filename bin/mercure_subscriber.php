@@ -42,8 +42,10 @@ function runMercureSubscriber(array $opts): void
         fwrite(STDERR, '[' . date('Y-m-d H:i:s') . '] ' . $m . "\n");
     };
 
+    // Un parametro match= per topic (Mercure 1.0: il vecchio topic= viene
+    // rifiutato con 400 "unknown topic matcher" dalla v1.0.3).
     $streamUrl = $hubUrl . '?' . implode('&', array_map(
-        static fn($t) => 'topic=' . rawurlencode($t),
+        static fn($t) => 'match=' . rawurlencode($t),
         $topics
     ));
 

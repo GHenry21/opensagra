@@ -92,9 +92,10 @@ test_prerequisites() {
 # -frankenphp a mano.
 #
 # UNA versione fissata per tutti gli OS (FRANKENPHP_VERSION), mai "latest":
-# gli asset di "latest" vengono ricompilati ogni notte e quelli della v1.12.7
-# hanno Mercure 1.0 su Linux/macOS ma 0.24 su Windows (php/frankenphp#2685) -
-# un rilancio di questo script con "latest" aveva gia' rotto il Pi una volta.
+# gli asset dell'ultimo tag vengono ricompilati ogni notte e possono cambiare
+# Mercure (la v1.12.7 aveva Mercure 1.0 su Linux/macOS ma 0.24 su Windows,
+# php/frankenphp#2685) - un rilancio di questo script con "latest" aveva gia'
+# rotto il Pi una volta.
 # Vedi packaging/frankenphp.sha256. Il pacchetto di release include gia' il
 # binario (frankenphp/<asset>, impronta verificata quando si costruisce il
 # pacchetto): nessun download all'installazione. Il download diretto di QUESTA
@@ -104,7 +105,7 @@ test_prerequisites() {
 # esecuzione (il vecchio inode resta valido finche' il processo non esce; il
 # wrapper viene comunque riavviato a fine installazione). Il binario nuovo
 # perde la capability di setcap: la riapplica grant_bind_service_capability.
-FRANKENPHP_VERSION="1.12.6"
+FRANKENPHP_VERSION="1.13.0"
 
 frankenphp_installed_version() {
     [ -x "$FRANKEN_DIR/frankenphp" ] || return 0
@@ -330,8 +331,10 @@ detect_lan_ip() {
 # collaterale: un solo hub Mercure invece di due, quindi via anche `name`/
 # `transport bolt` per-hub (necessari solo quando ce n'e' più di uno nella
 # stessa configurazione - vedi commit precedente).
-# Mercure: sintassi 0.x (publisher_jwt/subscriber_jwt), quella del FrankenPHP
-# fissato in FRANKENPHP_VERSION - vedi packaging/frankenphp.sha256.
+# Mercure: sintassi 1.0 "modern mode" (blocco issuer + resource_identifier,
+# token RFC 9068 firmati da config/mercure.php), quella del FrankenPHP fissato
+# in FRANKENPHP_VERSION (Mercure 1.0 su tutti gli OS) - vedi
+# packaging/frankenphp.sha256.
 new_caddy_config() {
     local mercure_secret="$1"
     local lan_ip; lan_ip="$(detect_lan_ip)"
@@ -369,8 +372,15 @@ $https_hosts {
 	}
 
 	mercure {
-		publisher_jwt $mercure_secret
-		subscriber_jwt $mercure_secret
+		issuer opensagra-hub {
+			publisher {
+				jwt $mercure_secret
+			}
+			subscriber {
+				jwt $mercure_secret
+			}
+		}
+		resource_identifier https://opensagra-hub/.well-known/mercure
 		cookie_name mercure_authorization
 		cors_origins $https_cors
 		heartbeat 20s

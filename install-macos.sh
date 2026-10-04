@@ -146,7 +146,7 @@ install_homebrew() {
 # repo). Una versione diversa gia' presente viene sostituita (rm+mv, sicuro
 # anche col processo attivo). Il binario e' firmato ad-hoc ma non
 # notarizzato: si toglie l'eventuale attributo di quarantena.
-FRANKENPHP_VERSION="1.12.6"
+FRANKENPHP_VERSION="1.13.0"
 
 frankenphp_installed_version() {
     [ -x "$FRANKEN_DIR/frankenphp" ] || return 0
@@ -364,8 +364,15 @@ $https_hosts {
 	}
 
 	mercure {
-		publisher_jwt $mercure_secret
-		subscriber_jwt $mercure_secret
+		issuer opensagra-hub {
+			publisher {
+				jwt $mercure_secret
+			}
+			subscriber {
+				jwt $mercure_secret
+			}
+		}
+		resource_identifier https://opensagra-hub/.well-known/mercure
 		cookie_name mercure_authorization
 		cors_origins $https_cors
 		heartbeat 20s

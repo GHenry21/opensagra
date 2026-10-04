@@ -5,22 +5,24 @@
 # notte, e su richiesta su qualunque tag), la build del NOSTRO pacchetto
 # fallisce - mai l'installazione di un utente, che usa la copia inclusa.
 #
-# Perche' v1.12.6: e' l'ultima release i cui asset hanno la STESSA Mercure
-# (v0.24.2) su Linux, macOS e Windows. Nella v1.12.7 le build statiche
-# (Linux/macOS) si sono portate dietro Mercure 1.0, quella Windows no
-# (php/frankenphp#2685, vedi PIANO-MIGRAZIONE-FRANKENPHP.md, Fase 4). Per
-# aggiornare: nuova versione qui sotto + impronte (gh api
-# repos/php/frankenphp/releases/tags/vX.Y.Z --jq '.assets[].digest'), e se
-# la nuova release ha Mercure 1.0 su tutti gli OS va riattivato il modern
-# mode (commit 4143534).
+# Perche' v1.13.0: e' la prima release i cui asset hanno la STESSA Mercure 1.0
+# (v1.0.3) su Linux, macOS e Windows, letta dai binari con `go version -m`.
+# Nella v1.12.7 le build statiche (Linux/macOS) avevano Mercure 1.0 e quella
+# Windows 0.24 (php/frankenphp#2685, vedi PIANO-MIGRAZIONE-FRANKENPHP.md,
+# Fase 4): per questo si era rimasti alla v1.12.6 con la sintassi Mercure 0.x.
+# Con Mercure 1.0 il Caddyfile usa il modern mode (blocco issuer, token
+# RFC 9068 firmati da config/mercure.php). Per aggiornare: nuova versione qui
+# sotto + impronte (gh api repos/php/frankenphp/releases/tags/vX.Y.Z --jq
+# '.assets[] | .digest + "  " + .name'), controllando che la Mercure sia
+# ancora la stessa su tutti gli OS (lo fa .github/workflows/frankenphp-watch.yml).
 #
 # Le stesse costanti (versione) sono negli installer: FRANKENPHP_VERSION in
 # install.sh / install-macos.sh, $Script:FrankenPhpVersion in install.ps1 -
 # release.yml verifica che coincidano con questo file.
 #
-# version: 1.12.6
-200614dc78c63fa56045929191bb97b19fedc56a9ec6043e8448b6af9e3f5f67  frankenphp-linux-aarch64
-fa74f59593d32f43be9f2803de08cdeed06e9ae5d654a912a086b92b9b290394  frankenphp-linux-x86_64
-7143cc1d629bb695d68d17b3f7b346572312d7628e328c2b9ccfe1498bb1d627  frankenphp-mac-arm64
-9d97ff79c34adb78e935f2eae9d6a224bd03881e5d2d27503e3d4d7251096776  frankenphp-mac-x86_64
-58957bbeebc47feba977064986689738bcfc0cddaeb4df37c2035435d293a8fe  frankenphp-windows-x86_64.zip
+# version: 1.13.0
+505c6434af8afdb84b72d3884b49cce30310d80694cfe8e5f3b4d4b93b1f04bd  frankenphp-linux-aarch64
+54bb4990ab881d8ce3c34bfe9904d53da3b6aad4fbddaac6af9c90e2e5d125b5  frankenphp-linux-x86_64
+e20e054a5ce7d59584156b47f4eaa946bbb085bbc4edc21da56003dc1cdae808  frankenphp-mac-arm64
+36a8041b0e1956c9debce8741eca3c0f552ee61d962eba9a41062cf69eaa4473  frankenphp-mac-x86_64
+641cd13d3f887b5b98d90b2e0b7e14a2c163810a7abfb7da64a260ad1dfd8691  frankenphp-windows-x86_64.zip

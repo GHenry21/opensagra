@@ -169,12 +169,12 @@ $Script:ExcludeFromCopy = @(
 )
 
 # FrankenPHP: UNA versione fissata per tutti gli OS, non "latest" - vedi
-# packaging\frankenphp.sha256 (perche' la v1.12.6, impronte verificate quando
-# si costruisce il pacchetto) e php/frankenphp#2685. Il pacchetto di release
+# packaging\frankenphp.sha256 (perche' questa versione, impronte verificate
+# quando si costruisce il pacchetto) e php/frankenphp#2685. Il pacchetto di release
 # include gia' lo zip (frankenphp\frankenphp-windows-x86_64.zip): nessun
 # download all'installazione. Il download diretto di QUESTA versione resta
 # solo come ripiego per chi lancia install.ps1 da una copia del repo.
-$Script:FrankenPhpVersion = '1.12.6'
+$Script:FrankenPhpVersion = '1.13.0'
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
 # (`cd wrapper; go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...`).
@@ -404,17 +404,17 @@ function Install-FrankenPHP {
         return
     }
     if ($current) {
-        # Versione diversa da quella fissata (es. una "latest" di
-        # un'installazione precedente). Si prova a sostituirla; se
-        # frankenphp.exe e' in uso (OpenSagra aperto) NON si blocca
-        # l'installazione: le versioni Windows finora pubblicate hanno tutte
-        # Mercure 0.x, compatibile con il Caddyfile generato qui (vedi
-        # packaging\frankenphp.sha256). Verra' sostituita al prossimo rilancio.
+        # Versione diversa da quella fissata (es. la 1.12.6 di
+        # un'installazione precedente): va sostituita per forza. Le versioni
+        # fino alla 1.12.7 hanno Mercure 0.x su Windows e NON accettano il
+        # Caddyfile generato qui (blocco `issuer`, Mercure 1.0): lasciarla
+        # vorrebbe dire niente sito. Se frankenphp.exe e' in uso (OpenSagra
+        # aperto) ci si ferma con un messaggio chiaro - la copia del wrapper,
+        # piu' avanti, fallirebbe comunque per lo stesso motivo.
         try {
             Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction Stop
         } catch {
-            Add-InstallChecklistItem "FrankenPHP $current lasciato (in uso, non sostituibile ora - atteso $Script:FrankenPhpVersion)"
-            return
+            throw "FrankenPHP $current e' in uso e va aggiornato alla $($Script:FrankenPhpVersion). Chiudi OpenSagra (icona OpenSagra > Esci) e rilancia l'installazione."
         }
     }
     # Bug reale (2026-09-16, VM Windows con installazioni ripetute): lo
@@ -727,8 +727,15 @@ function New-CaddyConfig {
     # abortiscono a 45s, l'EventSource del browser flappa).
     $httpsMercure = @"
 	mercure {
-		publisher_jwt $MercureSecret
-		subscriber_jwt $MercureSecret
+		issuer opensagra-hub {
+			publisher {
+				jwt $MercureSecret
+			}
+			subscriber {
+				jwt $MercureSecret
+			}
+		}
+		resource_identifier https://opensagra-hub/.well-known/mercure
 		cookie_name mercure_authorization
 		cors_origins $httpsCors
 		heartbeat 20s

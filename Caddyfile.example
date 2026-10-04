@@ -15,11 +15,13 @@ https://localhost {
 	# WebKit in HTTPS), rimosso in Fase 4 (bridge nativo via Mercure, stampa
 	# lato server/PHP, mai lato browser). Senza `auto_https disable_redirects`
 	# nel blocco globale sopra, Caddy aggiunge da solo un redirect 308 da :80.
-	# - publisher_jwt/subscriber_jwt: sintassi Mercure 0.x, quella del
-	#   FrankenPHP fissato dagli installer (v1.12.6, Mercure v0.24.2 su tutti
-	#   gli OS). NON la sintassi Mercure 1.0 (blocco `issuer`): gli asset
-	#   ufficiali di una stessa release di FrankenPHP hanno Mercure diversi a
-	#   seconda dell'OS (php/frankenphp#2685) - vedi piano, Fase 4.
+	# - issuer/resource_identifier: sintassi Mercure 1.0 "modern mode", quella
+	#   del FrankenPHP fissato dagli installer (v1.13.0, Mercure v1.0.3 su
+	#   tutti gli OS - vedi packaging/frankenphp.sha256). Fissi, identici a
+	#   MERCURE_ISSUER/MERCURE_AUDIENCE in config/mercure.php: la verifica di
+	#   iss/aud e' puramente locale a questo hub, basta farli combaciare.
+	#   resource_identifier deve avere forma di URL assoluto (RFC 9728),
+	#   issuer no.
 	# - cookie_name: OBBLIGATORIO, senza l'hub non legge il cookie e le
 	#   sottoscrizioni da browser (EventSource) prendono 401 - il modulo
 	#   Caddy non applica un default.
@@ -29,8 +31,15 @@ https://localhost {
 	#   abortita e riaperta di continuo dai sottoscrittori CLI (relay/bridge,
 	#   soglia 45s) e fa flappare l'EventSource del browser. 20s la tiene viva.
 	# mercure {
-	# 	publisher_jwt CAMBIA-QUESTO-SEGRETO
-	# 	subscriber_jwt CAMBIA-QUESTO-SEGRETO
+	# 	issuer opensagra-hub {
+	# 		publisher {
+	# 			jwt CAMBIA-QUESTO-SEGRETO
+	# 		}
+	# 		subscriber {
+	# 			jwt CAMBIA-QUESTO-SEGRETO
+	# 		}
+	# 	}
+	# 	resource_identifier https://opensagra-hub/.well-known/mercure
 	# 	cookie_name mercure_authorization
 	# 	cors_origins https://localhost
 	# 	heartbeat 20s
