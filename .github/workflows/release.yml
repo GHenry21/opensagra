@@ -65,8 +65,13 @@ jobs:
 
       # Un aggiornamento leggero (opensagra-update.zip, vedi packaging/make-update.ps1
       # e wrapper/self_update.go) sostituisce solo il codice app senza reinstallare -
-      # e' sicuro offrirlo SOLO se questa release non tocca wrapper/, install.ps1,
-      # uninstall.ps1 o packaging/ rispetto al tag precedente. Se manca un tag
+      # e' sicuro offrirlo SOLO se questa release non tocca wrapper/, gli
+      # installer/disinstaller di QUALSIASI OS (install.ps1, install.sh,
+      # install-macos.sh e i rispettivi uninstall) o packaging/ rispetto al tag
+      # precedente: l'aggiornamento leggero lo applica lo stesso wrapper su
+      # Windows, Linux e macOS, e non rigenera Caddyfile ne' FrankenPHP (es. il
+      # passaggio a FrankenPHP 1.13/Mercure 1.0 cambia l'installer e
+      # packaging/frankenphp.sha256, quindi reinstallazione completa). Se manca un tag
       # precedente (prima release) si va sempre di reinstallazione completa: non c'e'
       # niente con cui confrontarsi.
       - name: Determina se serve il pacchetto di aggiornamento leggero
@@ -82,7 +87,7 @@ jobs:
             "needsFull=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           } else {
             Write-Host "Confronto con il tag precedente: $prevTag"
-            $changed = git diff --name-only "$prevTag" HEAD -- wrapper/ install.ps1 uninstall.ps1 packaging/
+            $changed = git diff --name-only "$prevTag" HEAD -- wrapper/ install.ps1 uninstall.ps1 install.sh uninstall.sh install-macos.sh uninstall-macos.sh packaging/
             if ($changed) {
               Write-Host "File rilevanti cambiati rispetto a ${prevTag}:"
               $changed | ForEach-Object { Write-Host "  $_" }
