@@ -363,6 +363,18 @@ $https_hosts {
 		respond "Il gestore DB e' raggiungibile solo dal PC server." 403
 	}
 
+	# File interni dell'app mai serviti via HTTP: come in install.ps1, vedi li'
+	# il perche'. Non toccare /.well-known/ (hub Mercure).
+	@private path /config/* /bin/* /logs/* /wrapper/* /private/* /tools/* /vendor/* /includes/* /frankenphp/* /packaging/* /docs/* /e2e/* /node_modules/* /Caddyfile* /composer.json /composer.lock /package.json /package-lock.json /*.ps1 /*.sh /*.exe /*.zip /*.md /*.log /*.sql /*.env
+	@dotfiles {
+		path_regexp /\.
+		not path /.well-known/*
+	}
+	@uploadsphp path_regexp (?i)^/uploads/.*\.(php|phtml|phar)
+	respond @private 404
+	respond @dotfiles 404
+	respond @uploadsphp 404
+
 	mercure {
 		publisher_jwt $mercure_secret
 		subscriber_jwt $mercure_secret
@@ -375,8 +387,10 @@ EOF
     ok "Caddyfile generato (host: ${hosts[*]})"
 }
 
+# OPENSAGRA_DB_HOST=127.0.0.1: come in install.sh - provisioning, seed e
+# migrazioni sempre sul MariaDB di questa macchina (piano, Fase 6c punto B).
 invoke_php_cli() {
-    "$FRANKEN_DIR/frankenphp" php-cli "$@"
+    OPENSAGRA_DB_HOST=127.0.0.1 "$FRANKEN_DIR/frankenphp" php-cli "$@"
 }
 
 # invoke_database_provisioning: stessa idea di install.sh (utente di bootstrap

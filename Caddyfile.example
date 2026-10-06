@@ -8,6 +8,19 @@ https://localhost {
 	php_server
 	tls internal
 
+	# File interni dell'app mai serviti via HTTP: il webroot e' l'intera
+	# cartella (config/variabili.env, Caddyfile, log, php-cli di bin/ e
+	# config/). Stesso blocco degli installer. Non toccare /.well-known/ (hub).
+	@private path /config/* /bin/* /logs/* /wrapper/* /private/* /tools/* /vendor/* /includes/* /frankenphp/* /packaging/* /docs/* /e2e/* /node_modules/* /Caddyfile* /composer.json /composer.lock /package.json /package-lock.json /*.ps1 /*.sh /*.exe /*.zip /*.md /*.log /*.sql /*.env
+	@dotfiles {
+		path_regexp /\.
+		not path /.well-known/*
+	}
+	@uploadsphp path_regexp (?i)^/uploads/.*\.(php|phtml|phar)
+	respond @private 404
+	respond @dotfiles 404
+	respond @uploadsphp 404
+
 	# Realtime Mercure (Fase 4) - stesso segreto di config/variabili.env
 	# (MERCURE_JWT_SECRET), genera il tuo con:  openssl rand -base64 48
 	# Solo HTTPS - niente blocco http://:80: serviva solo per QZ Tray (vecchio

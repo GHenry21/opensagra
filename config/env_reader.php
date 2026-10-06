@@ -36,8 +36,18 @@ function loadPosEnvVars(): array
         }
     }
 
+    // OPENSAGRA_DB_HOST (variabile d'ambiente del processo, non di
+    // variabili.env): la impostano a 127.0.0.1 SOLO installer e wrapper per i
+    // php-cli di migrazioni/provisioning/seed, cosi' su un client migrano il
+    // MariaDB locale (quello del fallback) e non il DB condiviso del server -
+    // quello lo migra solo il server (piano, Fase 6c punto B). Mai impostata
+    // per FrankenPHP: un client lavorerebbe sul DB locale.
+    $hostOverride = getenv('OPENSAGRA_DB_HOST');
+
     return [
-        'host' => $vars['DB_POS_HOST'] ?? '127.0.0.1',
+        'host' => is_string($hostOverride) && $hostOverride !== ''
+            ? $hostOverride
+            : ($vars['DB_POS_HOST'] ?? '127.0.0.1'),
         'user' => $vars['DB_POS_USER'] ?? 'nuovo_utente_pos',
         'pass' => $vars['DB_POS_PASS'] ?? 'PasswordSicura2026!',
         'db' => 'opensagra_pos', // Nome del database, non ancora parametrizzato (vedi piano Fase 3)

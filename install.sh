@@ -368,6 +368,19 @@ $https_hosts {
 		respond "Il gestore DB e' raggiungibile solo dal PC server." 403
 	}
 
+	# File interni dell'app mai serviti via HTTP: il webroot e' l'intera
+	# cartella (variabili.env, Caddyfile, log, php-cli di bin/ e config/) -
+	# come in install.ps1, vedi li' il perche'. Non toccare /.well-known/ (hub).
+	@private path /config/* /bin/* /logs/* /wrapper/* /private/* /tools/* /vendor/* /includes/* /frankenphp/* /packaging/* /docs/* /e2e/* /node_modules/* /Caddyfile* /composer.json /composer.lock /package.json /package-lock.json /*.ps1 /*.sh /*.exe /*.zip /*.md /*.log /*.sql /*.env
+	@dotfiles {
+		path_regexp /\.
+		not path /.well-known/*
+	}
+	@uploadsphp path_regexp (?i)^/uploads/.*\.(php|phtml|phar)
+	respond @private 404
+	respond @dotfiles 404
+	respond @uploadsphp 404
+
 	mercure {
 		publisher_jwt $mercure_secret
 		subscriber_jwt $mercure_secret
@@ -380,8 +393,12 @@ EOF
     ok "Caddyfile generato (host: ${hosts[*]})"
 }
 
+# OPENSAGRA_DB_HOST=127.0.0.1 (letto da config/env_reader.php): provisioning,
+# seed del segreto Mercure e migrazioni toccano SEMPRE il MariaDB di questa
+# macchina, anche su un client con DB_POS_HOST verso il server (piano, Fase 6c
+# punto B). Solo per questo figlio, mai esportata: FrankenPHP non deve vederla.
 invoke_php_cli() {
-    "$FRANKEN_DIR/frankenphp" php-cli "$@"
+    OPENSAGRA_DB_HOST=127.0.0.1 "$FRANKEN_DIR/frankenphp" php-cli "$@"
 }
 
 # invoke_database_provisioning: crea_dbtable_and_user.php si aspetta

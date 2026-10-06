@@ -10,13 +10,12 @@
     installerebbe, piu' vendor/ - stessa lista di esclusione di
     $Script:ExcludeFromCopy in install.ps1, tenerle allineate a mano.
 
-    NON include wrapper.exe, opensagra-uninstaller.exe, install.ps1,
-    uninstall.ps1: un aggiornamento leggero non tocca mai quelle cose (solo
-    il codice applicativo). Vedi .github/workflows/release.yml per QUANDO
-    questo pacchetto viene effettivamente costruito e allegato a una
-    release - solo se wrapper/, install.ps1, uninstall.ps1 e packaging/ non
-    sono cambiati rispetto alla release precedente, altrimenti quella
-    release richiede una reinstallazione completa.
+    NON include wrapper.exe, opensagra-uninstaller.exe, installer e
+    disinstaller: un aggiornamento leggero non tocca mai quelle cose (solo il
+    codice applicativo). La CI lo allega a OGNI release insieme al suo
+    .sha256 (scritto qui accanto); se usarlo o reinstallare lo decide il
+    wrapper dal diff fra la versione installata e quella nuova
+    (lightUpdatePlan in wrapper/update_check.go, piano Fase 6a).
 
     File come config/variabili.env, Caddyfile, uploads/* NON fanno parte di
     questo pacchetto perche' non sono tracciati da git (.gitignore) -
@@ -24,8 +23,9 @@
     lascia quindi intatti senza bisogno di nessuna esclusione esplicita qui.
 
 .PARAMETER Out
-    Percorso dello zip risultante. Default: opensagra-update.zip nella root
-    del repo (gitignored, artefatto di build).
+    Percorso dello zip risultante. Default: opensagra-app-update.zip nella
+    root del repo (artefatto di build). Il nome deve restare quello di
+    updateZipAssetName in wrapper/update_check.go.
 
 .EXAMPLE
     .\packaging\make-update.ps1
@@ -37,7 +37,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $Out) { $Out = Join-Path $RepoRoot 'opensagra-update.zip' }
+if (-not $Out) { $Out = Join-Path $RepoRoot 'opensagra-app-update.zip' }
 
 # Stessi nomi di $Script:ExcludeFromCopy in install.ps1, piu' quelli che li'
 # non servono escludere perche' Copy-AppFiles copia dalla sorgente del
@@ -50,7 +50,11 @@ $ExcludeTopLevel = @(
     '.gitignore', '.gitattributes', 'archive', 'playwright-report',
     'test-results', 'package.json', 'package-lock.json', 'playwright.config.js',
     'bt.html', 'navbar example.html', 'wrapper', 'private', 'packaging',
-    'uninstall.ps1', '.github', 'README.md'
+    'uninstall.ps1', '.github', 'README.md',
+    # Installer/disinstaller Unix e grafico, e file di sviluppo: mai parte del
+    # codice app installato.
+    'install.sh', 'install-macos.sh', 'uninstall.sh', 'uninstall-macos.sh',
+    'installer', 'sync-vm.ps1', '.claude', 'Caddyfile.example'
 )
 
 Write-Host '1/3  Elenco i file dell''app (working tree)...' -ForegroundColor Cyan
@@ -86,6 +90,11 @@ try {
 } finally {
     $zip.Dispose()
 }
+
+# Impronta nel formato di sha256sum ("<hex>  <nome>"): il wrapper rifiuta lo
+# zip se manca o non corrisponde (verifySHA256 in wrapper/self_update.go).
+$hash = (Get-FileHash -Algorithm SHA256 $Out).Hash.ToLower()
+"$hash  $(Split-Path -Leaf $Out)" | Out-File -FilePath "$Out.sha256" -Encoding ascii -NoNewline
 
 Write-Host '3/3  Fatto.' -ForegroundColor Cyan
 $info = Get-Item $Out

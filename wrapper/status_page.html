@@ -132,6 +132,9 @@
     </div>
   </div>
 
+  <!-- Versioni diverse fra PC collegati (nodes.go, piano Fase 6c punto A). -->
+  <div class="warn-banner" id="versionBanner" hidden></div>
+
   <div class="row">
     <button class="primary grow" id="btnApp" data-icon="external-link"><span>Apri OpenSagra</span></button>
     <button class="grow" id="btnPause"><span>Ferma server</span></button>
@@ -164,6 +167,11 @@
     </div>
 
     <div id="procList"></div>
+
+    <div id="nodeSection" hidden>
+      <div class="muted" style="margin-top:12px">Macchine collegate (ultimi 3 minuti)</div>
+      <div id="nodeList"></div>
+    </div>
 
     <div class="logs">
       <div class="logs-head">
@@ -252,7 +260,8 @@ async function refresh() {
   } else if (s.update_available) {
     $("#btnUpdate").title = s.update_zip_url
       ? `Nuova versione disponibile: v${s.latest_version} (installata: v${s.wrapper_version}) - clic per aggiornare`
-      : `Nuova versione disponibile: v${s.latest_version} - richiede reinstallazione completa`;
+      : `Nuova versione disponibile: v${s.latest_version} - richiede reinstallazione completa` +
+        (s.update_full_why ? ` (${s.update_full_why})` : "");
   } else {
     $("#btnUpdate").title = `OpenSagra v${s.wrapper_version}`;
   }
@@ -274,6 +283,8 @@ async function refresh() {
   $("#beacon").className = "beacon " + cls;
   $("#heroBig").textContent = big;
   $("#heroSub").textContent = sub;
+
+  renderVersions(s);
 
   $("#btnPause").innerHTML = ic("power", 15) + `<span>${s.all_paused ? "Avvia server" : "Ferma server"}</span>`;
   $("#chkAutostart").checked = s.autostart;
@@ -316,6 +327,51 @@ async function refresh() {
   }
 }
 
+// --- versioni fra PC collegati ---
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const normVer = v => String(v || "").trim().replace(/^v/, "");
+function cmpVer(a, b) {
+  const pa = normVer(a).split(".").map(n => parseInt(n, 10) || 0);
+  const pb = normVer(b).split(".").map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  return 0;
+}
+let lastNodes = "";
+function renderVersions(s) {
+  const mine = s.wrapper_version;
+  const banner = $("#versionBanner");
+  let msg = "";
+  if (s.version_mismatch && s.role === "SERVER") {
+    const diff = (s.nodes || []).filter(n => normVer(n.version) !== normVer(mine));
+    msg = `Versioni diverse in rete (server: v${esc(mine)}): ` +
+      diff.map(n => `<b>${esc(n.hostname)}</b> v${esc(n.version)}`).join(", ") +
+      ". Aggiorna quelle macchine alla versione del server.";
+  } else if (s.version_mismatch) {
+    msg = cmpVer(mine, s.server_version) < 0
+      ? `Questa cassa è alla v${esc(mine)}, il server alla v${esc(s.server_version)}: aggiorna questa cassa.`
+      : `Questa cassa (v${esc(mine)}) è più recente del server (v${esc(s.server_version)}): aggiorna prima il server.`;
+  }
+  banner.hidden = !msg;
+  if (msg) banner.innerHTML = msg;
+
+  const nodes = s.role === "SERVER" ? (s.nodes || []) : [];
+  $("#nodeSection").hidden = nodes.length === 0;
+  const sig = JSON.stringify(nodes) + mine;
+  if (sig === lastNodes) return;
+  lastNodes = sig;
+  $("#nodeList").innerHTML = nodes.map(n => {
+    const same = normVer(n.version) === normVer(mine);
+    return `
+    <div class="proc">
+      <div class="dot ${same ? "ok" : "err"}"></div>
+      <div class="meta">
+        <div class="name">${esc(n.hostname)}${n.self ? " (questa macchina)" : ""}</div>
+        <div class="detail">${esc(n.role)} · v${esc(n.version)} · ultimo contatto ${esc(n.last_seen)}</div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
 async function refreshLog() {
   const name = $("#logSel").value;
   if (!name || !$("#adv").open) return;
@@ -337,6 +393,7 @@ $("#btnUpdate").onclick = async () => {
   if (!s.update_zip_url) { api("open-update"); return; } // richiede reinstallazione completa
   const notes = (s.update_notes || "").trim();
   const body = `Versione installata: v${s.wrapper_version}\nNuova versione: v${s.latest_version}` +
+    `\n\nPrima di aggiornare viene salvata una copia del database. Il server si ferma per qualche secondo.` +
     (notes ? `\n\n${notes}` : "");
   if (await confirmBox(`Aggiornare a v${s.latest_version}?`, body)) api("apply-update");
 };

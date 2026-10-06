@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # serve tutta la storia dei tag per il confronto con la release precedente, sotto
+          fetch-depth: 0 # tag esatto su HEAD -> versione (packaging/Get-ReleaseVersion.ps1, git describe)
 
       - uses: actions/setup-go@v5
         with:
@@ -63,43 +63,16 @@ jobs:
             "$f - $($v.ProductName) v$($v.FileVersion) - $((Get-Item $f).Length) byte"
           }
 
-      # Un aggiornamento leggero (opensagra-update.zip, vedi packaging/make-update.ps1
-      # e wrapper/self_update.go) sostituisce solo il codice app senza reinstallare -
-      # e' sicuro offrirlo SOLO se questa release non tocca wrapper/, gli
-      # installer/disinstaller di QUALSIASI OS (install.ps1, install.sh,
-      # install-macos.sh e i rispettivi uninstall) o packaging/ rispetto al tag
-      # precedente: l'aggiornamento leggero lo applica lo stesso wrapper su
-      # Windows, Linux e macOS, e non rigenera Caddyfile ne' FrankenPHP (es. il
-      # passaggio a FrankenPHP 1.13/Mercure 1.0 cambia l'installer e
-      # packaging/frankenphp.sha256, quindi reinstallazione completa). Se manca un tag
-      # precedente (prima release) si va sempre di reinstallazione completa: non c'e'
-      # niente con cui confrontarsi.
-      - name: Determina se serve il pacchetto di aggiornamento leggero
-        id: diff
-        shell: powershell
-        run: |
-          $currentTag = if ("${{ github.ref_type }}" -eq 'tag') { "${{ github.ref_name }}" } else { $null }
-          $allTags = git tag --sort=-v:refname
-          $prevTag = $allTags | Where-Object { $_ -ne $currentTag } | Select-Object -First 1
-
-          if (-not $prevTag) {
-            Write-Host "Nessun tag precedente trovato: prima release, nessun aggiornamento leggero."
-            "needsFull=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          } else {
-            Write-Host "Confronto con il tag precedente: $prevTag"
-            $changed = git diff --name-only "$prevTag" HEAD -- wrapper/ install.ps1 uninstall.ps1 install.sh uninstall.sh install-macos.sh uninstall-macos.sh packaging/
-            if ($changed) {
-              Write-Host "File rilevanti cambiati rispetto a ${prevTag}:"
-              $changed | ForEach-Object { Write-Host "  $_" }
-              "needsFull=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            } else {
-              Write-Host "Nessuna modifica a wrapper/installer/uninstaller rispetto a $prevTag - allego anche l'aggiornamento leggero."
-              "needsFull=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            }
-          }
-
+      # Aggiornamento leggero (opensagra-app-update.zip + .sha256, vedi
+      # packaging/make-update.ps1 e wrapper/self_update.go): allegato a OGNI
+      # release. Se una data installazione puo' usarlo o deve reinstallare lo
+      # decide il wrapper, dal diff fra il SUO tag installato e questo
+      # (lightUpdatePlan in wrapper/update_check.go, piano Fase 6a) - qui si
+      # vedeva solo il tag precedente, e chi saltava una release che
+      # richiedeva la reinstallazione riceveva lo zip lo stesso. Il nome
+      # nuovo (non piu' opensagra-update.zip) tiene fuori i wrapper vecchi,
+      # che lo applicherebbero alla cieca: ricadono su "reinstallazione".
       - name: Compila il pacchetto di aggiornamento leggero
-        if: steps.diff.outputs.needsFull == 'false'
         shell: powershell
         run: .\packaging\make-update.ps1
 
@@ -109,7 +82,8 @@ jobs:
           path: |
             opensagra-installer.exe
             opensagra-uninstaller.exe
-            opensagra-update.zip
+            opensagra-app-update.zip
+            opensagra-app-update.zip.sha256
           retention-days: 30
           if-no-files-found: ignore
 
@@ -120,7 +94,8 @@ jobs:
           files: |
             opensagra-installer.exe
             opensagra-uninstaller.exe
-            opensagra-update.zip
+            opensagra-app-update.zip
+            opensagra-app-update.zip.sha256
           generate_release_notes: true
 
   # Pacchetti Linux/macOS (packaging/make-unix-package.sh): un archivio per

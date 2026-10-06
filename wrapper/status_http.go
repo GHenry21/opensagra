@@ -122,10 +122,17 @@ type statusJSON struct {
 	UpdateAvailable bool   `json:"update_available"`
 	LatestVersion   string `json:"latest_version"`  // valorizzata solo se UpdateAvailable
 	UpdateURL       string `json:"update_url"`      // pagina della release su GitHub
-	UpdateZipURL    string `json:"update_zip_url"`  // "" se questa release richiede una reinstallazione completa
+	UpdateZipURL    string `json:"update_zip_url"`  // "" se da questa installazione serve una reinstallazione completa
+	UpdateFullWhy   string `json:"update_full_why"` // perche' serve la reinstallazione (se UpdateZipURL == "")
 	UpdateNotes     string `json:"update_notes"`    // note della release, da mostrare prima di confermare
 	Updating        bool   `json:"updating"`        // true mentre ApplyUpdate() e' in corso
 	UpdateError     string `json:"update_error"`    // ultimo errore di ApplyUpdate(), se c'e'
+
+	// Versioni fra PC collegati (nodes.go). ServerVersion "" = ignota (DB
+	// irraggiungibile o server con wrapper precedente). Nodes solo sul server.
+	ServerVersion   string     `json:"server_version"`
+	VersionMismatch bool       `json:"version_mismatch"`
+	Nodes           []nodeInfo `json:"nodes"`
 }
 
 // cachedClientCount: activeClientCount() apre una connessione al DB; con la
@@ -189,6 +196,8 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	updating, updateErr := h.updating, h.updateErr
 	h.mu.Unlock()
+	localVer := installedVersion(h.cfg)
+	serverVer, nodes := versionPeers()
 	out := statusJSON{
 		Role:              role,
 		ClientCount:       h.cachedClientCount(),
@@ -201,14 +210,28 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		PhpVersion:        phpVer,
 		DbToolURL:         h.cachedDbToolURL(),
 		LogDir:            h.cfg.LogDir,
-		WrapperVersion:    installedVersion(h.cfg),
+		WrapperVersion:    localVer,
 		UpdateAvailable:   upd.Available,
 		LatestVersion:     upd.Latest,
 		UpdateURL:         upd.HTMLURL,
 		UpdateZipURL:      upd.ZipURL,
+		UpdateFullWhy:     upd.FullReason,
 		UpdateNotes:       upd.Changelog,
 		Updating:          updating,
 		UpdateError:       updateErr,
+		ServerVersion:     serverVer,
+		Nodes:             nodes,
+	}
+	if role == "SERVER" {
+		// Sul server "mismatch" = almeno una macchina collegata diversa.
+		for _, n := range nodes {
+			if !sameAppVersion(n.Version, localVer) {
+				out.VersionMismatch = true
+				break
+			}
+		}
+	} else {
+		out.VersionMismatch = serverVer != "" && !sameAppVersion(serverVer, localVer)
 	}
 	for _, name := range h.sup.names() {
 		st := h.sup.get(name)
@@ -301,7 +324,7 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 		}
 		info := checkForUpdate(h.cfg)
 		go func() {
-			err := ApplyUpdate(h.cfg, info)
+			err := ApplyUpdate(h.cfg, h.sup, info)
 			h.mu.Lock()
 			h.updating = false
 			if err != nil {
@@ -311,6 +334,7 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				invalidateUpdateCache() // altrimenti resta "disponibile" un aggiornamento gia' applicato, fino a 12h
 				h.sup.restartAll()      // il codice nuovo va caricato - stesso effetto di "Riavvia tutto"
+				go nodeHeartbeat(h.cfg) // la versione nuova sul DB subito (su un server: i client lo vedono al loro battito)
 				go announceBackWhenUp(h.ctx, h.sup, h.cfg)
 			}
 		}()

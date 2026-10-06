@@ -1142,6 +1142,76 @@ Aperta il 2026-09-14. A differenza delle fasi precedenti (infrastruttura/funzion
 - [x] Sito **moderno, facile da mantenere, costo quasi 0€** — nessuna decisione tecnica presa. Da valutare: **GitHub Pages** (gratis, sta già "dentro" dove vive il codice — coerente col punto 5b, zero hosting da gestire) **vs self-hosted** (più controllo/dominio proprio, ma costo e manutenzione in più, non giustificati se l'obiettivo è "quasi 0€" e "facile da mantenere"). Contenuto minimo: presentazione del progetto + **un bottone che porta alla demo live** (5f). Dipende da 5b (repo pubblico) se si sceglie GitHub Pages, e da 5f (demo pronta) per avere qualcosa da linkare.
 - [ ] Cookie tramite sito apposito
 - [ ] Dominio opensagra.com Ionos + tunnel cloudflare per sito e demo app
+
+---
+
+## Fase 6 — Aggiornamenti, reinstallazioni e versioni in rete
+
+**Vincoli (2026-10-07):** OpenSagra funziona **solo in LAN**: Internet non serve per farla funzionare, solo per scaricare gli aggiornamenti. Ogni chiamata a GitHub (release, compare) deve quindi essere opzionale e fallire verso il caso sicuro; un client in sagra può non avere Internet affatto (→ punto C di 6c). Tutto il lavoro di questa fase esce **con la prossima release**, prevista appena FrankenPHP pubblica la 1.13.1 (fix di `php-cli`, vedi Fase 4) — nessuna release separata.
+
+Aperta il 2026-10-07, dopo un'analisi di come funzionano oggi aggiornamento leggero (`wrapper/self_update.go`, `wrapper/update_check.go`, `packaging/make-update.ps1`) e reinstallazione.
+
+**Stato di partenza (verificato leggendo il codice):**
+- **Aggiornamento leggero**: il wrapper legge l'ultima release GitHub (cache 12h); se ha l'asset `opensagra-update.zip` lo estrae *sopra* l'installazione, rilancia tutte le migrazioni (idempotenti), aggiorna `config/.installed_version`. La CI allega lo zip solo se rispetto al **tag precedente** non cambiano `wrapper/`, `packaging/`, installer/disinstaller (esteso agli installer Unix nel commit `8af3154`).
+- **Reinstallazione sopra un'installazione esistente = aggiornamento completo che conserva i dati**: servizio MariaDB già registrato → non reinizializzato (`Register-MariaDBService`); `pos.sql` importato solo su DB vuoto (`crea_dbtable_and_user.php`); `variabili.env` e segreto Mercure riusati; migrazioni rilanciate. Non è scritto da nessuna parte per l'utente → da aggiungere a `docs/GUIDA-UTENTE.md`.
+
+### 6a. Decisione "leggero o reinstallazione": dal diff reale, nel wrapper
+
+**Bug**: la CI giudica ogni release solo contro il tag *precedente*, il wrapper la applica a *qualunque* versione installata più vecchia. Esempio: v1.0.0 installata → v1.1.0 cambia FrankenPHP/Caddyfile (niente zip) → v1.2.0 solo PHP (zip allegato) → la cassa ferma alla v1.0.0 applica lo zip della v1.2.0 su FrankenPHP/Caddyfile vecchi, e `.installed_version` dice 1.2.0 (la reinstallazione non viene più proposta). La decisione dipende dalla **coppia** (installata, nuova), non dalla sola release.
+
+**Scelta (2026-10-07)**: decide il wrapper, al momento dell'aggiornamento, con l'API GitHub *compare* tra il tag installato e quello nuovo (`GET /repos/GHenry21/opensagra/compare/v<installata>...v<nuova>`).
+- Se fra i file cambiati c'è qualcosa sotto `wrapper/`, `packaging/`, `install*`, `uninstall*`, **`composer.json`/`composer.lock`** (una nuova estensione PHP richiesta non si abilita copiando `vendor/`) → reinstallazione completa. Altrimenti zip.
+- I file con stato `removed` (e il `previous_filename` dei `renamed`) vanno **cancellati**: oggi l'estrazione (e anche `Copy-AppFiles`) sovrascrive soltanto, un `api/*.php` eliminato in una release resta raggiungibile.
+- **Fail-safe verso la reinstallazione**: lista troncata (limite 300 file dell'API), GitHub irraggiungibile, tag installato inesistente (`0.0.0-dev`, storia riscritta) → si propone la reinstallazione, mai lo zip.
+- La CI allega lo zip **sempre** (la decisione non è più sua), ma con un **nome nuovo**: i wrapper già installati (v1.0.0) cercano solo `opensagra-update.zip` e lo applicherebbero alla cieca; non trovandolo ricadono da soli su "serve una reinstallazione completa", che installa il wrapper nuovo con la logica del diff.
+- Limite noto: la regola sui percorsi presuppone che ogni cambiamento che richiede un'azione sulla macchina tocchi uno di quei file. Vale oggi (Caddyfile, php.ini, `variabili.env` passano tutti da `install.ps1`/`install.sh`); da tenere presente.
+- [x] **Implementato (2026-10-07, non committato)**: `lightUpdatePlan()` in `wrapper/update_check.go` (compare API, prefissi `wrapper/ packaging/ install* uninstall* composer.json composer.lock`, file rimossi/rinominati esclusi `uploads/`); asset rinominato `opensagra-app-update.zip` + `.sha256` (`packaging/make-update.ps1`, esclude ora anche installer Unix/grafico e file di sviluppo); `release.yml` allega lo zip sempre (tolto il passo di confronto col tag precedente); la finestra di stato mostra nel tooltip *perché* serve la reinstallazione.
+  - Verificato contro l'API GitHub reale con i tag esistenti: `0.1.0→0.1.1`, `0.1.0→1.0.0`, `0.1.1→1.0.0` → reinstallazione ("aggiorna anche install.ps1", corretto: ogni release finora ha toccato l'installer); `0.0.0-dev` → reinstallazione (non confrontabile); tag inesistente → reinstallazione (HTTP 404).
+
+### 6b. Robustezza dell'aggiornamento leggero — ✅ implementato (2026-10-07, non committato)
+
+`ApplyUpdate()` in `wrapper/self_update.go`, in quest'ordine — l'installazione non viene toccata finché i primi tre passi non sono riusciti:
+- [x] download + **verifica sha256** obbligatoria (senza impronta o con impronta diversa non si applica nulla);
+- [x] **estrazione completa in staging** (cartella temporanea);
+- [x] **`mariadb-dump` del DB locale** in `<cartella config utente>/opensagra/backups/` (su Windows `%APPDATA%\opensagra\backups`), **fuori dal webroot** (vedi 6b-bis), ultimi 10 tenuti, password via `MYSQL_PWD` e non sulla riga di comando; senza backup l'aggiornamento non parte;
+- [x] **FrankenPHP in pausa** durante la sostituzione (solo lui: le casse parlano col MariaDB direttamente, quindi niente fallback locale, il realtime ripiega sul polling per qualche secondo);
+- [x] ogni file **scritto accanto e rinominato** (mai visto troncato), con copia degli originali → se copia, cancellazione dei file obsoleti o migrazioni falliscono, **l'installazione viene rimessa com'era** (anche i file aggiunti tolti e quelli cancellati ricreati);
+- [x] cancellazione dei file rimossi fra le due versioni (dal diff di 6a);
+- [x] migrazioni sul DB locale (6c punto B).
+- Verificato con un test temporaneo su un'installazione finta (rimosso dopo): aggiornamento riuscito (file sostituiti, obsoleto cancellato, `variabili.env` intatto, versione scritta, FrankenPHP rimesso in moto); impronta sbagliata → nulla toccato; migrazione che fallisce → tutto rimesso com'era; dump reale del DB di sviluppo creato (poi cancellato). Wrapper compilato per Windows, Linux amd64/arm64, macOS arm64/amd64.
+- **Da verificare** con la prossima release (serve uno zip vero pubblicato): aggiornamento leggero reale end-to-end su VM/Pi, e su Linux/macOS il percorso di `mariadb-dump` (cercato nel PATH) e la cartella backup dell'utente del servizio.
+- Nota: il disinstallatore non tocca `%APPDATA%\opensagra\backups` — i dump restano all'utente, voluto.
+
+### 6b-bis. Sicurezza: file interni serviti via HTTP — ✅ corretto nel codice (2026-10-07, non committato)
+
+**Trovato cercando dove mettere staging/backup dell'aggiornamento.** Il webroot di Caddy è l'**intera cartella dell'app** (`root * C:\opensagra` / `$INSTALL_DIR`) e `php_server` serve file statici ed esegue qualunque `.php`. Verificato sul server di sviluppo: `config/variabili.env` (password DB + segreto Mercure), `Caddyfile` (segreto Mercure), `wrapper/logs/*.log`, `.git/config`, `composer.json` → **200**. In più i php-cli di `bin/` e `config/` (es. `crea_dbtable_and_user.php`) erano eseguibili via HTTP. Con 3306 aperta nel firewall e l'utente app creato anche su `'%'`, chiunque sul WiFi della sagra poteva leggere la password e prendersi il DB.
+
+**Correzione**: blocco `@private` / `@dotfiles` / `@uploadsphp` → `respond 404` nel Caddyfile generato da `install.ps1`, `install.sh`, `install-macos.sh` e in `Caddyfile.example`. Bloccati: `config/ bin/ logs/ wrapper/ private/ tools/ vendor/ includes/ frankenphp/ packaging/ docs/ e2e/ node_modules/`, `Caddyfile*`, `composer.*`, `package*.json`, `*.ps1 *.sh *.exe *.zip *.md *.log *.sql *.env`, ogni percorso con un segmento che inizia per `.` **tranne `/.well-known/`** (hub Mercure), ed eseguibili PHP sotto `uploads/`. Restano pubblici `pages/ api/ print/ assets/ uploads/ cert/` (`cert/` serve alla pagina CA per i telefoni) e `/db` da localhost (i suoi `handle` vengono prima).
+- Verificato sul server di sviluppo (stesso blocco applicato al `Caddyfile` locale, reload graceful): tutti i percorsi sopra → 404; app, API, `cert/`, immagini → 200; hub → 401 senza JWT, SSE 200 da `billing.php`; giro Playwright su tutte le pagine senza risorse ≥400 né errori console. I tre Caddyfile *generati* dagli installer passano `frankenphp adapt` e hanno i 404 prima di `php_server`.
+- **Le installazioni esistenti restano esposte finché non vengono reinstallate**: l'aggiornamento leggero non rigenera il Caddyfile (la release con questa correzione cambia gli installer → la CI la marca già come reinstallazione completa). Esposizione limitata alla LAN (l'app non è raggiungibile da Internet), ma il WiFi di una sagra è spesso condiviso con volontari/pubblico. Esce con la release FrankenPHP 1.13.1.
+- Da valutare: **ruotare** password DB e segreto Mercure sulle installazioni usate su reti non fidate; restringere la regola firewall 3306 (oggi su tutti i profili, anche Public) e l'utente `'%'` alla sola subnet locale.
+
+### 6c. Versioni diverse fra PC collegati
+
+**Perché il problema esiste**: ogni client esegue il **proprio** codice PHP (proprio FrankenPHP) ma scrive **direttamente sul MariaDB del server** (`DB_POS_HOST` remoto). Codice per-macchina, dati condivisi. (I tablet thin client navigano l'app del server: per loro il problema non esiste.) Punti di attrito: schema DB, formato dei messaggi Mercure, push del fallback (`push_local_sales.php`) e snapshot (che copia la struttura delle tabelle dal server, `SHOW CREATE TABLE`).
+
+**Bug trovato nell'analisi**: le migrazioni (e il provisioning e il seed del segreto Mercure dell'installer) usano `get_db_connection.php` → `DB_POS_HOST`. Su un **client** quindi:
+- l'aggiornamento/reinstallazione di un client **migra il DB del server** (l'utente app ha `GRANT ALL`), con server e altri client ancora sul codice vecchio;
+- il **DB locale del client** (quello del fallback) **non viene mai migrato**;
+- la reinstallazione di un client **sovrascrive `app_config.MERCURE_JWT_SECRET` del server** con il segreto del client → i client che si agganciano dopo ricevono un segreto sbagliato (JWT rifiutato dall'hub del server);
+- il provisioning (`crea_dbtable_and_user.php`, `$rootHost = $servername`) tenta una connessione **root verso il server** invece che verso il MariaDB locale.
+
+**Proposta, in ordine — il server è il riferimento:**
+- [x] **A. Ognuno sa la versione degli altri.** *(codice 2026-10-07, non committato)* Il wrapper di ogni macchina, all'avvio, ogni 60s, al cambio ruolo e dopo un aggiornamento leggero, scrive sul DB a cui punta una riga in `app_nodi` (hostname, ruolo, versione, ultimo contatto); il wrapper del **server** scrive anche `app_config.SERVER_APP_VERSION` (`wrapper/nodes.go`; le tabelle le crea il wrapper stesso, così funziona anche verso un server con codice più vecchio). Il client confronta con la propria `config/.installed_version` → avviso in sidebar dell'app (`api/db_status.php` restituisce `app_version`/`server_app_version`, `includes/sidebar.php`) e nella finestra di stato ("questa cassa è alla X, il server alla Y" / "è più recente del server: aggiorna prima il server"). La finestra di stato del server elenca in *Dettagli avanzati* le macchine viste negli ultimi 3 minuti, in rosso quelle con versione diversa.
+  - Verificato: wrapper compilato per Windows/Linux amd64+arm64/macOS arm64 (`go vet` pulito); battito eseguito davvero contro il DB di sviluppo sia da server (127.0.0.1) sia da client (IP di LAN) — righe scritte e rilette; query di `db_status.php` provata sul DB; avviso in sidebar e finestra di stato renderizzati con Playwright su dati simulati (più vecchio, più recente, uguale con/senza "v", versione server ignota → nascosto; hostname con HTML correttamente escapato). Righe di test rimosse dal DB di sviluppo.
+  - **Da verificare**: su due macchine reali (PC + Pi o VM) con versioni diverse.
+- [x] **B. Solo il server migra il DB condiviso.** *(codice 2026-10-07, non committato)* Migrazioni, provisioning e seed dell'installer girano **sempre sul MariaDB di questa macchina** (127.0.0.1) tramite la variabile d'ambiente `OPENSAGRA_DB_HOST`, rispettata da `config/env_reader.php` e impostata solo per quei processi `php-cli` (`Invoke-PhpCli` in `install.ps1`, `invoke_php_cli` in `install.sh`/`install-macos.sh`, `runNewMigrations` in `wrapper/self_update.go`) — mai per FrankenPHP: altrimenti un client lavorerebbe sul DB locale. Su server/indipendente non cambia nulla (127.0.0.1 è già il DB condiviso); su un client si migra il DB locale del fallback. Chiude tutti e quattro i bug sopra.
+  - Verificato: `env_reader.php` con un `variabili.env` da client (`DB_POS_HOST=10.9.9.9`) → host `10.9.9.9` senza variabile, `127.0.0.1` con; `install.ps1` senza errori di parsing, `install.sh`/`install-macos.sh` passano `bash -n`.
+  - **Da verificare**: reinstallazione reale di un client (VM o Pi) → il DB del server non viene toccato (né migrazioni né `MERCURE_JWT_SECRET`), il DB locale del client sì. Nota: il ramo provisioning su client (root verso il server) probabilmente falliva già prima, ed è coerente col punto aperto di Fase 3 "giro end-to-end del wrapper come client via installer".
+- [ ] **C. Ordine obbligato: prima il server, poi i client.** Il pulsante "Aggiorna" su un client porta alla **versione del server**, non all'ultima su GitHub. Variante preferita: il client scarica l'aggiornamento **dal server in LAN** (il server conserva zip/installer della propria versione) — in sagra spesso c'è solo il router LTE. Da progettare insieme a 6a.
+- [ ] **D. Regola per le migrazioni: compatibili con la versione precedente.** Solo aggiunte (colonne con default, tabelle nuove), mai rinominare/eliminare nella stessa release: per qualche minuto il server è nuovo e i client vecchi. Le quattro migrazioni esistenti (`001`–`004`) la rispettano già. Vale anche per gli `ALTER` a runtime (es. `ensureVenditeIdempotencyColumn` in `print_receipt.php`, che può partire da qualunque macchina).
+- [ ] **E. Blocco solo se serve davvero.** `app_config.SCHEMA_MIN_APP_VERSION`: un client sotto quella soglia non vende e chiede di aggiornarsi. Solo per le rare release che violano D; di norma basta l'avviso di A.
+
 ---
 
 ## Appendice A — Estensioni PHP: lista e abilitazione

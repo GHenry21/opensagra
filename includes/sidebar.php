@@ -118,6 +118,9 @@ $_hNavGroups = [
             <button type="button" class="pos-sync-pending__btn" id="pos-sync-pending-btn"
                 data-push-url="<?= $_hRoot ?>api/push_local_sales.php">Sincronizza ora</button>
         </div>
+        <!-- Fase 6c punto A: questa cassa ha una versione diversa dal server
+             (api/db_status.php, server_app_version). Solo sui client. -->
+        <div class="pos-version-mismatch" id="pos-version-mismatch" role="status" hidden></div>
         <!-- Versione app installata (v. $_hAppVersion in cima al file) -
              aggiornata sia da un'installazione completa sia da un
              aggiornamento leggero, mai a mano. -->
@@ -227,6 +230,32 @@ $_hNavGroups = [
 
         var _inPages = window.location.pathname.indexOf('/pages/') !== -1;
         var apiUrl = (_inPages ? '../' : '') + 'api/db_status.php';
+        var mismatch = document.getElementById('pos-version-mismatch');
+
+        function normVer(v) { return String(v || '').trim().replace(/^v/, ''); }
+        function cmpVer(a, b) {
+            var pa = normVer(a).split('.'), pb = normVer(b).split('.');
+            for (var i = 0; i < 3; i++) {
+                var x = parseInt(pa[i], 10) || 0, y = parseInt(pb[i], 10) || 0;
+                if (x !== y) { return x - y; }
+            }
+            return 0;
+        }
+
+        // Avviso solo se entrambe le versioni sono note e diverse: un server
+        // con wrapper precedente non pubblica la sua (server_app_version '').
+        function renderVersionMismatch(data) {
+            if (!mismatch) { return; }
+            var mine = normVer(data.app_version), server = normVer(data.server_app_version);
+            if (!data.online || !mine || !server || mine === server) {
+                mismatch.hidden = true;
+                return;
+            }
+            mismatch.textContent = cmpVer(mine, server) < 0
+                ? 'Questa cassa è alla v' + mine + ', il server alla v' + server + ': aggiorna questa cassa.'
+                : 'Questa cassa (v' + mine + ') è più recente del server (v' + server + '): aggiorna prima il server.';
+            mismatch.hidden = false;
+        }
 
         function refresh() {
             fetch(apiUrl)
@@ -235,6 +264,7 @@ $_hNavGroups = [
                     dot.className = 'pos-net-pill__dot' + (data.online ? ' is-online' : ' is-offline');
                     var shownHost = (data.display_host || data.host) + (data.hostname ? ' (' + data.hostname + ')' : '');
                     text.textContent = 'Rete: ' + shownHost + (data.online ? '' : ' (offline)');
+                    renderVersionMismatch(data);
                 })
                 .catch(function() {
                     dot.className = 'pos-net-pill__dot is-offline';

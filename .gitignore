@@ -61,6 +61,8 @@ Thumbs.db
 /opensagra-*-macos-*.tar.gz
 
 # Pacchetto di aggiornamento leggero (solo codice app + vendor/), prodotto da
-# packaging\make-update.ps1 - allegato alle release solo quando wrapper/
-# installer/uninstaller non sono cambiati (vedi release.yml)
+# packaging\make-update.ps1 - allegato a ogni release con il suo .sha256
+# (vedi release.yml). Il vecchio nome resta ignorato per le copie locali.
 /opensagra-update.zip
+/opensagra-app-update.zip
+/opensagra-app-update.zip.sha256

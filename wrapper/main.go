@@ -125,6 +125,10 @@ func main() {
 	// snapshot (il relay si autoregola gia' da solo con exit(0)).
 	go watchDbHost(ctx, cfg, sup)
 
+	// Versione di questa macchina sul DB a cui punta + versione del server
+	// (piano, Fase 6c punto A) - vedi nodes.go.
+	go nodeHeartbeatLoop(ctx, cfg)
+
 	// Sequenza di uscita pulita. Su Windows e' il menu tray "Esci" (dopo
 	// conferma) a invocarla; su Linux/macOS la invoca runEventLoop quando
 	// arriva un segnale di arresto (systemctl/launchctl stop) o -quit
