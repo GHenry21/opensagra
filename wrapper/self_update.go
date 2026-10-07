@@ -374,7 +374,9 @@ func backupLocalDatabase(cfg *Config) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	out := filepath.Join(dir, "opensagra-preupdate-"+time.Now().Format("20060102-150405")+".sql")
+	// Millisecondi nel nome: due aggiornamenti nello stesso secondo (visto in
+	// test sul Pi) si sovrascrivevano il dump. Resta ordinabile come stringa.
+	out := filepath.Join(dir, "opensagra-preupdate-"+time.Now().Format("20060102-150405.000")+".sql")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
