@@ -1,6 +1,6 @@
 name: Test installer Fedora
 
-# Prova install.sh / uninstall.sh su Fedora 42 in una VERA macchina virtuale:
+# Prova install.sh / uninstall.sh su Fedora (FEDORA_RELEASE, oggi la 44) in una VERA macchina virtuale:
 # GitHub non ha runner Fedora, ma i runner Linux hanno KVM, quindi si avvia
 # l'immagine Cloud ufficiale di Fedora con QEMU e la si configura con
 # cloud-init. Systemd, logind, PAM, firewalld e SELinux (enforcing) sono quelli
@@ -16,7 +16,7 @@ on:
   workflow_dispatch: {}
 
 env:
-  FEDORA_RELEASE: "42"
+  FEDORA_RELEASE: "44"
 
 jobs:
   install:
