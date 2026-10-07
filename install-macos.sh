@@ -236,12 +236,52 @@ install_mariadb() {
     fi
     brew services start mariadb >>"$LOG_FILE" 2>&1 || log "brew services start mariadb ha dato errore (dettagli in $LOG_FILE) - verifico se risponde comunque"
 
+    wait_for_mariadb
+    ok "Servizio MariaDB attivo"
+    allow_lan_mariadb
+}
+
+wait_for_mariadb() {
     local i
     for i in $(seq 1 30); do
-        mariadb -e 'SELECT 1' >/dev/null 2>&1 && { ok "Servizio MariaDB attivo"; return; }
+        mariadb -e 'SELECT 1' >/dev/null 2>&1 && return
         sleep 1
     done
     die "MariaDB non risponde dopo 30s (prova: brew services list; log in $(brew --prefix)/var/mysql/*.err)"
+}
+
+# allow_lan_mariadb: come in install.sh, perche' questo Mac possa fare da
+# SERVER - le casse client scrivono direttamente sulla 3306 del server. La
+# formula Homebrew installa un etc/my.cnf con `bind-address = 127.0.0.1`
+# (non e' un parametro del servizio: `brew services` lancia solo
+# mariadbd-safe --datadir=...). Si cambia QUELLA riga, invece di aggiungere
+# un 99-opensagra.cnf come su Linux: la formula sostituisce il my.cnf di
+# MariaDB con il proprio, e non e' detto che includa ancora my.cnf.d/. Un
+# `brew upgrade` non tocca un my.cnf gia' presente; uninstall-macos.sh lo
+# cancella. Riavvio solo se il file cambia (rilancio idempotente). L'utente
+# app esiste gia' anche su '%' (crea_dbtable_and_user.php); root resta
+# raggiungibile solo dal socket locale (unix_socket). Il gestore DB grafico
+# (/db) resta solo-localhost: e' una regola del Caddyfile.
+allow_lan_mariadb() {
+    local cnf; cnf="$(brew --prefix)/etc/my.cnf"
+    if [ -f "$cnf" ] && grep -Eq '^[[:space:]]*bind-address[[:space:]]*=[[:space:]]*127\.0\.0\.1' "$cnf"; then
+        sed -i '' -E 's/^[[:space:]]*bind-address[[:space:]]*=[[:space:]]*127\.0\.0\.1.*$/bind-address = 0.0.0.0  # OpenSagra (install-macos.sh): raggiungibile dalle casse in LAN/' "$cnf" \
+            || die "Impossibile modificare $cnf"
+        brew services restart mariadb >>"$LOG_FILE" 2>&1 || log "brew services restart mariadb ha dato errore (dettagli in $LOG_FILE) - verifico se risponde comunque"
+        wait_for_mariadb
+    fi
+    # Verifica sul socket vero, non sul file: deve ascoltare su tutte le
+    # interfacce (*:3306), non solo su 127.0.0.1.
+    local i
+    for i in $(seq 1 10); do
+        if lsof -nP -iTCP:3306 -sTCP:LISTEN 2>/dev/null | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'; then
+            ok "MariaDB raggiungibile dalla LAN (porta 3306)"
+            return
+        fi
+        sleep 1
+    done
+    lsof -nP -iTCP:3306 -sTCP:LISTEN >>"$LOG_FILE" 2>&1 || true
+    die "MariaDB non ascolta sulla rete (porta 3306): le casse client non potrebbero collegarsi. Controlla bind-address in $cnf (dettagli in $LOG_FILE)"
 }
 
 copy_app_files() {
@@ -612,7 +652,9 @@ start_wrapper_and_autostart() {
 # ragiona per eseguibile, non per porta: se e' acceso, FrankenPHP va
 # autorizzato a ricevere connessioni, altrimenti le casse in LAN non lo
 # raggiungono (e senza firma Apple, ad ogni avvio comparirebbe la richiesta).
-# MariaDB (3306) per ora resta solo locale, come su Linux.
+# Stessa cosa per mariadbd (3306, casse client - vedi allow_lan_mariadb):
+# percorso REALE nel Cellar, perche' la regola vale per quell'eseguibile. Un
+# `brew upgrade mariadb` cambia il percorso: rilanciare l'installer la rifa.
 set_firewall_rules() {
     local fw=/usr/libexec/ApplicationFirewall/socketfilterfw
     if ! "$fw" --getglobalstate 2>/dev/null | grep -qi 'enabled'; then
@@ -621,7 +663,16 @@ set_firewall_rules() {
     fi
     sudo "$fw" --add "$FRANKEN_DIR/frankenphp" >>"$LOG_FILE" 2>&1 || true
     sudo "$fw" --unblockapp "$FRANKEN_DIR/frankenphp" >>"$LOG_FILE" 2>&1 || true
-    ok "FrankenPHP autorizzato nel firewall di macOS"
+    local mariadbd_bin
+    mariadbd_bin="$(cd -P "$(brew --prefix mariadb)/bin" 2>/dev/null && pwd)/mariadbd"
+    if [ -x "$mariadbd_bin" ]; then
+        sudo "$fw" --add "$mariadbd_bin" >>"$LOG_FILE" 2>&1 || true
+        sudo "$fw" --unblockapp "$mariadbd_bin" >>"$LOG_FILE" 2>&1 || true
+        ok "FrankenPHP e MariaDB autorizzati nel firewall di macOS"
+    else
+        log "ATTENZIONE: mariadbd non trovato in $(brew --prefix mariadb)/bin: autorizzalo a mano nel firewall se le casse client non si collegano."
+        ok "FrankenPHP autorizzato nel firewall di macOS"
+    fi
 }
 
 # register_local_ca_trust: come su Linux/Windows. Su macOS `frankenphp trust`

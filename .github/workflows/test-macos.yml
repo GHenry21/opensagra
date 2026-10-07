@@ -76,6 +76,11 @@ jobs:
           launchctl print "gui/$(id -u)" >/dev/null && echo "sessione grafica: si" || echo "sessione grafica: NO"
           brew list --formula | grep -Ei 'mysql|mariadb' || echo "nessun MySQL/MariaDB preinstallato"
           lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|2019) ' || echo "porte 80/443/3306/2019 libere"
+          # Firewall di macOS acceso (spento di default sul runner), cosi' si
+          # prova anche set_firewall_rules dell'installer.
+          fw=/usr/libexec/ApplicationFirewall/socketfilterfw
+          sudo "$fw" --setglobalstate on
+          "$fw" --getglobalstate
 
       - name: install-macos.sh (prima installazione)
         timeout-minutes: 25
@@ -104,6 +109,27 @@ jobs:
           "$HOME/.frankenphp/frankenphp" version | grep -E '(^| |v)1\.12\.6( |$)'
           if grep -q 'Scarico FrankenPHP' /tmp/opensagra-install.log; then echo "::error::FrankenPHP scaricato invece di usare quello del pacchetto"; exit 1; fi
           test ! -e "$HOME/opensagra/frankenphp"
+
+      # Questo Mac come SERVER: le casse client scrivono direttamente sulla
+      # 3306. MariaDB deve ascoltare su tutte le interfacce e l'utente dell'app
+      # deve entrare dall'IP di rete del Mac (TCP, non localhost/socket).
+      - name: MariaDB raggiungibile dalla LAN (Mac come server)
+        run: |
+          set -x
+          lsof -nP -iTCP:3306 -sTCP:LISTEN
+          lsof -nP -iTCP:3306 -sTCP:LISTEN | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'
+          grep -n 'bind-address' "$(brew --prefix)/etc/my.cnf"
+          ip=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+          echo "IP di rete: $ip"
+          env="$HOME/opensagra/config/variabili.env"
+          user=$(sed -n 's/^DB_POS_USER=//p' "$env"); pass=$(sed -n 's/^DB_POS_PASS=//p' "$env")
+          MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock'
+          # root NON deve essere raggiungibile dalla rete (solo unix_socket)
+          if mariadb -h "$ip" --protocol=TCP -u root -e 'SELECT 1' 2>/dev/null; then echo "::error::root raggiungibile dalla rete"; exit 1; fi
+          # Firewall: FrankenPHP e mariadbd autorizzati
+          /usr/libexec/ApplicationFirewall/socketfilterfw --listapps | tee /tmp/fwapps.txt
+          grep -q 'frankenphp' /tmp/fwapps.txt
+          grep -q 'mariadbd' /tmp/fwapps.txt
 
       - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
         run: |
@@ -155,6 +181,7 @@ jobs:
         run: |
           bash "$PKG/install-macos.sh"
           curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
+          lsof -nP -iTCP:3306 -sTCP:LISTEN | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'
 
       - name: Log
         if: always()
@@ -281,3 +308,6 @@ jobs:
           if pgrep -f opensagra-wrapper; then echo "wrapper ancora vivo"; exit 1; fi
           if brew list --formula mariadb >/dev/null 2>&1; then echo "MariaDB ancora installato"; exit 1; fi
           ls "$HOME"/opensagra-backup-*.sql
+          # Regole del firewall tolte
+          /usr/libexec/ApplicationFirewall/socketfilterfw --listapps | tee /tmp/fwapps.txt
+          if grep -Eq 'frankenphp|mariadbd' /tmp/fwapps.txt; then echo "::error::regole firewall rimaste"; exit 1; fi

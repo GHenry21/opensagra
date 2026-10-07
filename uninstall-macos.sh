@@ -150,6 +150,11 @@ remove_mariadb() {
         return
     fi
     local prefix; prefix="$(brew --prefix)"
+    # Regola del firewall di macOS aggiunta da install-macos.sh
+    # (set_firewall_rules): va tolta finche' l'eseguibile esiste ancora.
+    local mariadbd_bin
+    mariadbd_bin="$(cd -P "$(brew --prefix mariadb)/bin" 2>/dev/null && pwd)/mariadbd"
+    sudo /usr/libexec/ApplicationFirewall/socketfilterfw --remove "$mariadbd_bin" >>"$LOG_FILE" 2>&1 || true
     brew services stop mariadb >>"$LOG_FILE" 2>&1 || true
     brew uninstall mariadb >>"$LOG_FILE" 2>&1 || true
     rm -rf "$prefix/var/mysql" "$prefix/etc/my.cnf" "$prefix/etc/my.cnf.d"
@@ -165,6 +170,7 @@ remove_frankenphp_and_ca() {
     for h in $hashes; do
         sudo security delete-certificate -Z "$h" /Library/Keychains/System.keychain >>"$LOG_FILE" 2>&1 || true
     done
+    sudo /usr/libexec/ApplicationFirewall/socketfilterfw --remove "$FRANKEN_DIR/frankenphp" >>"$LOG_FILE" 2>&1 || true
     rm -rf "$FRANKEN_DIR" "$CADDY_DATA_DIR" "$CADDY_CONFIG_DIR"
     ok "FrankenPHP e CA locale rimossi"
 }
