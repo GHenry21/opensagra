@@ -31,6 +31,9 @@ FRANKEN_DIR="$HOME/.frankenphp"
 CADDY_DATA_DIR="$HOME/.local/share/caddy"
 CADDY_CONFIG_DIR="$HOME/.config/caddy"
 UPLOAD_TMP_DIR="/tmp/opensagra-php-upload"
+# $USER non e' garantito (docker exec, cron, alcuni servizi): con set -u
+# una variabile non impostata ferma lo script (visto nel test Fedora).
+USER="${USER:-$(id -un)}"
 LOG_FILE="/tmp/opensagra-uninstall.log"
 : > "$LOG_FILE"
 

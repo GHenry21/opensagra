@@ -32,6 +32,9 @@ set -euo pipefail
 INSTALL_DIR="$HOME/opensagra"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRANKEN_DIR="$HOME/.frankenphp"
+# $USER non e' garantito (docker exec, cron, alcuni servizi): con set -u
+# una variabile non impostata ferma lo script (visto nel test Fedora).
+USER="${USER:-$(id -un)}"
 LOG_FILE="/tmp/opensagra-install.log"
 : > "$LOG_FILE"
 
