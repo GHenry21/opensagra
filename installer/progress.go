@@ -44,8 +44,10 @@ var statusRules = []statusRule{
 	{regexp.MustCompile(`^FrankenPHP .*(installato|presente|sostituito)`), "Permessi di rete per FrankenPHP...", "Configurazione delle estensioni PHP..."},
 	{regexp.MustCompile(`porte 80/443`), "Configurazione delle estensioni PHP...", ""},
 	{regexp.MustCompile(`^php\.ini`), "Installazione di MariaDB...", ""},
-	{regexp.MustCompile(`^MariaDB `), "Avvio del servizio database...", ""},
+	{regexp.MustCompile(`^MariaDB (installato|gia)`), "Avvio del servizio database...", ""},
 	{regexp.MustCompile(`^Servizio MariaDB`), "Copia dei file dell'app...", ""},
+	// macOS server (branch macos-server): dopo "Servizio MariaDB attivo".
+	{regexp.MustCompile(`^MariaDB raggiungibile dalla LAN`), "Copia dei file dell'app...", ""},
 	{regexp.MustCompile(`^File dell'app`), "Configurazione dell'app...", ""},
 	{regexp.MustCompile(`variabili\.env`), "Configurazione del server web...", ""},
 	{regexp.MustCompile(`^Caddyfile`), "Configurazione del database...", ""},
