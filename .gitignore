@@ -67,3 +67,8 @@ Thumbs.db
 /opensagra-app-update.zip
 /opensagra-app-update.zip.sha256
 /opensagra-app-update.manifest.json
+
+# Versione installata e manifesto: li scrivono installer e wrapper su ogni
+# macchina (wrapper/update_check.go), mai parte del repository.
+/config/.installed_version
+/config/.app_manifest.json
