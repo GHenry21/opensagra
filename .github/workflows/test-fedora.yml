@@ -53,7 +53,11 @@ jobs:
           # Quello che una Fedora Workstation ha gia' e l'immagine container no.
           RUN dnf install -y -q systemd sudo iproute procps-ng hostname findutils which \
                 tar gzip curl firewalld util-linux passwd xdg-user-dirs && dnf clean all
-          RUN useradd -m sagra && echo 'sagra ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sagra \
+          # Password impostata: con l'account bloccato (useradd senza password) il
+          # PAM di Fedora rifiuta anche il sudo NOPASSWD ("PAM account management
+          # error", primo giro 2026-10-07). Su una macchina vera l'utente ce l'ha.
+          RUN useradd -m sagra && echo 'sagra:sagra' | chpasswd \
+              && echo 'sagra ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sagra \
               && systemctl enable firewalld
           CMD ["/sbin/init"]
           EOF
@@ -130,6 +134,9 @@ jobs:
           fx 'systemctl --user is-active opensagra-wrapper.service'
           new=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
           [ "$new" != "$old" ]
+          for i in $(seq 1 45); do [ "$(fx 'pgrep -f "frankenphp run" | wc -l')" = "1" ] && break; sleep 1; done
+          fx 'ps -o pid,ppid,lstart,args -p "$(pgrep -d, -f "frankenphp run")"' || true
+          [ "$(fx 'pgrep -f "frankenphp run" | wc -l')" = "1" ] || { echo "::error::frankenphp orfano del wrapper ucciso ancora vivo"; exit 1; }
           fx "curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/"
 
       - name: install.sh (rilancio, deve essere idempotente)

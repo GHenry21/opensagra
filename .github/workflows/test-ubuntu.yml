@@ -147,7 +147,12 @@ jobs:
           systemctl --user is-active opensagra-wrapper.service
           new=$(systemctl --user show -p MainPID --value opensagra-wrapper.service)
           [ "$new" != "$old" ]
-          [ "$(pgrep -f 'frankenphp run' | wc -l)" = "1" ]
+          # Un solo frankenphp, figlio del NUOVO wrapper. Fino a 45 s: il
+          # vecchio riceve SIGTERM (Pdeathsig) e puo' metterci un po' a chiudere.
+          for i in $(seq 1 45); do [ "$(pgrep -f 'frankenphp run' | wc -l)" = "1" ] && break; sleep 1; done
+          ps -o pid,ppid,lstart,args -p "$(pgrep -d, -f 'frankenphp run')" || true
+          [ "$(pgrep -f 'frankenphp run' | wc -l)" = "1" ] || { echo "::error::frankenphp orfano del wrapper ucciso ancora vivo dopo 65 s"; exit 1; }
+          [ "$(ps -o ppid= -p "$(pgrep -f 'frankenphp run')" | tr -d ' ')" = "$new" ] || echo "::warning::frankenphp non e' figlio del nuovo wrapper"
           curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/
 
       - name: install.sh (rilancio, deve essere idempotente)
