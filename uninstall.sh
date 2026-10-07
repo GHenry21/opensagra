@@ -38,6 +38,29 @@ log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG_FILE"; }
 ok()  { echo "  OK: $*" | tee -a "$LOG_FILE"; }
 die() { echo "ERRORE: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
 
+# Famiglia della distribuzione. Cambiano i comandi dei pacchetti, la cartella
+# dei .cnf di MariaDB, il firewall e lo store dei certificati: famiglia
+# "debian" (Debian, Raspberry Pi OS, Ubuntu - apt) o "fedora" (Fedora e
+# derivate RHEL - dnf). Stesso blocco in install.sh e uninstall.sh.
+if command -v apt-get >/dev/null 2>&1; then
+    DISTRO_FAMILY=debian
+elif command -v dnf >/dev/null 2>&1; then
+    DISTRO_FAMILY=fedora
+else
+    DISTRO_FAMILY=unsupported
+fi
+
+# pkg_installed: dpkg -s / rpm -q, non `command -v`: i binari di sistema
+# stanno spesso in /usr/sbin, che una shell utente non ha nel $PATH (falso
+# "assente" e reinstallazione a ogni rilancio, visto sul Pi 2026-10-02).
+pkg_installed() {
+    case "$DISTRO_FAMILY" in
+        debian) dpkg -s "$1" >/dev/null 2>&1 ;;
+        fedora) rpm -q "$1" >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
 # ============================================================================
 # Passi della disinstallazione
 # ============================================================================
@@ -160,24 +183,30 @@ remove_wrapper_autostart() {
 # non vale per la tua macchina (MariaDB gia' c'era per altro), rispondi "N"
 # alla conferma e rimuovilo a mano con piu' cautela.
 remove_mariadb() {
-    if ! dpkg -s mariadb-server >/dev/null 2>&1; then
-        ok "MariaDB non installato via apt, nessuna rimozione pacchetto"
+    if ! pkg_installed mariadb-server; then
+        ok "MariaDB non installato dal gestore pacchetti, nessuna rimozione pacchetto"
         return
     fi
     sudo systemctl stop mariadb 2>>"$LOG_FILE" || true
-    sudo apt-get purge -y -qq mariadb-server mariadb-server-core mariadb-client mariadb-client-core mariadb-common 2>>"$LOG_FILE" || true
-    sudo apt-get autoremove -y -qq 2>>"$LOG_FILE" || true
+    case "$DISTRO_FAMILY" in
+        debian)
+            sudo apt-get purge -y -qq mariadb-server mariadb-server-core mariadb-client mariadb-client-core mariadb-common 2>>"$LOG_FILE" || true
+            sudo apt-get autoremove -y -qq 2>>"$LOG_FILE" || true ;;
+        fedora)
+            sudo dnf remove -y -q mariadb-server mariadb 2>>"$LOG_FILE" || true ;;
+    esac
     sudo rm -rf /var/lib/mysql
     # Non appartiene a nessun pacchetto: il purge non lo toglie (install.sh,
-    # allow_lan_mariadb).
-    sudo rm -f /etc/mysql/mariadb.conf.d/99-opensagra.cnf
+    # allow_lan_mariadb). Percorso Debian o Fedora.
+    sudo rm -f /etc/mysql/mariadb.conf.d/99-opensagra.cnf /etc/my.cnf.d/99-opensagra.cnf
     ok "MariaDB disinstallato"
 }
 
 # remove_frankenphp_and_ca: rimuove il binario, lo stato di Caddy (certificati,
 # CA locale - ~/.local/share/caddy, XDG data dir) e SOLO il file della CA di
-# Caddy nello store di sistema (pattern "Caddy_Local_Authority_*.crt" - MAI un
-# rm indiscriminato di /usr/local/share/ca-certificates/, potrebbe contenere
+# Caddy nello store di sistema (pattern "Caddy_Local_Authority_*" - MAI un
+# rm indiscriminato di /usr/local/share/ca-certificates/ o, su Fedora, di
+# /etc/pki/ca-trust/source/anchors/: potrebbero contenere
 # certificati di altro software sulla stessa macchina, es. un client QZ Tray).
 # Best-effort come su Windows (Remove-FrankenPHP): un certificato radice
 # residuo e' innocuo (non associato a nessun sito che l'utente visiti
@@ -188,6 +217,11 @@ remove_frankenphp_and_ca() {
     if [ -e "${ca_files[0]}" ]; then
         sudo rm -f "${ca_files[@]}"
         sudo update-ca-certificates >>"$LOG_FILE" 2>&1 || true
+    fi
+    ca_files=(/etc/pki/ca-trust/source/anchors/Caddy_Local_Authority_*)
+    if [ -e "${ca_files[0]}" ]; then
+        sudo rm -f "${ca_files[@]}"
+        sudo update-ca-trust >>"$LOG_FILE" 2>&1 || true
     fi
     # La stessa CA che install.sh (trust_ca_in_browser_stores) mette nei
     # database NSS dei browser - stessi percorsi, stesso nome.
@@ -216,6 +250,10 @@ remove_firewall_rules() {
         sudo ufw delete allow 443/tcp >/dev/null 2>&1 || true
         sudo ufw delete allow 3306/tcp >/dev/null 2>&1 || true
         ok "Regole ufw rimosse"
+    elif systemctl is-active --quiet firewalld 2>/dev/null; then
+        sudo firewall-cmd --quiet --permanent --remove-port=80/tcp --remove-port=443/tcp --remove-port=3306/tcp >/dev/null 2>&1 || true
+        sudo firewall-cmd --quiet --reload >/dev/null 2>&1 || true
+        ok "Regole firewalld rimosse"
     fi
 }
 

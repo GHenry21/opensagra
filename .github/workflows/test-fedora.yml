@@ -1,0 +1,171 @@
+name: Test installer Fedora
+
+# Prova install.sh / uninstall.sh su Fedora 42. GitHub non ha runner Fedora:
+# si usa un container Fedora con systemd VERO come PID 1 (privilegiato, cgroup
+# dell'host) sul runner Ubuntu - servizi di sistema (mariadb, firewalld),
+# logind, linger e la sessione systemd --user funzionano come su una
+# macchina. Utente normale con sudo, firewalld acceso come su Fedora
+# Workstation. Limite: niente SELinux (il kernel e' quello del runner Ubuntu).
+# Si installa dal PACCHETTO DI RELEASE (make-unix-package.sh), come un utente.
+
+on:
+  push:
+    branches: [test-fedora]
+  workflow_dispatch: {}
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: Costruisci ed estrai il pacchetto linux x86_64
+        run: |
+          bash packaging/make-unix-package.sh linux x86_64
+          mkdir -p "$RUNNER_TEMP/pkg"
+          tar -xzf opensagra-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP/pkg"
+          name=$(basename "$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)")
+          echo "PKGNAME=$name" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/out"; echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
+
+      - name: Container Fedora 42 con systemd
+        run: |
+          cat > "$RUNNER_TEMP/Containerfile" <<'EOF'
+          FROM registry.fedoraproject.org/fedora:42
+          # Quello che una Fedora Workstation ha gia' e l'immagine container no.
+          RUN dnf install -y -q systemd sudo iproute procps-ng hostname findutils which \
+                tar gzip curl firewalld util-linux passwd xdg-user-dirs && dnf clean all
+          RUN useradd -m sagra && echo 'sagra ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sagra \
+              && systemctl enable firewalld
+          CMD ["/sbin/init"]
+          EOF
+          docker build -q -t fedora-systemd -f "$RUNNER_TEMP/Containerfile" "$RUNNER_TEMP"
+          sudo cp -r "$RUNNER_TEMP/pkg/$PKGNAME" "$RUNNER_TEMP/pkg-ro"
+          docker run -d --name fed --hostname fedora-cassa --privileged --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock \
+            -v "$RUNNER_TEMP/pkg-ro:/pkg-src:ro" fedora-systemd
+          for i in $(seq 1 30); do
+            st=$(docker exec fed systemctl is-system-running 2>/dev/null || true)
+            case "$st" in running|degraded) break ;; esac; sleep 2
+          done
+          echo "systemd: $st"
+          docker exec fed systemctl --failed --no-legend || true
+          docker exec fed cat /etc/os-release | head -3
+          docker exec fed systemctl is-active firewalld || echo "::warning::firewalld non attivo nel container"
+          # Copia del pacchetto nella home dell'utente, come dopo un download.
+          docker exec fed bash -c "cp -r /pkg-src /home/sagra/$PKGNAME && chown -R sagra:sagra /home/sagra/$PKGNAME"
+          # Sessione systemd --user (su un desktop c'e' dal login).
+          docker exec fed loginctl enable-linger sagra
+          for i in $(seq 1 20); do docker exec fed test -S /run/user/1000/bus && break; sleep 1; done
+          docker exec -u sagra fed xdg-user-dirs-update || true
+          docker exec fed ls /home/sagra
+
+      # fx: un comando come l'utente sagra, con la sessione systemd --user.
+      - name: install.sh (prima installazione)
+        timeout-minutes: 25
+        run: |
+          docker exec -u sagra -w "/home/sagra/$PKGNAME" -e XDG_RUNTIME_DIR=/run/user/1000 \
+            -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash ./install.sh
+
+      - name: Verifica installazione
+        run: |
+          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          set -x
+          fx 'systemctl --user is-active opensagra-wrapper.service'
+          fx 'pgrep -fl "frankenphp run"'
+          code=$(fx "curl -sk -o /dev/null -w '%{http_code}' https://localhost/")
+          echo "https://localhost -> $code"; [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          fx "curl -s --max-time 5 -o /dev/null -w 'https senza -k -> %{http_code}\n' https://localhost/" \
+            || { echo "::error::CA locale NON fidata dallo store di sistema (update-ca-trust)"; exit 1; }
+          fx 'ls /etc/pki/ca-trust/source/anchors/'
+          fx 'sudo mariadb -e "SHOW DATABASES"' | grep opensagra_pos
+          fx 'cat /etc/my.cnf.d/99-opensagra.cnf'
+          fx 'ss -ltn' | grep -E '0.0.0.0:3306|\*:3306'
+          fx 'sudo firewall-cmd --list-ports' | tee /dev/stderr | grep -q '80/tcp' || { echo "::error::porte non aperte in firewalld"; exit 1; }
+          fx 'certutil -L -d sql:$HOME/.pki/nssdb' | grep "OpenSagra Local CA"
+          fx '$HOME/.frankenphp/frankenphp version'
+          fx 'sudo getcap $HOME/.frankenphp/frankenphp'
+          fx 'ls -la $HOME/Desktop/ 2>/dev/null || echo "nessuna Scrivania"'
+
+      - name: Mercure - pubblica e ricevi (token dell'app)
+        run: |
+          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          fx '
+            set -ex
+            cd "$HOME/opensagra"; fp="$HOME/.frankenphp/frankenphp"; export PHPRC="$HOME/.frankenphp"
+            pub=$("$fp" php-cli -r "require \"config/mercure.php\"; echo mintMercureJwt([\"ci-test\"], [], 300);")
+            sub=$("$fp" php-cli -r "require \"config/mercure.php\"; echo mintMercureJwt([], [\"ci-test\"], 300);")
+            hub=https://localhost/.well-known/mercure
+            curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" > /tmp/sse.txt &
+            sleep 2
+            id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-da-fedora "$hub")
+            echo "id pubblicazione: $id"
+            wait || true
+            grep -q "data: ciao-da-fedora" /tmp/sse.txt'
+
+      - name: Riavvio (crash del wrapper -> systemd lo riavvia)
+        run: |
+          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          set -x
+          old=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
+          fx "kill -KILL $old"; sleep 20
+          fx 'systemctl --user is-active opensagra-wrapper.service'
+          new=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
+          [ "$new" != "$old" ]
+          fx "curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/"
+
+      - name: install.sh (rilancio, deve essere idempotente)
+        timeout-minutes: 15
+        run: |
+          start=$(date +%s)
+          docker exec -u sagra -w "/home/sagra/$PKGNAME" -e XDG_RUNTIME_DIR=/run/user/1000 \
+            -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash ./install.sh
+          echo "rilancio in $(( $(date +%s) - start )) s"
+
+      - name: uninstall.sh
+        run: |
+          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          fx 'bash $HOME/opensagra/uninstall.sh --force'
+          set -x
+          fx 'test ! -e $HOME/opensagra'
+          fx 'test ! -e $HOME/.config/systemd/user/opensagra-wrapper.service'
+          if fx 'pgrep -f "frankenphp run"'; then echo "frankenphp ancora vivo"; exit 1; fi
+          if fx 'rpm -q mariadb-server'; then echo "MariaDB ancora installato"; exit 1; fi
+          fx 'test ! -e /etc/my.cnf.d/99-opensagra.cnf'
+          fx 'ls /etc/pki/ca-trust/source/anchors/' | grep -i caddy && { echo "CA ancora nello store di sistema"; exit 1; } || true
+          fx 'sudo firewall-cmd --list-ports' | grep -q '80/tcp' && { echo "porte ancora aperte in firewalld"; exit 1; } || true
+          fx 'ls $HOME/opensagra-backup-*.sql'
+
+      - name: Log
+        if: always()
+        run: |
+          for f in /tmp/opensagra-install.log /tmp/opensagra-uninstall.log; do
+            docker cp "fed:$f" "$OUT/" 2>/dev/null || continue
+            echo "::group::$f"; tail -n 150 "$OUT/$(basename "$f")"; echo "::endgroup::"
+          done
+          docker exec fed journalctl --no-pager -n 80 -u mariadb -u firewalld 2>/dev/null > "$OUT/journal.txt" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-fedora
+          path: ${{ env.OUT }}
+          retention-days: 14

@@ -13,7 +13,7 @@ name: Test installer Ubuntu
 
 on:
   push:
-    branches: [test-ubuntu]
+    branches: [test-ubuntu, test-fedora]
   workflow_dispatch: {}
 
 jobs:

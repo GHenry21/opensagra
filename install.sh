@@ -1,7 +1,7 @@
 #!/bin/bash
-# Installer OpenSagra per Linux (Debian/Raspberry Pi OS) - equivalente di
-# install.ps1 per Windows. Porta una macchina con solo Debian/Raspberry Pi OS
-# a "app funzionante" (FrankenPHP + MariaDB + wrapper come supervisore dei
+# Installer OpenSagra per Linux (Debian, Raspberry Pi OS, Ubuntu, Fedora) -
+# equivalente di install.ps1 per Windows. Porta una macchina Linux appena
+# installata a "app funzionante" (FrankenPHP + MariaDB + wrapper come supervisore dei
 # processi), stessa configurazione "indipendente" di default - il passaggio a
 # client si fa DOPO, dalla pagina Configurazione Rete dentro l'app (vedi
 # install.ps1 per lo stesso ragionamento, identico qui).
@@ -9,7 +9,7 @@
 # A differenza di install.ps1 (un solo eseguibile elevato, con un task
 # pianificato INTERACTIVE per de-elevare l'avvio del wrapper) qui non serve
 # nessun trucco di de-elevazione: lo script gira come utente normale e usa
-# `sudo` solo sui singoli comandi che lo richiedono davvero (apt, setcap,
+# `sudo` solo sui singoli comandi che lo richiedono davvero (apt/dnf, setcap,
 # systemctl di sistema per MariaDB, loginctl). Il wrapper e la sua unit
 # systemd --user restano SEMPRE nel contesto dell'utente normale.
 #
@@ -38,6 +38,47 @@ LOG_FILE="/tmp/opensagra-install.log"
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG_FILE"; }
 ok()  { echo "  OK: $*" | tee -a "$LOG_FILE"; }
 die() { echo "ERRORE: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
+
+# Famiglia della distribuzione. Cambiano i comandi dei pacchetti, la cartella
+# dei .cnf di MariaDB, il firewall e lo store dei certificati: famiglia
+# "debian" (Debian, Raspberry Pi OS, Ubuntu - apt) o "fedora" (Fedora e
+# derivate RHEL - dnf). Stesso blocco in install.sh e uninstall.sh.
+if command -v apt-get >/dev/null 2>&1; then
+    DISTRO_FAMILY=debian
+elif command -v dnf >/dev/null 2>&1; then
+    DISTRO_FAMILY=fedora
+else
+    DISTRO_FAMILY=unsupported
+fi
+
+# pkg_installed: dpkg -s / rpm -q, non `command -v`: i binari di sistema
+# stanno spesso in /usr/sbin, che una shell utente non ha nel $PATH (falso
+# "assente" e reinstallazione a ogni rilancio, visto sul Pi 2026-10-02).
+pkg_installed() {
+    case "$DISTRO_FAMILY" in
+        debian) dpkg -s "$1" >/dev/null 2>&1 ;;
+        fedora) rpm -q "$1" >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
+pkg_install() {
+    case "$DISTRO_FAMILY" in
+        debian) sudo apt-get update -qq && sudo apt-get install -y -qq "$@" ;;
+        fedora) sudo dnf install -y -q "$@" ;;
+        *) return 1 ;;
+    esac
+}
+
+# pkg_name <nome-debian> <nome-fedora>: stesso programma, pacchetto diverso.
+pkg_name() { if [ "$DISTRO_FAMILY" = fedora ]; then echo "$2"; else echo "$1"; fi; }
+
+# .cnf di MariaDB, letti in ordine alfabetico da entrambe: 99-* prevale.
+if [ "$DISTRO_FAMILY" = fedora ]; then
+    MARIADB_CNF_DIR=/etc/my.cnf.d
+else
+    MARIADB_CNF_DIR=/etc/mysql/mariadb.conf.d
+fi
 
 # Cartelle/file del repo da NON copiare in $INSTALL_DIR - materiale di
 # sviluppo, non serve a chi usa l'app. Stessa lista logica di
@@ -81,7 +122,8 @@ test_prerequisites() {
     [ "$(uname -s)" = "Linux" ] || die "Questo installer supporta solo Linux."
     [ "$EUID" -ne 0 ] || die "Non lanciare come root: lo script chiede sudo da solo dove serve (systemd --user va registrato come utente normale, non come root)."
     command -v sudo >/dev/null || die "sudo non trovato."
-    ok "prerequisiti di base"
+    [ "$DISTRO_FAMILY" != unsupported ] || die "Distribuzione non supportata: servono apt (Debian, Raspberry Pi OS, Ubuntu) o dnf (Fedora)."
+    ok "prerequisiti di base ($(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}"))"
 }
 
 # install_frankenphp: binario statico ufficiale (musl, "portable" - nessuna
@@ -158,13 +200,13 @@ install_frankenphp() {
 # setcap/getcap vivono in /usr/sbin, che una shell utente normale spesso non
 # ha nel $PATH (a differenza di `sudo`, il cui secure_path lo include quasi
 # sempre) - un `command -v setcap` senza sudo puo' dare falso-negativo anche
-# a pacchetto gia' installato, facendo ritentare l'apt install ad ogni
-# rilancio (innocuo ma inutile). dpkg -s e' l'unico controllo affidabile
-# indipendente dal $PATH di chi lancia lo script.
+# a pacchetto gia' installato: per questo pkg_installed (dpkg -s / rpm -q).
 grant_bind_service_capability() {
-    if ! dpkg -s libcap2-bin >/dev/null 2>&1; then
-        log "installo libcap2-bin (setcap/getcap)..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq libcap2-bin || die "Installazione di libcap2-bin fallita"
+    local libcap
+    libcap="$(pkg_name libcap2-bin libcap)"
+    if ! pkg_installed "$libcap"; then
+        log "installo $libcap (setcap/getcap)..."
+        pkg_install "$libcap" || die "Installazione di $libcap fallita"
     fi
     if sudo getcap "$FRANKEN_DIR/frankenphp" 2>/dev/null | grep -q cap_net_bind_service; then
         ok "FrankenPHP puo' gia' legarsi alle porte 80/443 senza root"
@@ -208,19 +250,16 @@ EOF
     ok "php.ini scritto, estensioni PHP verificate"
 }
 
-# install_mariadb: dal repository di sistema (Debian/Raspbian la
-# impacchettano gia', a differenza di Windows dove va scaricata a mano) -
-# niente download diretto come per FrankenPHP.
+# install_mariadb: dal repository di sistema (Debian e Fedora la
+# impacchettano gia' - stesso pacchetto, mariadb-server, e stesso servizio,
+# mariadb -, a differenza di Windows dove va scaricata a mano). pkg_installed
+# e non `command -v mariadbd` (sta in /usr/sbin, vedi sopra).
 install_mariadb() {
-    # dpkg -s, non `command -v mariadbd`: mariadbd sta in /usr/sbin, che una
-    # shell utente normale spesso non ha nel $PATH - il controllo dava sempre
-    # "assente" e ripeteva l'apt install a ogni rilancio (~2 minuti sul Pi,
-    # visto 2026-10-02). Stesso motivo di grant_bind_service_capability.
-    if dpkg -s mariadb-server >/dev/null 2>&1; then
+    if pkg_installed mariadb-server; then
         ok "MariaDB gia' presente"
     else
         log "Installo mariadb-server..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq mariadb-server || die "Installazione di MariaDB fallita"
+        pkg_install mariadb-server || die "Installazione di MariaDB fallita"
         ok "MariaDB installato"
     fi
     sudo systemctl enable --now mariadb || die "Impossibile avviare il servizio mariadb"
@@ -233,9 +272,10 @@ install_mariadb() {
 # client scrivono direttamente sulla 3306 del server (trovato 2026-10-07,
 # piano Fase 6). Su Windows l'MSI ascolta gia' su tutte le interfacce. I file
 # di mariadb.conf.d/ si leggono in ordine alfabetico: 99-* prevale su 50-*.
+# Fedora: stessa idea in /etc/my.cnf.d (vedi MARIADB_CNF_DIR).
 # L'utente app esiste gia' anche su '%' (crea_dbtable_and_user.php). Il
 # gestore DB grafico (/db) resta solo-localhost: e' una regola del Caddyfile.
-MARIADB_LAN_CNF=/etc/mysql/mariadb.conf.d/99-opensagra.cnf
+MARIADB_LAN_CNF="$MARIADB_CNF_DIR/99-opensagra.cnf"
 allow_lan_mariadb() {
     local want
     want="$(printf '%s\n' \
@@ -641,14 +681,22 @@ start_wrapper_and_autostart() {
     fi
 }
 
+# set_firewall_rules: ufw (Debian/Ubuntu, spesso installato ma spento) o
+# firewalld (Fedora, ACCESO di default: senza queste regole 80/443 restano
+# chiuse e telefoni e casse client non si collegano).
 set_firewall_rules() {
     if command -v ufw >/dev/null 2>&1; then
         sudo ufw allow 80/tcp >/dev/null 2>&1 || true
         sudo ufw allow 443/tcp >/dev/null 2>&1 || true
         sudo ufw allow 3306/tcp >/dev/null 2>&1 || true
         ok "Regole ufw configurate (80, 443, 3306)"
+    elif systemctl is-active --quiet firewalld 2>/dev/null; then
+        sudo firewall-cmd --quiet --permanent --add-port=80/tcp --add-port=443/tcp --add-port=3306/tcp \
+            && sudo firewall-cmd --quiet --reload \
+            || die "Impossibile aprire le porte 80/443/3306 in firewalld"
+        ok "Regole firewalld configurate (80, 443, 3306)"
     else
-        log "ufw non installato: nessuna regola firewall da configurare (se ne usi un altro, apri tu le porte 80/443/3306)."
+        log "Nessun firewall riconosciuto (ufw/firewalld): nessuna regola da configurare (se ne usi un altro, apri tu le porte 80/443/3306)."
     fi
 }
 
@@ -671,13 +719,13 @@ set_firewall_rules() {
 register_local_ca_trust() {
     [ -x "$FRANKEN_DIR/frankenphp" ] || return
 
-    # certutil (pacchetto libnss3-tools) e' quello che `frankenphp trust`
+    # certutil (libnss3-tools, nss-tools su Fedora) e' quello che `frankenphp trust`
     # usa per scrivere nei database NSS di Firefox/Chrome - senza, tocca solo
     # lo store di sistema (comunque sufficiente per curl/wget/app non-browser).
     if ! command -v certutil >/dev/null 2>&1; then
-        log "installo libnss3-tools (certutil, per fidare la CA locale anche in Firefox/Chrome)..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq libnss3-tools 2>>"$LOG_FILE" || \
-            log "installazione di libnss3-tools fallita (non bloccante, resta il trust dello store di sistema)"
+        log "installo $(pkg_name libnss3-tools nss-tools) (certutil, per fidare la CA locale anche in Firefox/Chrome)..."
+        pkg_install "$(pkg_name libnss3-tools nss-tools)" 2>>"$LOG_FILE" || \
+            log "installazione di certutil fallita (non bloccante, resta il trust dello store di sistema)"
     fi
 
     local admin_up=0 i
