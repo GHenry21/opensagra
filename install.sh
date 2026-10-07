@@ -70,6 +70,11 @@ pkg_install() {
     esac
 }
 
+# rand_hex <byte>: stringa casuale esadecimale. /dev/urandom + od (coreutils,
+# sempre presenti) e non `openssl rand`: il comando openssl manca su alcune
+# installazioni minimali (visto nel container Fedora di test, 2026-10-07).
+rand_hex() { head -c "$1" /dev/urandom | od -An -vtx1 | tr -d ' \n'; }
+
 # pkg_name <nome-debian> <nome-fedora>: stesso programma, pacchetto diverso.
 pkg_name() { if [ "$DISTRO_FAMILY" = fedora ]; then echo "$2"; else echo "$1"; fi; }
 
@@ -123,6 +128,9 @@ test_prerequisites() {
     [ "$EUID" -ne 0 ] || die "Non lanciare come root: lo script chiede sudo da solo dove serve (systemd --user va registrato come utente normale, non come root)."
     command -v sudo >/dev/null || die "sudo non trovato."
     [ "$DISTRO_FAMILY" != unsupported ] || die "Distribuzione non supportata: servono apt (Debian, Raspberry Pi OS, Ubuntu) o dnf (Fedora)."
+    # curl serve (API admin di Caddy, download di riserva di FrankenPHP) ma
+    # manca su alcune installazioni minimali (es. Debian senza desktop).
+    command -v curl >/dev/null 2>&1 || pkg_install curl || die "Installazione di curl fallita"
     ok "prerequisiti di base ($(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}"))"
 }
 
@@ -334,7 +342,7 @@ get_or_new_mercure_secret() {
             return
         fi
     fi
-    openssl rand -hex 32
+    rand_hex 32
 }
 
 new_env_file() {
@@ -477,7 +485,7 @@ invoke_php_cli() {
 # sia lo stato dell'account root SQL.
 invoke_database_provisioning() {
     local tmp_user="opensagra_setup_tmp"
-    local tmp_pass; tmp_pass="$(openssl rand -hex 16)"
+    local tmp_pass; tmp_pass="$(rand_hex 16)"
 
     sudo mariadb -e "
         DROP USER IF EXISTS '$tmp_user'@'127.0.0.1';
