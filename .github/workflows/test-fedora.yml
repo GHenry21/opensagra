@@ -1,0 +1,204 @@
+name: Test installer Fedora
+
+# Prova install.sh / uninstall.sh su Fedora (FEDORA_RELEASE, oggi la 44) in una VERA macchina virtuale:
+# GitHub non ha runner Fedora, ma i runner Linux hanno KVM, quindi si avvia
+# l'immagine Cloud ufficiale di Fedora con QEMU e la si configura con
+# cloud-init. Systemd, logind, PAM, firewalld e SELinux (enforcing) sono quelli
+# veri - un container era stato provato prima e scartato: sessione systemd
+# --user, PAM e D-Bus non funzionavano come su una macchina (2026-10-07).
+# Ci si collega via SSH come utente normale con sudo: il login SSH apre una
+# sessione logind con il suo systemd --user e il suo D-Bus, come un desktop.
+# Si installa dal PACCHETTO DI RELEASE (make-unix-package.sh), come un utente.
+
+on:
+  push:
+    branches: [test-fedora]
+  workflow_dispatch: {}
+
+env:
+  FEDORA_RELEASE: "44"
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: Costruisci il pacchetto linux x86_64
+        run: |
+          bash packaging/make-unix-package.sh linux x86_64
+          ls -la opensagra-*-linux-x86_64.tar.gz
+          echo "TARBALL=$(ls opensagra-*-linux-x86_64.tar.gz)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/out"; echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
+
+      - name: VM Fedora (QEMU/KVM + cloud-init)
+        run: |
+          set -x
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils >/dev/null
+          sudo chmod 666 /dev/kvm
+          # Server principale, non download.fedoraproject.org: quello rimanda a un
+          # mirror a caso, e uno non aveva il file (404, 2026-10-07).
+          base="https://dl.fedoraproject.org/pub/fedora/linux/releases/$FEDORA_RELEASE/Cloud/x86_64/images/"
+          img=$(curl -fsSL "$base" | grep -oE 'Fedora-Cloud-Base-Generic[^"]*\.x86_64\.qcow2' | head -1)
+          [ -n "$img" ] || { echo "::error::immagine Cloud di Fedora non trovata in $base"; exit 1; }
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/fedora.qcow2" "$base$img"
+          qemu-img resize "$RUNNER_TEMP/fedora.qcow2" 20G
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/vmkey"
+          # Utente normale con sudo senza password (come il Pi di test: lo
+          # script non fa domande); firewalld acceso come su Fedora Workstation.
+          cat > "$RUNNER_TEMP/user-data" <<EOF
+          #cloud-config
+          users:
+            - name: sagra
+              groups: wheel
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              lock_passwd: false
+              plain_text_passwd: sagra
+              ssh_authorized_keys:
+                - $(cat "$RUNNER_TEMP/vmkey.pub")
+          packages: [firewalld, xdg-user-dirs]
+          runcmd:
+            - systemctl enable --now firewalld
+            - su - sagra -c xdg-user-dirs-update
+          EOF
+          printf 'instance-id: opensagra-fedora\nlocal-hostname: fedora-cassa\n' > "$RUNNER_TEMP/meta-data"
+          cloud-localds "$RUNNER_TEMP/seed.iso" "$RUNNER_TEMP/user-data" "$RUNNER_TEMP/meta-data"
+          qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+            -drive file="$RUNNER_TEMP/fedora.qcow2",if=virtio \
+            -drive file="$RUNNER_TEMP/seed.iso",if=virtio,format=raw \
+            -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 \
+            -display none -serial file:"$RUNNER_TEMP/out/console.log" -daemonize
+          ssh_opts="-p 2222 -i $RUNNER_TEMP/vmkey -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR"
+          echo "SSH_OPTS=$ssh_opts" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do ssh $ssh_opts sagra@127.0.0.1 true 2>/dev/null && break; sleep 5; done
+          ssh $ssh_opts sagra@127.0.0.1 'cloud-init status --wait >/dev/null; cat /etc/os-release | head -3; getenforce; systemctl is-active firewalld; echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"; systemctl --user is-system-running || true'
+          scp -P 2222 -i "$RUNNER_TEMP/vmkey" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$TARBALL" sagra@127.0.0.1:
+          ssh $ssh_opts sagra@127.0.0.1 "tar -xzf $TARBALL && ls -d opensagra-*/"
+
+      - name: install.sh (prima installazione)
+        timeout-minutes: 25
+        run: ssh $SSH_OPTS sagra@127.0.0.1 'cd opensagra-*/ && bash ./install.sh'
+
+      - name: Verifica installazione
+        run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
+          set -x
+          fx 'systemctl --user is-active opensagra-wrapper.service'
+          fx 'pgrep -fl "[f]rankenphp run"'
+          code=$(fx "curl -sk -o /dev/null -w '%{http_code}' https://localhost/")
+          echo "https://localhost -> $code"; [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          fx "curl -s --max-time 5 -o /dev/null -w 'https senza -k -> %{http_code}\n' https://localhost/" \
+            || { echo "::error::CA locale NON fidata dallo store di sistema (update-ca-trust)"; exit 1; }
+          fx 'ls /etc/pki/ca-trust/source/anchors/'
+          fx 'sudo mariadb -e "SHOW DATABASES"' | grep opensagra_pos
+          fx 'cat /etc/my.cnf.d/99-opensagra.cnf'
+          fx 'sudo firewall-cmd --list-ports' | tee /dev/stderr | grep -q '80/tcp' || { echo "::error::porte non aperte in firewalld"; exit 1; }
+          fx 'certutil -L -d sql:$HOME/.pki/nssdb' | grep "OpenSagra Local CA"
+          fx '$HOME/.frankenphp/frankenphp version'
+          fx 'sudo getcap $HOME/.frankenphp/frankenphp'
+          fx 'getenforce; sudo ausearch -m avc -ts recent 2>/dev/null | tail -20 || echo "nessun blocco SELinux"'
+          fx 'ls -la $HOME/Desktop/ 2>/dev/null || echo "nessuna Scrivania"'
+
+      # Dalla rete, come un telefono o una cassa client: HTTPS sull'IP della VM
+      # (non loopback) e MariaDB in ascolto su tutte le interfacce.
+      - name: Raggiungibile dalla rete (443 e 3306 sull'IP della VM)
+        run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
+          set -x
+          ip=$(fx "ip -4 route get 1.1.1.1 | grep -oP 'src \K\S+'")
+          echo "IP della VM: $ip"
+          fx "curl -sk -o /dev/null -w 'https://$ip -> %{http_code}\n' https://$ip/"
+          fx 'ss -ltn' | grep -E '0.0.0.0:3306|\*:3306|:::3306'
+
+      - name: Mercure - pubblica e ricevi (token dell'app)
+        run: |
+          ssh $SSH_OPTS sagra@127.0.0.1 '
+            set -ex
+            cd "$HOME/opensagra"; fp="$HOME/.frankenphp/frankenphp"; export PHPRC="$HOME/.frankenphp"
+            pub=$("$fp" php-cli -r "require \"config/mercure.php\"; echo mintMercureJwt([\"ci-test\"], [], 300);")
+            sub=$("$fp" php-cli -r "require \"config/mercure.php\"; echo mintMercureJwt([], [\"ci-test\"], 300);")
+            hub=https://localhost/.well-known/mercure
+            curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" > /tmp/sse.txt &
+            sleep 2
+            id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-da-fedora "$hub")
+            echo "id pubblicazione: $id"
+            wait || true
+            grep -q "data: ciao-da-fedora" /tmp/sse.txt'
+
+      - name: Riavvio (crash del wrapper -> systemd lo riavvia)
+        run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
+          set -x
+          old=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
+          fx "kill -KILL $old"; sleep 20
+          fx 'systemctl --user is-active opensagra-wrapper.service'
+          new=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
+          [ "$new" != "$old" ]
+          # [f]rankenphp: via ssh la shell remota ha "frankenphp run" nella sua
+          # riga di comando e pgrep -f la contava come secondo frankenphp.
+          for i in $(seq 1 45); do [ "$(fx 'pgrep -f "[f]rankenphp run" | wc -l')" = "1" ] && break; sleep 1; done
+          fx 'ps -o pid,ppid,lstart,args -p "$(pgrep -d, -f "[f]rankenphp run")"' || true
+          [ "$(fx 'pgrep -f "[f]rankenphp run" | wc -l')" = "1" ] || { echo "::error::frankenphp orfano del wrapper ucciso ancora vivo"; exit 1; }
+          fx "curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/"
+
+      - name: install.sh (rilancio, deve essere idempotente)
+        timeout-minutes: 15
+        run: |
+          start=$(date +%s)
+          ssh $SSH_OPTS sagra@127.0.0.1 'cd opensagra-*/ && bash ./install.sh'
+          echo "rilancio in $(( $(date +%s) - start )) s"
+
+      - name: uninstall.sh
+        run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
+          fx 'bash $HOME/opensagra/uninstall.sh --force'
+          set -x
+          fx 'test ! -e $HOME/opensagra'
+          fx 'test ! -e $HOME/.config/systemd/user/opensagra-wrapper.service'
+          if fx 'pgrep -f "[f]rankenphp run"'; then echo "frankenphp ancora vivo"; exit 1; fi
+          if fx 'rpm -q mariadb-server'; then echo "MariaDB ancora installato"; exit 1; fi
+          fx 'test ! -e /etc/my.cnf.d/99-opensagra.cnf'
+          fx 'ls /etc/pki/ca-trust/source/anchors/' | grep -i caddy && { echo "CA ancora nello store di sistema"; exit 1; } || true
+          fx 'sudo firewall-cmd --list-ports' | grep -q '80/tcp' && { echo "porte ancora aperte in firewalld"; exit 1; } || true
+          fx 'certutil -L -d sql:$HOME/.pki/nssdb' | grep "OpenSagra Local CA" && { echo "CA ancora in ~/.pki/nssdb"; exit 1; } || true
+          fx 'ls $HOME/opensagra-backup-*.sql'
+
+      - name: Log
+        if: always()
+        run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
+          for f in /tmp/opensagra-install.log /tmp/opensagra-uninstall.log; do
+            fx "cat $f" > "$OUT/$(basename "$f")" 2>/dev/null || continue
+            echo "::group::$f"; tail -n 150 "$OUT/$(basename "$f")"; echo "::endgroup::"
+          done
+          fx 'for f in $HOME/opensagra/logs/*.log; do echo "== $f"; tail -n 60 "$f"; done' > "$OUT/wrapper-logs.txt" 2>&1 || true
+          fx 'systemctl --user status opensagra-wrapper.service --no-pager -l; journalctl --user -u opensagra-wrapper.service --no-pager -n 60' > "$OUT/wrapper-unit.txt" 2>&1 || true
+          fx 'sudo ausearch -m avc 2>/dev/null' > "$OUT/selinux-avc.txt" 2>&1 || true
+          echo "::group::wrapper"; cat "$OUT/wrapper-unit.txt" "$OUT/wrapper-logs.txt" | tail -n 120; echo "::endgroup::"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-fedora
+          path: ${{ env.OUT }}
+          retention-days: 14
