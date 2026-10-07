@@ -96,6 +96,9 @@ func main() {
 	// Prima di avviare i figli: chiudi quelli rimasti orfani da un'istanza
 	// precedente morta di colpo (macOS/Linux - vedi childPidsFile).
 	reapStaleChildren(cfg.LogDir)
+	// IP della macchina nel Caddyfile (certificato HTTPS) prima di avviare
+	// FrankenPHP: se il DHCP ha cambiato indirizzo, niente reload da fare.
+	syncCaddyHostsAtStart(cfg)
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
 	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
@@ -128,6 +131,9 @@ func main() {
 	// Versione di questa macchina sul DB a cui punta + versione del server
 	// (piano, Fase 6c punto A) - vedi nodes.go.
 	go nodeHeartbeatLoop(ctx, cfg)
+
+	// IP cambiati mentre gira -> Caddyfile riscritto + reload (caddy_hosts.go).
+	go watchCaddyHosts(ctx, cfg, sup)
 
 	// Sequenza di uscita pulita. Su Windows e' il menu tray "Esci" (dopo
 	// conferma) a invocarla; su Linux/macOS la invoca runEventLoop quando

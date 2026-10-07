@@ -134,6 +134,8 @@
 
   <!-- Versioni diverse fra PC collegati (nodes.go, piano Fase 6c punto A). -->
   <div class="warn-banner" id="versionBanner" hidden></div>
+  <!-- Indirizzo di rete cambiato (caddy_hosts.go): conta solo sul server. -->
+  <div class="warn-banner" id="ipBanner" hidden></div>
 
   <div class="row">
     <button class="primary grow" id="btnApp" data-icon="external-link"><span>Apri OpenSagra</span></button>
@@ -353,6 +355,12 @@ function renderVersions(s) {
   }
   banner.hidden = !msg;
   if (msg) banner.innerHTML = msg;
+
+  const ipb = $("#ipBanner");
+  ipb.hidden = !(s.ip_change && s.role === "SERVER");
+  if (!ipb.hidden) ipb.textContent = `L'indirizzo di rete di questo PC è cambiato (${s.ip_change}). ` +
+    "Le casse collegate come client usano ancora quello vecchio: ricollegale da Configurazione Rete, " +
+    "o meglio assegna a questo PC un indirizzo fisso sul router (vedi guida).";
 
   const nodes = s.role === "SERVER" ? (s.nodes || []) : [];
   $("#nodeSection").hidden = nodes.length === 0;

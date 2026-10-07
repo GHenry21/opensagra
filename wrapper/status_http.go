@@ -133,6 +133,11 @@ type statusJSON struct {
 	ServerVersion   string     `json:"server_version"`
 	VersionMismatch bool       `json:"version_mismatch"`
 	Nodes           []nodeInfo `json:"nodes"`
+
+	// "vecchio → nuovo" se un IP di questa macchina e' sparito da quando il
+	// wrapper gira (caddy_hosts.go). Conta sul server: le casse client hanno
+	// il vecchio IP in DB_POS_HOST.
+	IPChange string `json:"ip_change"`
 }
 
 // cachedClientCount: activeClientCount() apre una connessione al DB; con la
@@ -221,6 +226,7 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		UpdateError:       updateErr,
 		ServerVersion:     serverVer,
 		Nodes:             nodes,
+		IPChange:          lastIPChange(),
 	}
 	if role == "SERVER" {
 		// Sul server "mismatch" = almeno una macchina collegata diversa.

@@ -175,6 +175,13 @@ quando vuoi:
   `192.168.1.10`) — te lo indica la pagina stessa dell'altro PC, sotto "Come
   collegare altre casse a questo PC come server".
 
+**Prima, sul PC centrale, attiva "Accetta casse client"** (stessa pagina,
+riquadro "Come collegare altre casse a questo PC come server"). Per sicurezza
+è spento su ogni installazione: finché è spento, nessun altro dispositivo
+della rete può entrare nel database di quel PC. Va acceso **solo sul PC
+centrale**, non sulle casse che si collegano a lui. Se te ne dimentichi, la
+cassa che prova a collegarsi te lo dice con un messaggio chiaro.
+
 **Il cambio ha effetto subito**: non serve riavviare niente, né su questo PC
 né sull'altro.
 
@@ -233,6 +240,33 @@ L'app non si ricollega da sola in
 automatico, per una buona ragione: è meglio che sia una persona a confermare
 che il PC centrale è davvero di nuovo pronto, non un tentativo automatico
 ripetuto alla cieca. 
+
+### 3.2 Dai al PC centrale un indirizzo fisso
+
+Le casse in modalità Client trovano il PC centrale tramite il suo **indirizzo
+di rete** (es. `192.168.1.10`). Di solito è il router a distribuire gli
+indirizzi, e può decidere di darne uno diverso al PC centrale da un giorno
+all'altro, per esempio dopo che il PC o il router sono stati spenti. Se
+succede, le casse collegate non lo trovano più e passano a lavorare in locale
+(come in §3.1) finché non le ricolleghi al nuovo indirizzo.
+
+**Per evitarlo, prima della sagra assegna al PC centrale un indirizzo fisso
+sul router.** Quasi tutti i router lo permettono: la funzione si chiama di
+solito *"prenotazione DHCP"*, *"IP statico"* o *"indirizzo riservato"*, e si
+trova nelle impostazioni della rete locale (LAN). Scegli il PC centrale
+dall'elenco dei dispositivi collegati e conferma: da quel momento avrà
+sempre lo stesso indirizzo. Se non sai come fare, chiedi a chi gestisce la
+rete della sagra: è un'operazione di un minuto.
+
+Se l'indirizzo cambia comunque:
+
+- **telefoni e tablet** che aprono OpenSagra dal PC centrale continuano a
+  funzionare con il lucchetto: il PC centrale si accorge da solo del nuovo
+  indirizzo entro un minuto (basta riaprire la pagina con il nuovo indirizzo);
+- il **pannello di controllo** del PC centrale mostra un avviso con il
+  vecchio e il nuovo indirizzo;
+- le **casse in modalità Client** vanno ricollegate a mano: su ognuna, apri
+  Configurazione Rete e reinserisci l'indirizzo nuovo.
 
 ---
 
