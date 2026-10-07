@@ -130,12 +130,25 @@
                     <h3>Come collegare altre casse a questo PC come server</h3>
                 </div>
                 <p class="inline-muted">
-                    Ogni installazione OpenSagra è già pronta a fare da server per le altre: non serve
-                    nessuna configurazione aggiuntiva su questo PC. 
-                    Sul PC che fungerà da client, apri questa
+                    Per sicurezza il database di questo PC non è raggiungibile dalle altre casse finché
+                    non attivi qui sotto "Accetta casse client". Attivalo solo sul PC che fa da server.
+                    Poi, sul PC che fungerà da client, apri questa
                     stessa pagina (Configurazione Rete) e scegli "Client: punta a un server in rete",
                     indicando l'indirizzo IP di questo PC: <?= $localIp ? " <code>{$localIp}</code>" : '' ?>.
                 </p>
+
+                <!-- Piano Fase 6c: accesso dalla rete al DB solo se questo PC fa da
+                     server (api/server_mode.php, config/remote_access.php). -->
+                <label class="rete-mode-option" id="acceptClientsRow" hidden>
+                    <span class="rete-switch">
+                        <input type="checkbox" id="acceptClients">
+                        <span></span>
+                    </span>
+                    <span class="rete-mode-option__text">
+                        <strong>Accetta casse client</strong>
+                        <p class="inline-muted" id="acceptClientsHint">Le altre casse possono usare il database di questo PC.</p>
+                    </span>
+                </label>
                 <p class="inline-muted">
                     Attenzione: se questo PC si spegne o esce dalla rete, le casse collegate a lui passano
                     da sole a lavorare in locale dopo una breve attesa (in genere entro una trentina di
@@ -284,6 +297,77 @@
                 });
             }
 
+            // "Accetta casse client": stato reale letto dal DB locale, non da
+            // una preferenza in pagina (api/server_mode.php).
+            const acceptRow = document.getElementById('acceptClientsRow');
+            const acceptInput = document.getElementById('acceptClients');
+            const acceptHint = document.getElementById('acceptClientsHint');
+
+            function renderServerMode(s) {
+                if (!s || !s.available) {
+                    acceptRow.hidden = true;
+                    return;
+                }
+                acceptRow.hidden = false;
+                acceptInput.checked = !!s.accepting;
+                acceptInput.disabled = !!s.is_client;
+                acceptHint.textContent = s.is_client
+                    ? 'Non disponibile: questo PC è collegato a un server come client.'
+                    : (s.accepting
+                        ? 'Attivo: le altre casse possono usare il database di questo PC.'
+                        : 'Disattivo: nessuna altra cassa può collegarsi al database di questo PC.');
+            }
+
+            function refreshServerMode() {
+                return fetch('../api/server_mode.php')
+                    .then((r) => r.json())
+                    .then(renderServerMode)
+                    .catch(() => { acceptRow.hidden = true; });
+            }
+            refreshServerMode();
+
+            acceptInput.addEventListener('change', async function() {
+                const accept = acceptInput.checked;
+                if (!accept) {
+                    let warn = '';
+                    try {
+                        const connData = await (await fetch('../api/db_connections.php')).json();
+                        if (connData.external_count > 0) {
+                            warn = `\n\nAttenzione: in questo momento ${connData.external_count} altra/e postazione/i ` +
+                                `(${connData.hosts.join(', ')}) usa/no il database di questo PC e perderanno la connessione.`;
+                        }
+                    } catch (e) { /* best-effort */ }
+                    const ok = await showConfirm('Le altre casse non potranno più collegarsi al database di questo PC.' + warn + '\n\nContinuare?', {
+                        title: 'Disattiva "Accetta casse client"',
+                        confirmLabel: 'Disattiva',
+                        cancelLabel: 'Annulla',
+                        confirmVariant: 'primary'
+                    });
+                    if (!ok) {
+                        acceptInput.checked = true;
+                        return;
+                    }
+                }
+                acceptInput.disabled = true;
+                fetch('../api/server_mode.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accept })
+                    })
+                    .then((r) => r.json())
+                    .then((s) => {
+                        if (!s || !s.success) {
+                            showToast((s && s.error) || 'Impossibile cambiare l\'impostazione.', 'error');
+                        } else {
+                            showToast(s.accepting
+                                ? 'Questo PC ora accetta casse client.'
+                                : 'Le altre casse non possono più collegarsi a questo PC.', 'success');
+                        }
+                    })
+                    .catch(() => showToast('Errore di rete.', 'error'))
+                    .finally(refreshServerMode);
+            });
+
             function toggleHostField() {
                 hostFieldWrap.style.display = modeClient.checked ? '' : 'none';
             }
@@ -415,6 +499,7 @@
                             );
                         }
                         refreshStatus();
+                        refreshServerMode(); // passando a client l'accesso dalla rete si chiude
                     })
                     .catch(() => showToast('Errore di rete durante il salvataggio.', 'error'))
                     .finally(() => { btnSave.disabled = false; });

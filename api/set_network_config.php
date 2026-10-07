@@ -19,6 +19,13 @@ require_once __DIR__ . '/../config/env_reader.php';
 require_once __DIR__ . '/../config/env_writer.php';
 require_once __DIR__ . '/../config/app_config.php';
 require_once __DIR__ . '/../config/catalog_backup.php';
+require_once __DIR__ . '/../config/remote_access.php';
+
+// MariaDB: "Access denied, this account is locked" - il server non ha attivato
+// "Accetta casse client" (config/remote_access.php).
+const ER_ACCOUNT_HAS_BEEN_LOCKED = 4151;
+$lockedServerMessage = "Il PC all'indirizzo '%s' non accetta casse client. Sul PC server apri Configurazione Rete "
+    . 'e attiva "Accetta casse client", poi riprova da qui.';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $mode = $data['mode'] ?? '';
@@ -60,7 +67,9 @@ try {
         http_response_code(422);
         echo json_encode([
             'success' => false,
-            'error' => "Impossibile collegarsi a '$targetHost' con le credenziali attuali. Verifica indirizzo, rete e che l'altra installazione sia raggiungibile.",
+            'error' => mysqli_connect_errno() === ER_ACCOUNT_HAS_BEEN_LOCKED
+                ? sprintf($lockedServerMessage, $targetHost)
+                : "Impossibile collegarsi a '$targetHost' con le credenziali attuali. Verifica indirizzo, rete e che l'altra installazione sia raggiungibile.",
         ]);
         exit;
     }
@@ -72,7 +81,12 @@ try {
     $conn->close();
 } catch (mysqli_sql_exception $e) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'error' => 'Connessione fallita: ' . $e->getMessage()]);
+    echo json_encode([
+        'success' => false,
+        'error' => $e->getCode() === ER_ACCOUNT_HAS_BEEN_LOCKED
+            ? sprintf($lockedServerMessage, $targetHost)
+            : 'Connessione fallita: ' . $e->getMessage(),
+    ]);
     exit;
 }
 
@@ -140,6 +154,19 @@ if ($mode === 'indipendente') {
         }
     } catch (Throwable $e) {
         error_log('set_network_config: ripristino catalogo locale fallito (non bloccante): ' . $e->getMessage());
+    }
+}
+
+// Un client lavora sul DB di un altro e non fa da server: l'accesso dalla rete
+// al SUO database locale si chiude sempre (piano Fase 6c, "minimo necessario").
+// Tornando a Indipendente resta chiuso: riaprirlo e' una scelta esplicita
+// ("Accetta casse client"). Non bloccante: su un'installazione precedente a
+// questa funzionalita' la procedura non c'e'.
+if ($mode === 'client') {
+    $localForLock = connectLocalDb();
+    if ($localForLock !== null) {
+        setAcceptClients($localForLock, false);
+        $localForLock->close();
     }
 }
 

@@ -175,6 +175,67 @@ foreach ($userHosts as $userHost) {
     }
 }
 
+// Accesso al DB dalla rete solo se questo PC fa da SERVER (piano, Fase 6c:
+// "minimo necessario"). L'account '$nuovo_utente'@'%' (quello con cui entrano
+// le casse client) resta BLOCCATO (ACCOUNT LOCK) finche' l'operatore non attiva
+// "Accetta casse client" in Configurazione Rete; gli account locali
+// (localhost/127.0.0.1, quelli che usa l'app sulla propria macchina) non si
+// toccano mai. Lo sblocco avviene a runtime senza dare all'utente dell'app il
+// privilegio CREATE USER (gli permetterebbe di cambiare la password di root):
+// passa da una procedura SQL SECURITY DEFINER il cui definer e' un account
+// dedicato, a sua volta bloccato (nessun login possibile), con il solo CREATE
+// USER + lettura dello stato. Il firewall resta aperto: chiuderlo e riaprirlo
+// richiederebbe i permessi di amministratore a ogni cambio, il wrapper gira
+// come utente normale.
+$remoteAdmin = 'opensagra_netadmin';
+$remoteProc = 'opensagra_remote_access';
+$qUser = $connRoot->real_escape_string($nuovo_utente);
+$qDb = str_replace('`', '``', $db_nome);
+$remoteSetup = [
+    "CREATE USER IF NOT EXISTS '$remoteAdmin'@'localhost' ACCOUNT LOCK",
+    "ALTER USER '$remoteAdmin'@'localhost' ACCOUNT LOCK",
+    "GRANT CREATE USER ON *.* TO '$remoteAdmin'@'localhost'",
+    "GRANT SELECT ON mysql.global_priv TO '$remoteAdmin'@'localhost'",
+    "CREATE OR REPLACE DEFINER='$remoteAdmin'@'localhost' PROCEDURE `$qDb`.`$remoteProc`(IN p_action VARCHAR(8))
+     SQL SECURITY DEFINER
+     BEGIN
+       IF p_action = 'lock' THEN ALTER USER '$qUser'@'%' ACCOUNT LOCK;
+       ELSEIF p_action = 'unlock' THEN ALTER USER '$qUser'@'%' ACCOUNT UNLOCK;
+       END IF;
+       SELECT IFNULL(JSON_VALUE(Priv, '$.account_locked'), 'false') AS locked
+         FROM mysql.global_priv WHERE User = '$qUser' AND Host = '%';
+     END",
+    "GRANT EXECUTE ON PROCEDURE `$qDb`.`$remoteProc` TO '$remoteAdmin'@'localhost'",
+];
+foreach ($remoteSetup as $sql) {
+    if (!$connRoot->query($sql)) {
+        fail('Errore nella configurazione dell\'accesso dalla rete: ' . $connRoot->error);
+    }
+}
+
+// Stato voluto: app_config.ACCEPT_CLIENTS (lo scrive api/server_mode.php). Una
+// reinstallazione di un server lo conserva; installazione nuova o riga assente
+// -> bloccato. Su una reinstallazione di un server precedente a questa
+// funzionalita' le casse client vanno riabilitate dal server una volta.
+$acceptClients = false;
+try {
+    $res = $connRoot->query("SELECT valore FROM app_config WHERE chiave = 'ACCEPT_CLIENTS' LIMIT 1");
+    if ($res && ($row = $res->fetch_assoc())) {
+        $acceptClients = trim((string) $row['valore']) === '1';
+    }
+} catch (mysqli_sql_exception $e) {
+    // app_config non esiste ancora (installazione nuova): resta bloccato.
+}
+if (!$connRoot->query("CALL `$remoteProc`('" . ($acceptClients ? 'unlock' : 'lock') . "')")) {
+    fail('Errore nell\'applicare lo stato dell\'accesso dalla rete: ' . $connRoot->error);
+}
+while ($connRoot->more_results() && $connRoot->next_result()) {
+    // svuota i result set della CALL prima delle query successive
+}
+outLine($acceptClients
+    ? 'Accesso dalla rete al database: ATTIVO (questo PC fa da server per altre casse).'
+    : 'Accesso dalla rete al database: bloccato (si attiva da Configurazione Rete se questo PC fa da server).');
+
 if (!$connRoot->query('FLUSH PRIVILEGES;')) {
     fail('Errore nel flush dei privilegi: ' . $connRoot->error);
 }
