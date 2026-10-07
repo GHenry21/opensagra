@@ -31,20 +31,21 @@ rimuove MariaDB e tutto quello che ha aggiunto OpenSagra.
 
 ## 1. Scaricare il pacchetto
 
-**Da GitHub Actions** (serve un account GitHub, qualsiasi): apri la run
-indicata da chi ti ha passato questa guida, in fondo alla pagina sezione
-*Artifacts*, scarica **`opensagra-macos-x86_64`**. È uno zip che contiene
-`opensagra-<versione>-macos-x86_64.tar.gz`.
-
-In Terminale:
+Insieme a questa guida hai ricevuto il file
+**`opensagra-0.0.0-dev-macos-x86_64.tar.gz`** (~90 MB). Mettilo in
+`~/Downloads`, poi in Terminale:
 
 ```bash
 mkdir -p ~/opensagra-test && cd ~/opensagra-test
-unzip ~/Downloads/opensagra-macos-x86_64.zip
-tar -xzf opensagra-*-macos-x86_64.tar.gz
+tar -xzf ~/Downloads/opensagra-*-macos-x86_64.tar.gz
 cd opensagra-*/
 ls    # install-macos.sh, uninstall-macos.sh, frankenphp/, wrapper/, ...
 ```
+
+Usa `tar` da Terminale, non il doppio clic sul file: è lo stesso, ma così i
+comandi qui sotto trovano la cartella dove se l'aspettano. L'attributo di
+"quarantena" che macOS mette sui file ricevuti (browser, AirDrop, chat) lo
+toglie l'installer da solo.
 
 *In alternativa*, dal repository (servono PHP + Composer e Go):
 `git checkout macos-server && composer install --no-dev && bash packaging/make-unix-package.sh macos x86_64`.
