@@ -35,15 +35,24 @@ on:
         default: false
 
 jobs:
-  install:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
-    timeout-minutes: 120
-    env:
-      # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
-      HAS_DEBUG_TOKEN: ${{ secrets.MAC_DEBUG_TOKEN != '' }}
-
+  # Il pacchetto si costruisce su Linux (come in release.yml): PHP/Composer
+  # servono solo qui, e setup-php non riesce a installare PHP sui runner Mac
+  # Intel (macos-15-intel: "Could not setup PHP 8.3", 2026-10-07). Il Mac
+  # riceve il pacchetto gia' pronto, come un utente.
+  package:
+    runs-on: ubuntu-latest
+    outputs:
+      arch: ${{ steps.arch.outputs.arch }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Architettura del Mac da provare
+        id: arch
+        run: |
+          case "${{ inputs.runner || 'macos-15' }}" in
+            *intel*) echo "arch=x86_64" >> "$GITHUB_OUTPUT" ;;
+            *)       echo "arch=arm64"  >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -59,20 +68,47 @@ jobs:
           go-version-file: wrapper/go.mod
           cache-dependency-path: wrapper/go.sum
 
-      - name: go vet del wrapper
+      - name: go vet del wrapper (macOS)
         working-directory: wrapper
-        run: go vet ./...
+        env:
+          GOOS: darwin
+          GOARCH: ${{ steps.arch.outputs.arch == 'x86_64' && 'amd64' || 'arm64' }}
+        run: go vet .
 
       # Si installa dal PACCHETTO DI RELEASE (come un utente), non dalla copia
       # del repo: copre make-unix-package.sh e il FrankenPHP incluso (nessun
       # download all'installazione).
-      - name: Costruisci ed estrai il pacchetto macOS (architettura del runner)
+      - name: Costruisci il pacchetto macOS
+        run: bash packaging/make-unix-package.sh macos "${{ steps.arch.outputs.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacchetto-macos
+          path: opensagra-*-macos-*.tar.gz
+          retention-days: 3
+
+  install:
+    needs: package
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 120
+    env:
+      # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
+      HAS_DEBUG_TOKEN: ${{ secrets.MAC_DEBUG_TOKEN != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pacchetto-macos
+          path: ${{ runner.temp }}/dl
+
+      - name: Estrai il pacchetto
         run: |
-          # arm64 (Apple Silicon) o x86_64 (Intel), come il Mac del runner
-          arch=$(uname -m)
-          bash packaging/make-unix-package.sh macos "$arch"
+          arch="${{ needs.package.outputs.arch }}"
+          [ "$(uname -m)" = "$arch" ] || { echo "::error::pacchetto $arch su un Mac $(uname -m)"; exit 1; }
           mkdir -p "$RUNNER_TEMP/pkg"
-          tar -xzf opensagra-*-macos-"$arch".tar.gz -C "$RUNNER_TEMP/pkg"
+          tar -xzf "$RUNNER_TEMP"/dl/opensagra-*-macos-"$arch".tar.gz -C "$RUNNER_TEMP/pkg"
           pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
           ls "$pkg" "$pkg/frankenphp" "$pkg/wrapper"
           echo "PKG=$pkg" >> "$GITHUB_ENV"
