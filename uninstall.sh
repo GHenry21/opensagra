@@ -183,11 +183,21 @@ remove_mariadb() {
 # residuo e' innocuo (non associato a nessun sito che l'utente visiti
 # davvero), non vale bloccare la disinstallazione per questo.
 remove_frankenphp_and_ca() {
-    local ca_files
+    local ca_files d
     ca_files=(/usr/local/share/ca-certificates/Caddy_Local_Authority_*.crt)
     if [ -e "${ca_files[0]}" ]; then
         sudo rm -f "${ca_files[@]}"
         sudo update-ca-certificates >>"$LOG_FILE" 2>&1 || true
+    fi
+    # La stessa CA che install.sh (trust_ca_in_browser_stores) mette nei
+    # database NSS dei browser - stessi percorsi, stesso nome.
+    if command -v certutil >/dev/null 2>&1; then
+        for d in "$HOME/.pki/nssdb" "$HOME"/.mozilla/firefox/*/ \
+                 "$HOME"/snap/firefox/common/.mozilla/firefox/*/ "$HOME/snap/chromium/current/.pki/nssdb"; do
+            d="${d%/}"
+            [ -f "$d/cert9.db" ] || continue
+            certutil -D -d "sql:$d" -n "OpenSagra Local CA" >/dev/null 2>&1 || true
+        done
     fi
     rm -rf "$FRANKEN_DIR" "$CADDY_DATA_DIR" "$CADDY_CONFIG_DIR"
     ok "FrankenPHP e CA locale rimossi"

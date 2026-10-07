@@ -1,0 +1,189 @@
+name: Test installer Ubuntu
+
+# Prova install.sh / uninstall.sh su Ubuntu 24.04 (runner GitHub, VM vera con
+# systemd e sudo senza password), come test-macos.yml fa per il Mac. Finora
+# gli script Linux erano stati provati solo su Raspberry Pi OS (Debian).
+#
+# Il runner non e' un PC Ubuntu "di fabbrica": prima si toglie quello che un
+# utente non avrebbe (MySQL preinstallato) e si aggiunge quello che avrebbe
+# (Firefox snap, come su Ubuntu desktop, con un profilo gia' creato; la
+# cartella Scrivania; la sessione systemd --user, che su un desktop esiste dal
+# login). Si installa dal PACCHETTO DI RELEASE (make-unix-package.sh), come un
+# utente.
+
+on:
+  push:
+    branches: [test-ubuntu]
+  workflow_dispatch: {}
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: Costruisci ed estrai il pacchetto linux x86_64
+        run: |
+          bash packaging/make-unix-package.sh linux x86_64
+          mkdir -p "$RUNNER_TEMP/pkg"
+          tar -xzf opensagra-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP/pkg"
+          pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
+          ls "$pkg" "$pkg/frankenphp" "$pkg/wrapper"
+          echo "PKG=$pkg" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/out"; echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
+
+      - name: Prepara un Ubuntu "da utente"
+        run: |
+          set -x
+          cat /etc/os-release | head -4
+          # MySQL preinstallato sul runner: un PC vero non ce l'ha, e
+          # mariadb-server va in conflitto (porta 3306, pacchetti).
+          sudo systemctl stop mysql 2>/dev/null || true
+          sudo apt-get purge -y -qq 'mysql-*' >/dev/null 2>&1 || true
+          sudo rm -rf /etc/mysql /var/lib/mysql
+          sudo apt-get autoremove -y -qq >/dev/null 2>&1 || true
+          ss -ltnp | grep -E ':(80|443|3306|2019) ' || echo "porte 80/443/3306/2019 libere"
+          ufw status || true
+          # Firefox snap, il browser di default di Ubuntu desktop: ha un suo
+          # archivio certificati (dentro ~/snap) - va verificato che la CA
+          # locale ci arrivi. Il profilo deve esistere PRIMA dell'installazione
+          # (su un PC vero l'utente ha gia' aperto Firefox).
+          sudo snap install firefox >/dev/null
+          timeout 60 firefox --headless --screenshot "$HOME/ff-init.png" about:blank >/dev/null 2>&1 || true
+          ls -d "$HOME"/snap/firefox/common/.mozilla/firefox/*/ 2>/dev/null || echo "::warning::profilo Firefox snap non creato"
+          which google-chrome && google-chrome --version || true
+          mkdir -p "$HOME/Desktop"
+          # Sessione systemd --user (su un desktop c'e' dal login).
+          sudo loginctl enable-linger "$USER"
+          for i in $(seq 1 20); do [ -S "/run/user/$(id -u)/bus" ] && break; sleep 1; done
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+
+      - name: install.sh (prima installazione)
+        timeout-minutes: 25
+        run: bash "$PKG/install.sh"
+
+      - name: Verifica installazione
+        run: |
+          set -x
+          systemctl --user is-active opensagra-wrapper.service
+          pgrep -fl opensagra-wrapper
+          pgrep -fl 'frankenphp run'
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)
+          echo "https://localhost -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          # CA locale nello store di sistema (curl senza -k)
+          curl -s --max-time 5 -o /dev/null -w 'https senza -k -> %{http_code}\n' https://localhost/ \
+            || echo "::warning::CA locale NON fidata dallo store di sistema"
+          sudo mariadb -e 'SHOW DATABASES' | grep opensagra_pos
+          "$HOME/.frankenphp/frankenphp" version
+          sudo getcap "$HOME/.frankenphp/frankenphp"
+          test -f "$HOME/Desktop/OpenSagra.desktop" && cat "$HOME/Desktop/OpenSagra.desktop"
+          v=$(cat "$HOME/opensagra/config/.installed_version"); echo "versione installata: $v"; [ -n "$v" ]
+
+      # Il punto aperto su Ubuntu: i browser snap hanno un archivio
+      # certificati proprio. Si apre https://localhost in Firefox snap e in
+      # Chrome (deb, archivio NSS ~/.pki/nssdb) e si fotografa la pagina:
+      # l'app = CA fidata, la pagina di errore = avviso all'utente.
+      - name: HTTPS nei browser (Firefox snap, Chrome)
+        run: |
+          set -x
+          ls "$HOME"/snap/firefox/common/.mozilla/firefox/*/cert9.db 2>/dev/null || true
+          fail=0
+          for db in "$HOME"/snap/firefox/common/.mozilla/firefox/*.default*/ "$HOME/.pki/nssdb"; do
+            if certutil -L -d "sql:$db" 2>/dev/null | grep -q "OpenSagra Local CA"; then echo "CA presente: $db"
+            else echo "::error::CA NON presente in $db"; fail=1; fi
+          done
+          pkill -f firefox || true; sleep 2
+          timeout 90 firefox --headless --window-size=1280,800 --screenshot "$HOME/ff-localhost.png" https://localhost/ 2>&1 | tail -5 || true
+          cp "$HOME/ff-localhost.png" "$OUT/" 2>/dev/null || cp "$HOME"/snap/firefox/common/ff-localhost.png "$OUT/" 2>/dev/null || echo "::warning::screenshot Firefox non prodotto"
+          if command -v google-chrome >/dev/null; then
+            out=$(timeout 60 google-chrome --headless=new --no-sandbox --window-size=1280,800 --screenshot="$OUT/chrome-localhost.png" https://localhost/ 2>&1 || true)
+            echo "$out" | grep -E 'CERT|Page load|written' || true
+            if echo "$out" | grep -q ERR_CERT; then echo "::error::Chrome rifiuta il certificato"; fail=1; fi
+          fi
+          exit $fail
+
+      - name: Mercure - pubblica e ricevi (token dell'app)
+        run: |
+          set -x
+          cd "$HOME/opensagra"
+          fp="$HOME/.frankenphp/frankenphp"
+          export PHPRC="$HOME/.frankenphp"
+          pub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt(["ci-test"], [], 300);')
+          sub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt([], ["ci-test"], 300);')
+          hub=https://localhost/.well-known/mercure
+          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" > /tmp/sse.txt &
+          sleep 2
+          id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-da-ubuntu "$hub")
+          echo "id pubblicazione: $id"
+          case "$id" in urn:uuid:*) ;; *) echo "::error::pubblicazione rifiutata dall'hub"; exit 1;; esac
+          wait || true
+          grep -q 'data: ciao-da-ubuntu' /tmp/sse.txt
+
+      - name: Riavvio (crash del wrapper -> systemd lo riavvia)
+        run: |
+          set -x
+          old=$(systemctl --user show -p MainPID --value opensagra-wrapper.service)
+          kill -KILL "$old"; sleep 20
+          systemctl --user is-active opensagra-wrapper.service
+          new=$(systemctl --user show -p MainPID --value opensagra-wrapper.service)
+          [ "$new" != "$old" ]
+          [ "$(pgrep -f 'frankenphp run' | wc -l)" = "1" ]
+          curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/
+
+      - name: install.sh (rilancio, deve essere idempotente)
+        timeout-minutes: 15
+        run: |
+          start=$(date +%s)
+          bash "$PKG/install.sh"
+          echo "rilancio in $(( $(date +%s) - start )) s"
+          curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
+
+      - name: uninstall.sh
+        run: |
+          bash "$HOME/opensagra/uninstall.sh" --force || bash "$PKG/uninstall.sh" --force
+          set -x
+          test ! -e "$HOME/opensagra"
+          test ! -e "$HOME/.config/systemd/user/opensagra-wrapper.service"
+          if pgrep -f opensagra-wrapper; then echo "wrapper ancora vivo"; exit 1; fi
+          if pgrep -f 'frankenphp run'; then echo "frankenphp ancora vivo"; exit 1; fi
+          if dpkg -s mariadb-server >/dev/null 2>&1; then echo "MariaDB ancora installato"; exit 1; fi
+          test ! -e "$HOME/Desktop/OpenSagra.desktop"
+          ls /usr/local/share/ca-certificates/ | grep -i caddy && { echo "CA ancora nello store di sistema"; exit 1; } || true
+          certutil -L -d "sql:$HOME/.pki/nssdb" | grep "OpenSagra Local CA" && { echo "CA ancora in ~/.pki/nssdb"; exit 1; } || true
+          ls "$HOME"/opensagra-backup-*.sql
+
+      - name: Log
+        if: always()
+        run: |
+          for f in /tmp/opensagra-install.log /tmp/opensagra-uninstall.log "$HOME"/opensagra/logs/*.log; do
+            [ -f "$f" ] || continue
+            cp "$f" "$OUT/" 2>/dev/null || true
+            echo "::group::$f"; tail -n 150 "$f"; echo "::endgroup::"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-ubuntu
+          path: ${{ env.OUT }}
+          retention-days: 14
