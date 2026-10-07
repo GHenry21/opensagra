@@ -72,3 +72,7 @@ Thumbs.db
 # macchina (wrapper/update_check.go), mai parte del repository.
 /config/.installed_version
 /config/.app_manifest.json
+
+# Download e catture dello strumento Playwright MCP delle sessioni Claude:
+# mai nei pacchetti (gli script di packaging prendono anche i non tracciati).
+/.playwright-mcp/

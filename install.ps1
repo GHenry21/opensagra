@@ -612,6 +612,36 @@ function Register-MariaDBService {
     Add-InstallChecklistItem 'Servizio MariaDB registrato e avviato'
 }
 
+function Set-MariaDBNameResolution {
+    # skip-name-resolve: senza, MariaDB cerca il nome di ogni client (reverse
+    # DNS) prima dell'handshake. Alla sagra, senza Internet e con un DNS che non
+    # risponde, la ricerca puo' durare 5 s o piu' - oltre il timeout di 3 s con
+    # cui le casse si collegano (config/get_db_connection.php): ogni cassa
+    # client cadrebbe in fallback. Nessun account di OpenSagra dipende da un
+    # nome host (solo localhost, 127.0.0.1 e '%'; l'MSI crea anche
+    # root@<nome-pc>, mai usato). Idempotente: riavvia MariaDB solo se cambia.
+    $ini = Join-Path $Script:MariaDbDir 'data\my.ini'
+    if (-not (Test-Path $ini)) {
+        Add-InstallChecklistItem "my.ini di MariaDB non trovato ($ini): ricerca DNS dei client lasciata attiva" -State error
+        return
+    }
+    $lines = @(Get-Content -Path $ini)
+    if ($lines | Where-Object { $_ -match '^\s*skip[-_]name[-_]resolve\b' }) {
+        return
+    }
+    if ($lines | Where-Object { $_ -match '^\s*\[mysqld\]\s*$' }) {
+        $out = foreach ($l in $lines) {
+            $l
+            if ($l -match '^\s*\[mysqld\]\s*$') { 'skip-name-resolve' }
+        }
+    } else {
+        $out = @('[mysqld]', 'skip-name-resolve') + $lines
+    }
+    Set-Content -Path $ini -Value $out -Encoding ascii
+    Restart-Service MariaDB
+    Add-InstallChecklistItem 'MariaDB: nessuna ricerca DNS sui client (connessioni veloci anche senza Internet)'
+}
+
 function Copy-AppFiles {
     New-Item -ItemType Directory -Force -Path $Script:InstallPath | Out-Null
     Get-ChildItem -Path $Script:SourcePath -Force | Where-Object {
@@ -1086,6 +1116,7 @@ try {
 
     Set-InstallProgress -Percent 35 -Status 'Registrazione del servizio database...'
     Register-MariaDBService
+    Set-MariaDBNameResolution
 
     Set-InstallProgress -Percent 45 -Status 'Copia dei file dell''app...'
     Copy-AppFiles

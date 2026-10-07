@@ -235,13 +235,21 @@ install_mariadb() {
 # di mariadb.conf.d/ si leggono in ordine alfabetico: 99-* prevale su 50-*.
 # L'utente app esiste gia' anche su '%' (crea_dbtable_and_user.php). Il
 # gestore DB grafico (/db) resta solo-localhost: e' una regola del Caddyfile.
+#
+# skip-name-resolve: senza, MariaDB cerca il nome di ogni client (reverse DNS)
+# prima dell'handshake. Alla sagra, senza Internet e con un DNS che non
+# risponde, la ricerca puo' durare 5 s o piu' - oltre il timeout di 3 s con
+# cui le casse si collegano (config/get_db_connection.php): ogni cassa client
+# cadrebbe in fallback. Nessun account di OpenSagra dipende da un nome host
+# (solo localhost, 127.0.0.1 e '%'). Misurato su macOS: 5,06 s a connessione.
 MARIADB_LAN_CNF=/etc/mysql/mariadb.conf.d/99-opensagra.cnf
 allow_lan_mariadb() {
     local want
     want="$(printf '%s\n' \
         '# Generato da OpenSagra (install.sh): MariaDB raggiungibile dalle casse in LAN.' \
         '[mysqld]' \
-        'bind-address = 0.0.0.0')"
+        'bind-address = 0.0.0.0' \
+        'skip-name-resolve')"
     if [ -f "$MARIADB_LAN_CNF" ] && [ "$(cat "$MARIADB_LAN_CNF")" = "$want" ]; then
         return
     fi
