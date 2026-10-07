@@ -21,11 +21,12 @@ require_once __DIR__ . '/../config/app_config.php';
 require_once __DIR__ . '/../config/catalog_backup.php';
 require_once __DIR__ . '/../config/remote_access.php';
 
-// MariaDB: "Access denied, this account is locked" - il server non ha attivato
-// "Accetta casse client" (config/remote_access.php).
+// MariaDB: "Access denied, this account is locked" - sul PC indicato OpenSagra
+// e' chiuso, oppure quel PC e' a sua volta una cassa client
+// (config/remote_access.php).
 const ER_ACCOUNT_HAS_BEEN_LOCKED = 4151;
-$lockedServerMessage = "Il PC all'indirizzo '%s' non accetta casse client. Sul PC server apri Configurazione Rete "
-    . 'e attiva "Accetta casse client", poi riprova da qui.';
+$lockedServerMessage = "Il PC all'indirizzo '%s' non accetta casse in questo momento: verifica che OpenSagra "
+    . 'sia aperto su quel PC e che sia una cassa indipendente (non a sua volta collegata a un altro PC), poi riprova.';
 
 $data = json_decode(file_get_contents('php://input'), true);
 $mode = $data['mode'] ?? '';
@@ -157,17 +158,16 @@ if ($mode === 'indipendente') {
     }
 }
 
-// Un client lavora sul DB di un altro e non fa da server: l'accesso dalla rete
-// al SUO database locale si chiude sempre (piano Fase 6c, "minimo necessario").
-// Tornando a Indipendente resta chiuso: riaprirlo e' una scelta esplicita
-// ("Accetta casse client"). Non bloccante: su un'installazione precedente a
-// questa funzionalita' la procedura non c'e'.
-if ($mode === 'client') {
-    $localForLock = connectLocalDb();
-    if ($localForLock !== null) {
-        setAcceptClients($localForLock, false);
-        $localForLock->close();
-    }
+// Accesso dalla rete al database di QUESTO PC, subito (il wrapper lo
+// riallinea comunque entro pochi secondi, wrapper/remote_access.go): un client
+// lavora sul DB di un altro, il suo non serve a nessuno -> chiuso; tornando
+// indipendente (OpenSagra e' aperto, visto che questa pagina risponde) ->
+// aperto, cosi' altre casse possono collegarsi. Non bloccante: su
+// un'installazione precedente a questa funzionalita' la procedura non c'e'.
+$localForAccess = connectLocalDb();
+if ($localForAccess !== null) {
+    callRemoteAccess($localForAccess, $mode === 'client' ? 'lock' : 'unlock');
+    $localForAccess->close();
 }
 
 // FALLBACK_ORIGIN_HOST (il debito) NON si tocca qui - vedi il docblock in

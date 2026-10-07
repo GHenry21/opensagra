@@ -143,6 +143,10 @@ func main() {
 	// Pacchetto della propria versione pronto per le casse client (dist.go).
 	go ensureDistLoop(ctx, cfg)
 
+	// Accesso dalla rete al DB: aperto mentre OpenSagra gira (non sui client),
+	// chiuso all'uscita (remote_access.go).
+	go watchRemoteAccess(ctx, cfg)
+
 	// Sequenza di uscita pulita. Su Windows e' il menu tray "Esci" (dopo
 	// conferma) a invocarla; su Linux/macOS la invoca runEventLoop quando
 	// arriva un segnale di arresto (systemctl/launchctl stop) o -quit
@@ -151,8 +155,9 @@ func main() {
 		log.Print("wrapper: uscita richiesta")
 		removeLock(cfg.LogDir)
 		announceShutdown(cfg) // avvisa le casse PRIMA di fermare FrankenPHP
-		cancel()              // exec.CommandContext uccide i figli
+		cancel()              // exec.CommandContext uccide i figli (e ferma watchRemoteAccess)
 		sup.Wait()
+		closeRemoteAccessOnExit(cfg) // dopo: watchRemoteAccess non lo riapre piu'
 		sup.Close()
 		if job != nil {
 			job.close() // rete di sicurezza per eventuali superstiti

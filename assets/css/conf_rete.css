@@ -90,22 +90,6 @@ label.rete-mode-option {
     cursor: pointer
 }
 
-/* display:flex qui sopra vincerebbe su [hidden] ("Accetta casse client"). */
-label.rete-mode-option[hidden] {
-    display: none
-}
-
-/* Interruttore disattivato (PC in modalita' client). */
-label.rete-mode-option:has(input:disabled) {
-    cursor: default;
-    opacity: .6
-}
-
-label.rete-mode-option:has(input:disabled) .rete-switch>span:before,
-label.rete-mode-option:has(input:disabled) .rete-switch>span:after {
-    cursor: default
-}
-
 .rete-mode-option__text {
     display: grid;
     gap: 4px
@@ -144,7 +128,7 @@ label.rete-mode-option:has(input:disabled) .rete-switch>span:after {
     height: 100%
 }
 
-.rete-switch>input {
+.rete-switch>input[type="radio"] {
     opacity: 0;
     position: absolute
 }
@@ -156,11 +140,11 @@ label.rete-mode-option:has(input:disabled) .rete-switch>span:after {
     position: absolute
 }
 
-.rete-switch>input:focus~span {
+.rete-switch>input[type="radio"]:focus~span {
     box-shadow: 0 0 0 4px #43b556
 }
 
-.rete-switch>input:checked:focus~span {
+.rete-switch>input[type="radio"]:checked:focus~span {
     box-shadow: 0 0 0 4px #fff
 }
 
@@ -191,12 +175,12 @@ label.rete-mode-option:has(input:disabled) .rete-switch>span:after {
     box-shadow: 0 2px 5px rgba(0, 0, 0, .3)
 }
 
-.rete-switch>input:checked~span:before {
+.rete-switch>input[type="radio"]:checked~span:before {
     transform: scale(0);
     opacity: .7
 }
 
-.rete-switch>input:checked~span:after {
+.rete-switch>input[type="radio"]:checked~span:after {
     transform: translate3d(100%, -50%, 0)
 }
 

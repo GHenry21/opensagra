@@ -175,18 +175,19 @@ foreach ($userHosts as $userHost) {
     }
 }
 
-// Accesso al DB dalla rete solo se questo PC fa da SERVER (piano, Fase 6c:
-// "minimo necessario"). L'account '$nuovo_utente'@'%' (quello con cui entrano
-// le casse client) resta BLOCCATO (ACCOUNT LOCK) finche' l'operatore non attiva
-// "Accetta casse client" in Configurazione Rete; gli account locali
-// (localhost/127.0.0.1, quelli che usa l'app sulla propria macchina) non si
-// toccano mai. Lo sblocco avviene a runtime senza dare all'utente dell'app il
+// Accesso al DB dalla rete (piano, Fase 6c, regola dell'utente 2026-10-07):
+// OpenSagra aperto -> aperto, OpenSagra chiuso -> chiuso; su una cassa client
+// sempre chiuso. L'account '$nuovo_utente'@'%' (quello con cui entrano le casse
+// client) si blocca/sblocca con ACCOUNT LOCK: lo fa il wrapper all'avvio,
+// al cambio di ruolo e all'uscita (wrapper/remote_access.go), qui si parte
+// chiusi. Gli account locali (localhost/127.0.0.1, quelli che usa l'app sulla
+// propria macchina) non si toccano mai. Senza dare all'utente dell'app il
 // privilegio CREATE USER (gli permetterebbe di cambiare la password di root):
 // passa da una procedura SQL SECURITY DEFINER il cui definer e' un account
 // dedicato, a sua volta bloccato (nessun login possibile), con il solo CREATE
 // USER + lettura dello stato. Il firewall resta aperto: chiuderlo e riaprirlo
-// richiederebbe i permessi di amministratore a ogni cambio, il wrapper gira
-// come utente normale.
+// richiederebbe i permessi di amministratore, il wrapper gira come utente
+// normale.
 $remoteAdmin = 'opensagra_netadmin';
 $remoteProc = 'opensagra_remote_access';
 $qUser = $connRoot->real_escape_string($nuovo_utente);
@@ -213,28 +214,14 @@ foreach ($remoteSetup as $sql) {
     }
 }
 
-// Stato voluto: app_config.ACCEPT_CLIENTS (lo scrive api/server_mode.php). Una
-// reinstallazione di un server lo conserva; installazione nuova o riga assente
-// -> bloccato. Su una reinstallazione di un server precedente a questa
-// funzionalita' le casse client vanno riabilitate dal server una volta.
-$acceptClients = false;
-try {
-    $res = $connRoot->query("SELECT valore FROM app_config WHERE chiave = 'ACCEPT_CLIENTS' LIMIT 1");
-    if ($res && ($row = $res->fetch_assoc())) {
-        $acceptClients = trim((string) $row['valore']) === '1';
-    }
-} catch (mysqli_sql_exception $e) {
-    // app_config non esiste ancora (installazione nuova): resta bloccato.
-}
-if (!$connRoot->query("CALL `$remoteProc`('" . ($acceptClients ? 'unlock' : 'lock') . "')")) {
-    fail('Errore nell\'applicare lo stato dell\'accesso dalla rete: ' . $connRoot->error);
+// Si parte chiusi: lo apre il wrapper quando OpenSagra e' in esecuzione.
+if (!$connRoot->query("CALL `$remoteProc`('lock')")) {
+    fail("Errore nell'applicare lo stato dell'accesso dalla rete: " . $connRoot->error);
 }
 while ($connRoot->more_results() && $connRoot->next_result()) {
     // svuota i result set della CALL prima delle query successive
 }
-outLine($acceptClients
-    ? 'Accesso dalla rete al database: ATTIVO (questo PC fa da server per altre casse).'
-    : 'Accesso dalla rete al database: bloccato (si attiva da Configurazione Rete se questo PC fa da server).');
+outLine("Accesso dalla rete al database: lo apre OpenSagra mentre e' in esecuzione (mai sulle casse client).");
 
 if (!$connRoot->query('FLUSH PRIVILEGES;')) {
     fail('Errore nel flush dei privilegi: ' . $connRoot->error);
