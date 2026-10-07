@@ -112,12 +112,39 @@ jobs:
             certutil -L -d "sql:$db" 2>/dev/null | grep -i caddy && echo "CA in Firefox snap: $db" || echo "::warning::CA NON presente nel profilo Firefox snap $db"
           done
           certutil -L -d "sql:$HOME/.pki/nssdb" 2>/dev/null | grep -i caddy || echo "::warning::CA NON presente in ~/.pki/nssdb (Chrome/Chromium deb)"
-          timeout 90 firefox --headless --window-size=1280,800 --screenshot "$HOME/ff-localhost.png" https://localhost/ >/dev/null 2>&1 || true
+          pkill -f firefox || true; sleep 2
+          timeout 90 firefox --headless --window-size=1280,800 --screenshot "$HOME/ff-localhost.png" https://localhost/ 2>&1 | tail -5 || true
           cp "$HOME/ff-localhost.png" "$OUT/" 2>/dev/null || cp "$HOME"/snap/firefox/common/ff-localhost.png "$OUT/" 2>/dev/null || echo "::warning::screenshot Firefox non prodotto"
           if command -v google-chrome >/dev/null; then
             timeout 60 google-chrome --headless=new --no-sandbox --window-size=1280,800 --screenshot="$OUT/chrome-localhost.png" https://localhost/ || true
             timeout 60 google-chrome --headless=new --no-sandbox --dump-dom https://localhost/ 2>/dev/null | head -c 600 || true
           fi
+
+      # Prototipo della correzione (non ancora in install.sh): `frankenphp
+      # trust` vede la CA gia' fidata dal sistema e salta i database NSS dei
+      # browser, quindi Chrome/Chromium (~/.pki/nssdb) e Firefox (profili,
+      # anche snap) mostrano l'avviso. Qui la si aggiunge con certutil e si
+      # riapre https://localhost nei due browser.
+      - name: Prova correzione - CA nei database NSS dei browser
+        continue-on-error: true
+        run: |
+          set -x
+          ca="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
+          ls -la "$ca"
+          nick="OpenSagra Local CA"
+          mkdir -p "$HOME/.pki/nssdb"
+          [ -f "$HOME/.pki/nssdb/cert9.db" ] || certutil -N -d "sql:$HOME/.pki/nssdb" --empty-password
+          dbs=("$HOME/.pki/nssdb")
+          for d in "$HOME"/.mozilla/firefox/*/ "$HOME"/snap/firefox/common/.mozilla/firefox/*/ "$HOME"/snap/chromium/current/.pki/nssdb/; do
+            [ -f "$d/cert9.db" ] && dbs+=("${d%/}")
+          done
+          for d in "${dbs[@]}"; do
+            certutil -A -d "sql:$d" -n "$nick" -t "C,," -i "$ca" && echo "CA aggiunta in $d"
+          done
+          pkill -f firefox || true; sleep 2
+          timeout 60 google-chrome --headless=new --no-sandbox --window-size=1280,800 --screenshot="$OUT/chrome-dopo.png" https://localhost/ 2>&1 | grep -E 'CERT|Page load|written' || true
+          timeout 90 firefox --headless --window-size=1280,800 --screenshot "$HOME/ff-dopo.png" https://localhost/ 2>&1 | tail -5 || true
+          cp "$HOME/ff-dopo.png" "$OUT/" 2>/dev/null || ls -la "$HOME" "$HOME/snap/firefox/common" | head -30
 
       - name: Mercure - pubblica e ricevi (token dell'app)
         run: |
