@@ -176,11 +176,12 @@ quando vuoi:
   `192.168.1.10`) — te lo indica la pagina stessa dell'altro PC, sotto "Come
   collegare altre casse a questo PC come server".
 
-**OpenSagra deve essere aperto sul PC centrale.** Per sicurezza il database
-di un PC è raggiungibile dalle altre casse solo mentre OpenSagra è aperto su
-quel PC, e mai su un PC che è a sua volta collegato a un altro come Client.
-Se provi a collegarti a un PC centrale con OpenSagra chiuso, la cassa te lo
-dice con un messaggio chiaro.
+**OpenSagra deve essere aperto sul PC centrale.** Sul PC centrale non c'è
+nulla da attivare: diventa "centrale" da solo la prima volta che una cassa lo
+sceglie. Per sicurezza il database di un PC indipendente lo usa solo quel PC;
+quello di un PC centrale è raggiungibile dalle altre casse solo mentre
+OpenSagra è aperto su di lui. Se provi a collegarti a un PC con OpenSagra
+chiuso, la cassa te lo dice con un messaggio chiaro.
 
 **Il cambio ha effetto subito**: non serve riavviare niente, né su questo PC
 né sull'altro.

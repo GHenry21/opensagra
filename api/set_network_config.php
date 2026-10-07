@@ -21,12 +21,35 @@ require_once __DIR__ . '/../config/app_config.php';
 require_once __DIR__ . '/../config/catalog_backup.php';
 require_once __DIR__ . '/../config/remote_access.php';
 
-// MariaDB: "Access denied, this account is locked" - sul PC indicato OpenSagra
-// e' chiuso, oppure quel PC e' a sua volta una cassa client
-// (config/remote_access.php).
+// MariaDB: "Access denied, this account is locked" - il PC indicato non ha
+// aperto il suo database: OpenSagra chiuso, oppure e' a sua volta una cassa
+// client (config/remote_access.php, api/accept_client.php).
 const ER_ACCOUNT_HAS_BEEN_LOCKED = 4151;
 $lockedServerMessage = "Il PC all'indirizzo '%s' non accetta casse in questo momento: verifica che OpenSagra "
     . 'sia aperto su quel PC e che sia una cassa indipendente (non a sua volta collegata a un altro PC), poi riprova.';
+
+/**
+ * Chiede al PC $host di fare da cassa centrale (api/accept_client.php): apre
+ * l'accesso dalla rete al suo database. Best effort: un centrale con una
+ * versione precedente non ha l'endpoint (e ha gia' l'accesso aperto). TLS non
+ * verificato: il certificato del centrale viene dalla sua CA locale; si parla
+ * solo con l'indirizzo scelto dall'operatore.
+ */
+function requestCentral(string $host): void
+{
+    $ch = curl_init('https://' . $host . '/api/accept_client.php');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => '{}',
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,
+    ]);
+    curl_exec($ch);
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 $mode = $data['mode'] ?? '';
@@ -57,6 +80,11 @@ $env = loadPosEnvVars();
 //                    pubblica il proprio segreto locale nel DB, cosi' i
 //                    prossimi client lo trovano.
 $remoteSecret = '';
+
+// Il PC scelto diventa cassa centrale: apre il suo database alle casse.
+if ($mode === 'client') {
+    requestCentral($targetHost);
+}
 
 // Verifica la connessione PRIMA di scrivere: mai salvare un host che non
 // risponde, altrimenti l'app resta rotta finché non si torna qui a mano.
@@ -158,16 +186,19 @@ if ($mode === 'indipendente') {
     }
 }
 
-// Accesso dalla rete al database di QUESTO PC, subito (il wrapper lo
-// riallinea comunque entro pochi secondi, wrapper/remote_access.go): un client
-// lavora sul DB di un altro, il suo non serve a nessuno -> chiuso; tornando
-// indipendente (OpenSagra e' aperto, visto che questa pagina risponde) ->
-// aperto, cosi' altre casse possono collegarsi. Non bloccante: su
-// un'installazione precedente a questa funzionalita' la procedura non c'e'.
-$localForAccess = connectLocalDb();
-if ($localForAccess !== null) {
-    callRemoteAccess($localForAccess, $mode === 'client' ? 'lock' : 'unlock');
-    $localForAccess->close();
+// Passando a Client questo PC smette di essere cassa centrale (se lo era):
+// lavora sul DB di un altro, il suo non serve a nessuno -> chiuso. Tornando
+// Indipendente resta chiuso finche' una cassa non lo sceglie come centrale
+// (api/accept_client.php). Il wrapper riallinea comunque entro pochi secondi
+// (wrapper/remote_access.go). Non bloccante: su un'installazione precedente a
+// questa funzionalita' la procedura non c'e'.
+if ($mode === 'client') {
+    $localForAccess = connectLocalDb();
+    if ($localForAccess !== null) {
+        setAppConfig($localForAccess, 'IS_CENTRAL', '0');
+        callRemoteAccess($localForAccess, 'lock');
+        $localForAccess->close();
+    }
 }
 
 // FALLBACK_ORIGIN_HOST (il debito) NON si tocca qui - vedi il docblock in
