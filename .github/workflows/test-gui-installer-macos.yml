@@ -1,0 +1,258 @@
+name: Test installer grafico macOS
+
+# Prova installer/ (finestra Go + WKWebView) su un Mac Apple Silicon pulito -
+# runner GitHub macos-15, lo stesso di test-macos.yml. L'installer si compila
+# QUI (cgo: la webview non si cross-compila da Linux), si impacchetta in un
+# bundle "Installa OpenSagra.app" con DENTRO il pacchetto di release
+# (Contents/Resources/payload - vedi findScript in installer/main.go), zippato
+# come lo scaricherebbe un utente, e si lancia con `open` come un doppio click
+# nel Finder: l'installazione vera di install-macos.sh parte dalla finestra.
+# Prima, su una copia "scaricata" (attributo quarantine), si fotografano i
+# messaggi di Gatekeeper per la guida utente: l'app non e' firmata da Apple. Il runner ha sudo senza
+# password, quindi la schermata della password non compare (la si fotografa
+# a parte con -demo password).
+#
+# Gli screenshot (screencapture) finiscono negli artifact del job.
+#
+# Con "[desktop-mac]" nel messaggio del commit, al posto dell'installazione
+# automatica si apre il desktop del Mac nel browser (noVNC, come in
+# test-macos.yml): l'app "scaricata" (quarantena) e' sulla Scrivania e una
+# persona fa il percorso vero - doppio click, Fine, Privacy e sicurezza ->
+# Apri comunque, installazione - mentre uno screenshot ogni 5 s registra tutto.
+
+on:
+  push:
+    branches: [gui-installer]
+  workflow_dispatch: {}
+
+jobs:
+  gui-install:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: |
+            wrapper/go.sum
+            installer/go.sum
+
+      - name: Compila l'installer grafico (cgo + WKWebView)
+        working-directory: installer
+        run: |
+          go vet ./...
+          CGO_ENABLED=1 go build -trimpath -o opensagra-installer .
+          file opensagra-installer
+
+      - name: Pacchetto macOS arm64 + bundle "Installa OpenSagra.app" (zip)
+        run: |
+          bash packaging/make-unix-package.sh macos arm64
+          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/build"
+          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
+          pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
+          app="$RUNNER_TEMP/build/Installa OpenSagra.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/payload"
+          cp installer/opensagra-installer "$app/Contents/MacOS/"
+          cp -Rp "$pkg/." "$app/Contents/Resources/payload/"
+          cat > "$app/Contents/Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>opensagra-installer</string>
+            <key>CFBundleIdentifier</key><string>com.opensagra.installer</string>
+            <key>CFBundleName</key><string>Installa OpenSagra</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>13.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          EOF
+          plutil -lint "$app/Contents/Info.plist"
+          # Firma ad-hoc dell'INTERO bundle (gratuita, nessun account Apple).
+          # Il linker Go firma solo l'eseguibile: con Info.plist e payload
+          # aggiunti dopo, la firma non copre il bundle e Gatekeeper dice
+          # "e' danneggiata, spostala nel Cestino" - messaggio senza "Apri
+          # comunque" in Privacy e sicurezza (visto sul runner, 2026-10-02).
+          codesign --force --sign - --timestamp=none "$app"
+          codesign --verify --strict --verbose=2 "$app"
+          # ditto: lo zip "alla Apple" (mantiene permessi e attributi del bundle)
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip"
+          ls -la "$RUNNER_TEMP"/*.zip
+          echo "APP=$app" >> "$GITHUB_ENV"
+          echo "ZIP=$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/shots"
+          echo "SHOTS=$RUNNER_TEMP/shots" >> "$GITHUB_ENV"
+
+      - name: Screenshot delle schermate demo (password, errore)
+        run: |
+          bin="$APP/Contents/MacOS/opensagra-installer"
+          "$bin" -demo password & pid=$!
+          sleep 5; screencapture -x "$SHOTS/demo-password.png" || echo "::warning::screencapture fallito"
+          kill $pid 2>/dev/null || true; sleep 1
+          "$bin" -demo error & pid=$!
+          sleep 9; screencapture -x "$SHOTS/demo-error.png" || true
+          kill $pid 2>/dev/null || true
+
+      # Simula il download da un browser: zip estratto in ~/Downloads con
+      # l'attributo com.apple.quarantine (quello che Safari/Chrome mettono e
+      # Archive Utility propaga). Gatekeeper blocca l'app non notarizzata: si
+      # fotografa il messaggio e la pagina Privacy e sicurezza con "Apri
+      # comunque". Lingua di sistema in italiano, come per i nostri utenti.
+      - name: Gatekeeper - screenshot per la guida (app "scaricata")
+        if: ${{ !contains(github.event.head_commit.message, '[desktop-mac]') }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          # Le immagini dei runner hanno Gatekeeper spento: senza riaccenderlo
+          # l'app quarantinata parte e macOS mostra solo il dialogo "app
+          # scaricata da internet", che resta in attesa di un clic (primo
+          # tentativo, 2026-10-02: `open` appeso fino all'annullamento).
+          spctl --status || true
+          sudo spctl --global-enable 2>&1 || sudo spctl --master-enable 2>&1 || true
+          spctl --status || true
+          defaults write -g AppleLanguages -array it-IT
+          defaults write -g AppleLocale it_IT
+          sudo defaults write /Library/Preferences/.GlobalPreferences AppleLanguages -array it-IT || true
+          killall cfprefsd CoreServicesUIAgent 2>/dev/null || true
+          sleep 2
+          dl="$HOME/Downloads/gk"; rm -rf "$dl"; mkdir -p "$dl"
+          ditto -x -k "$ZIP" "$dl"
+          q="0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)"
+          xattr -w -r com.apple.quarantine "$q" "$dl/Installa OpenSagra.app"
+          # Ogni comando che puo' aspettare un clic va in background con un
+          # tempo massimo: nessuno qui deve poter bloccare il job.
+          ( spctl --assess --type execute -vv "$dl/Installa OpenSagra.app" 2>&1 | head -5 ) & sleep 8; kill $! 2>/dev/null || true
+          open "$dl/Installa OpenSagra.app" & sleep 8
+          screencapture -x "$SHOTS/gatekeeper-1-avviso.png" || true
+          # (il processo dell'app esiste comunque mentre il dialogo e' a video:
+          # l'esito vero e' spctl "rejected" sopra + il dialogo nello screenshot)
+          pkill -f opensagra-installer 2>/dev/null || true
+          killall CoreServicesUIAgent open 2>/dev/null || true
+          # "Apri comunque" sta nella sezione Sicurezza, in fondo alla pagina:
+          # si prova ad arrivarci con l'ancora dell'URL (niente osascript:
+          # System Events aspetta un permesso di accessibilita' e si appende).
+          open "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Security" & sleep 10
+          screencapture -x "$SHOTS/gatekeeper-2-privacy.png" || true
+          killall "System Settings" open 2>/dev/null || true
+          rm -rf "$dl"
+          defaults delete -g AppleLanguages 2>/dev/null || true
+          defaults delete -g AppleLocale 2>/dev/null || true
+
+      - name: Installazione reale dalla finestra (open, come un doppio click)
+        if: ${{ !contains(github.event.head_commit.message, '[desktop-mac]') }}
+        timeout-minutes: 25
+        run: |
+          ( i=0; while :; do sleep 5; i=$((i+1)); screencapture -x "$SHOTS/real-$(printf %03d $i).png" 2>/dev/null || true; done ) &
+          shooter=$!
+          start=$(date +%s)
+          open -W -n "$APP"
+          kill $shooter 2>/dev/null || true
+          echo "finestra chiusa dopo $(( $(date +%s) - start )) s"
+          tail -n 5 /tmp/opensagra-install.log
+          # A buon fine l'installer si chiude da solo; in errore resterebbe
+          # aperto su "Chiudi" e il passo andrebbe in timeout.
+          grep -q 'Installazione completata' /tmp/opensagra-install.log
+
+      - name: Verifica installazione
+        if: ${{ !contains(github.event.head_commit.message, '[desktop-mac]') }}
+        run: |
+          set -x
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|pid'
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/)
+          echo "https://localhost -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          "$HOME/.frankenphp/frankenphp" version
+          test -d "$HOME/Applications/OpenSagra.app"
+          # Nessun residuo dell'installer (sostituto di sudo, askpass).
+          ls -d "${TMPDIR:-/tmp}"/opensagra-installer-* 2>/dev/null && exit 1 || true
+
+      # Percorso Gatekeeper fatto da una persona: stesso desktop remoto di
+      # test-macos.yml (Condivisione Schermo -> noVNC -> tunnel Cloudflare,
+      # protetto dalla password nel secret MAC_VNC_PASSWORD; per i dettagli e
+      # il perche' di ogni passo vedi li'). Chiusura: `touch ~/stop` nel
+      # Terminale del Mac, annullando il job, o dopo 50 minuti.
+      - name: Desktop remoto - Gatekeeper a mano (noVNC + Cloudflare)
+        if: ${{ contains(github.event.head_commit.message, '[desktop-mac]') }}
+        timeout-minutes: 58
+        env:
+          VNC_PASSWORD: ${{ secrets.MAC_VNC_PASSWORD }}
+        run: |
+          [ -n "$VNC_PASSWORD" ] || { echo "::error::Manca il secret MAC_VNC_PASSWORD"; exit 1; }
+          echo "::add-mask::$VNC_PASSWORD"
+          sudo sysadminctl -addUser opensagra -fullName "OpenSagra test" -password "$VNC_PASSWORD" -admin 2>&1 | grep -v -i 'secure token' || true
+          if csrutil status 2>/dev/null | grep -qi disabled; then
+            db="/Library/Application Support/com.apple.TCC/TCC.db"
+            for client in com.apple.screensharing.agent com.apple.RemoteDesktopAgent; do
+              for svc in kTCCServiceScreenCapture kTCCServicePostEvent kTCCServiceAccessibility; do
+                sudo sqlite3 "$db" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('$svc','$client',0,2,4,1,'UNUSED',0,CAST(strftime('%s','now') AS INTEGER));" || true
+              done
+            done
+          fi
+
+          # Mac "da utente": Gatekeeper acceso, lingua italiana, l'app appena
+          # "scaricata" (zip estratto + quarantena) sulla Scrivania.
+          sudo spctl --global-enable 2>&1 || sudo spctl --master-enable 2>&1 || true
+          spctl --status || true
+          defaults write -g AppleLanguages -array it-IT it
+          defaults write -g AppleLocale it_IT
+          sudo defaults write /Library/Preferences/.GlobalPreferences AppleLanguages -array it-IT it || true
+          killall cfprefsd CoreServicesUIAgent Finder Dock SystemUIServer 2>/dev/null || true
+          ditto -x -k "$ZIP" "$HOME/Desktop"
+          q="0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)"
+          xattr -w -r com.apple.quarantine "$q" "$HOME/Desktop/Installa OpenSagra.app"
+          ls -la "$HOME/Desktop"
+
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart             -activate -configure -access -on -privs -all -allowAccessFor -allUsers             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD"             -restart -agent -console >/dev/null
+          for i in $(seq 1 20); do nc -z 127.0.0.1 5900 && break; sleep 1; done
+          nc -z 127.0.0.1 5900 || { echo "::error::Il server VNC di macOS non e' partito"; exit 1; }
+          git clone --depth 1 -q https://github.com/novnc/noVNC.git "$RUNNER_TEMP/novnc"
+          nohup "$RUNNER_TEMP/novnc/utils/novnc_proxy" --vnc 127.0.0.1:5900 --listen 6080 >"$RUNNER_TEMP/novnc.log" 2>&1 &
+          brew install -q cloudflared >/dev/null
+          nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:6080 >"$RUNNER_TEMP/cf.log" 2>&1 &
+          url=""
+          for i in $(seq 1 30); do
+            url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$RUNNER_TEMP/cf.log" | head -1 || true)
+            [ -n "$url" ] && break; sleep 2
+          done
+          [ -n "$url" ] || { cat "$RUNNER_TEMP/cf.log"; echo "::error::Tunnel Cloudflare non partito"; exit 1; }
+          echo "::notice title=Desktop Mac::Apri $url/vnc.html?autoconnect=1&resize=scale  (utente opensagra, password = secret MAC_VNC_PASSWORD; per chiudere: touch ~/stop nel Terminale del Mac)"
+          echo "Desktop Mac: $url/vnc.html?autoconnect=1&resize=scale   (utente: opensagra)"
+
+          # Uno screenshot ogni 5 s (JPEG, per non gonfiare l'artifact).
+          end=$(( $(date +%s) + 3000 )); i=0
+          while [ ! -f "$HOME/stop" ] && [ "$(date +%s)" -lt "$end" ]; do
+            sleep 5; i=$((i+1)); f="$SHOTS/desk-$(printf %04d $i)"
+            screencapture -x "$f.png" 2>/dev/null && sips -s format jpeg -s formatOptions 60 "$f.png" --out "$f.jpg" >/dev/null 2>&1 && rm -f "$f.png"
+            # (if, non `[ ] && {...}`: con bash -e un tail fallito come ultimo
+            # comando di una lista && chiude il passo - e il tunnel - prima
+            # che esista il log dell'installazione; visto il 2026-10-02)
+            if [ $((i % 12)) -eq 0 ]; then
+              echo "--- $(date +%T) installer: $(pgrep -fl opensagra-installer | head -1 || true)"
+              tail -2 /tmp/opensagra-install.log 2>/dev/null || true
+            fi
+          done
+          echo "Sessione desktop chiusa"
+
+      - name: Log
+        if: always()
+        run: |
+          [ -f /tmp/opensagra-install.log ] && cp /tmp/opensagra-install.log "$SHOTS/" || true
+          ls -la "$SHOTS" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gui-installer-macos
+          path: ${{ env.SHOTS }}
+          retention-days: 14
