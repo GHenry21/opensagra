@@ -52,7 +52,7 @@ jobs:
           FROM registry.fedoraproject.org/fedora:42
           # Quello che una Fedora Workstation ha gia' e l'immagine container no.
           RUN dnf install -y -q systemd sudo iproute procps-ng hostname findutils which \
-                tar gzip curl firewalld util-linux passwd xdg-user-dirs && dnf clean all
+                tar gzip curl firewalld util-linux passwd xdg-user-dirs dbus && dnf clean all
           # Password impostata: con l'account bloccato (useradd senza password) il
           # PAM di Fedora rifiuta anche il sudo NOPASSWD ("PAM account management
           # error", primo giro 2026-10-07). Su una macchina vera l'utente ce l'ha.
@@ -85,7 +85,12 @@ jobs:
           docker exec fed bash -c "cp -r /pkg-src /home/sagra/$PKGNAME && chown -R sagra:sagra /home/sagra/$PKGNAME"
           # Sessione systemd --user (su un desktop c'e' dal login).
           docker exec fed loginctl enable-linger sagra
-          for i in $(seq 1 20); do docker exec fed test -S /run/user/1000/bus && break; sleep 1; done
+          # D-Bus di sessione: senza (l'immagine container non ha il pacchetto
+          # dbus, una Fedora desktop si') systemctl --user fallisce con "Failed
+          # to connect to user scope bus" e install.sh non registra il servizio.
+          for i in $(seq 1 30); do docker exec fed test -S /run/user/1000/bus && break; sleep 1; done
+          docker exec fed systemctl status user@1000.service --no-pager | head -5 || true
+          docker exec fed test -S /run/user/1000/bus || { echo "::error::sessione systemd --user senza bus D-Bus"; exit 1; }
           docker exec -u sagra fed xdg-user-dirs-update || true
           docker exec fed ls /home/sagra
 
