@@ -104,7 +104,7 @@ jobs:
           fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
           set -x
           fx 'systemctl --user is-active opensagra-wrapper.service'
-          fx 'pgrep -fl "frankenphp run"'
+          fx 'pgrep -fl "[f]rankenphp run"'
           code=$(fx "curl -sk -o /dev/null -w '%{http_code}' https://localhost/")
           echo "https://localhost -> $code"; [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
           fx "curl -s --max-time 5 -o /dev/null -w 'https senza -k -> %{http_code}\n' https://localhost/" \
@@ -154,9 +154,11 @@ jobs:
           fx 'systemctl --user is-active opensagra-wrapper.service'
           new=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
           [ "$new" != "$old" ]
-          for i in $(seq 1 45); do [ "$(fx 'pgrep -f "frankenphp run" | wc -l')" = "1" ] && break; sleep 1; done
-          fx 'ps -o pid,ppid,lstart,args -p "$(pgrep -d, -f "frankenphp run")"' || true
-          [ "$(fx 'pgrep -f "frankenphp run" | wc -l')" = "1" ] || { echo "::error::frankenphp orfano del wrapper ucciso ancora vivo"; exit 1; }
+          # [f]rankenphp: via ssh la shell remota ha "frankenphp run" nella sua
+          # riga di comando e pgrep -f la contava come secondo frankenphp.
+          for i in $(seq 1 45); do [ "$(fx 'pgrep -f "[f]rankenphp run" | wc -l')" = "1" ] && break; sleep 1; done
+          fx 'ps -o pid,ppid,lstart,args -p "$(pgrep -d, -f "[f]rankenphp run")"' || true
+          [ "$(fx 'pgrep -f "[f]rankenphp run" | wc -l')" = "1" ] || { echo "::error::frankenphp orfano del wrapper ucciso ancora vivo"; exit 1; }
           fx "curl -sk -o /dev/null -w 'dopo crash -> %{http_code}\n' https://localhost/"
 
       - name: install.sh (rilancio, deve essere idempotente)
@@ -173,7 +175,7 @@ jobs:
           set -x
           fx 'test ! -e $HOME/opensagra'
           fx 'test ! -e $HOME/.config/systemd/user/opensagra-wrapper.service'
-          if fx 'pgrep -f "frankenphp run"'; then echo "frankenphp ancora vivo"; exit 1; fi
+          if fx 'pgrep -f "[f]rankenphp run"'; then echo "frankenphp ancora vivo"; exit 1; fi
           if fx 'rpm -q mariadb-server'; then echo "MariaDB ancora installato"; exit 1; fi
           fx 'test ! -e /etc/my.cnf.d/99-opensagra.cnf'
           fx 'ls /etc/pki/ca-trust/source/anchors/' | grep -i caddy && { echo "CA ancora nello store di sistema"; exit 1; } || true
