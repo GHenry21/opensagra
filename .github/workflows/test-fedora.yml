@@ -176,6 +176,14 @@ jobs:
             echo "::group::$f"; tail -n 150 "$OUT/$(basename "$f")"; echo "::endgroup::"
           done
           docker exec fed journalctl --no-pager -n 80 -u mariadb -u firewalld 2>/dev/null > "$OUT/journal.txt" || true
+          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          echo "::group::wrapper (systemd --user)"
+          fx 'systemctl --user status opensagra-wrapper.service --no-pager -l' || true
+          fx 'journalctl --user -u opensagra-wrapper.service --no-pager -n 60' || true
+          fx 'cat $HOME/.config/systemd/user/opensagra-wrapper.service' || true
+          echo "::endgroup::"
+          docker exec fed bash -c 'for f in /home/sagra/opensagra/logs/*.log; do echo "== $f"; tail -n 60 "$f"; done' > "$OUT/wrapper-logs.txt" 2>&1 || true
+          echo "::group::logs/"; cat "$OUT/wrapper-logs.txt"; echo "::endgroup::"
 
       - uses: actions/upload-artifact@v4
         if: always()
