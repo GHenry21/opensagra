@@ -56,6 +56,10 @@ jobs:
           # Password impostata: con l'account bloccato (useradd senza password) il
           # PAM di Fedora rifiuta anche il sudo NOPASSWD ("PAM account management
           # error", primo giro 2026-10-07). Su una macchina vera l'utente ce l'ha.
+          # Profilo di autenticazione locale: l'immagine container usa quello
+          # "sssd" (pam_sss) ma sssd qui non gira, e sudo fallisce con "PAM
+          # account management error" (secondo giro). Su una Fedora vera sssd c'e'.
+          RUN dnf install -y -q authselect && authselect select local --force
           RUN useradd -m sagra && echo 'sagra:sagra' | chpasswd \
               && echo 'sagra ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sagra \
               && systemctl enable firewalld
