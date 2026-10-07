@@ -55,7 +55,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils >/dev/null
           sudo chmod 666 /dev/kvm
-          base="https://download.fedoraproject.org/pub/fedora/linux/releases/$FEDORA_RELEASE/Cloud/x86_64/images/"
+          # Server principale, non download.fedoraproject.org: quello rimanda a un
+          # mirror a caso, e uno non aveva il file (404, 2026-10-07).
+          base="https://dl.fedoraproject.org/pub/fedora/linux/releases/$FEDORA_RELEASE/Cloud/x86_64/images/"
           img=$(curl -fsSL "$base" | grep -oE 'Fedora-Cloud-Base-Generic[^"]*\.x86_64\.qcow2' | head -1)
           [ -n "$img" ] || { echo "::error::immagine Cloud di Fedora non trovata in $base"; exit 1; }
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/fedora.qcow2" "$base$img"
