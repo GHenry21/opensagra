@@ -121,6 +121,9 @@ jobs:
           cat "$(brew --prefix)/etc/my.cnf"; ls "$(brew --prefix)/etc/my.cnf.d"
           ip=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
           echo "IP di rete: $ip"
+          # nessun utente anonimo (prenderebbe il posto di quello dell'app)
+          mariadb -N -e "SELECT CONCAT(User,'@',Host) FROM mysql.user"
+          [ "$(mariadb -N -e "SELECT COUNT(*) FROM mysql.user WHERE User=''")" = "0" ]
           env="$HOME/opensagra/config/variabili.env"
           user=$(sed -n 's/^DB_POS_USER=//p' "$env"); pass=$(sed -n 's/^DB_POS_PASS=//p' "$env")
           MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock'

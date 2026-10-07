@@ -239,6 +239,7 @@ install_mariadb() {
     wait_for_mariadb
     ok "Servizio MariaDB attivo"
     allow_lan_mariadb
+    drop_anonymous_mariadb_users
 }
 
 wait_for_mariadb() {
@@ -251,17 +252,20 @@ wait_for_mariadb() {
 }
 
 # allow_lan_mariadb: come in install.sh, perche' questo Mac possa fare da
-# SERVER - le casse client scrivono direttamente sulla 3306 del server. La
-# formula Homebrew installa un etc/my.cnf con `bind-address = 127.0.0.1`
+# SERVER - le casse client scrivono direttamente sulla 3306 del server.
+# La formula Homebrew dichiara un etc/my.cnf con `bind-address = 127.0.0.1`
 # (non e' un parametro del servizio: `brew services` lancia solo
-# mariadbd-safe --datadir=...). Si cambia QUELLA riga, invece di aggiungere
-# un 99-opensagra.cnf come su Linux: la formula sostituisce il my.cnf di
-# MariaDB con il proprio, e non e' detto che includa ancora my.cnf.d/. Un
-# `brew upgrade` non tocca un my.cnf gia' presente; uninstall-macos.sh lo
-# cancella. Riavvio solo se il file cambia (rilancio idempotente). L'utente
-# app esiste gia' anche su '%' (crea_dbtable_and_user.php); root resta
-# raggiungibile solo dal socket locale (unix_socket). Il gestore DB grafico
-# (/db) resta solo-localhost: e' una regola del Caddyfile.
+# mariadbd-safe --datadir=...), ma il file effettivo puo' essere quello di
+# MariaDB senza quella riga (sul runner macos-15 con MariaDB 12.3.3 e' cosi',
+# e MariaDB ascolta gia' su *:3306). Se la riga c'e' si cambia QUELLA, invece
+# di aggiungere un 99-opensagra.cnf come su Linux: vincerebbe o no a seconda
+# di dove sta `!includedir` nel file. Un `brew upgrade` non tocca un my.cnf
+# gia' presente; uninstall-macos.sh lo cancella. Riavvio solo se il file
+# cambia (rilancio idempotente). In ogni caso si verifica il socket vero.
+# L'utente app esiste gia' anche su '%' (crea_dbtable_and_user.php); root
+# resta raggiungibile solo dal socket locale (unix_socket). Il gestore DB
+# grafico (/db) resta solo-localhost: e' una regola del Caddyfile.
+# Vedi anche drop_anonymous_mariadb_users (stessa ragione: casse client).
 allow_lan_mariadb() {
     local cnf; cnf="$(brew --prefix)/etc/my.cnf"
     if [ -f "$cnf" ] && grep -Eq '^[[:space:]]*bind-address[[:space:]]*=[[:space:]]*127\.0\.0\.1' "$cnf"; then
@@ -282,6 +286,27 @@ allow_lan_mariadb() {
     done
     lsof -nP -iTCP:3306 -sTCP:LISTEN >>"$LOG_FILE" 2>&1 || true
     die "MariaDB non ascolta sulla rete (porta 3306): le casse client non potrebbero collegarsi. Controlla bind-address in $cnf (dettagli in $LOG_FILE)"
+}
+
+# drop_anonymous_mariadb_users: mariadb-install-db di Homebrew crea utenti
+# anonimi (''@'localhost', ''@'<nome del Mac>'). MariaDB sceglie l'account
+# con l'host PIU' specifico prima di '%': una cassa client che si collega
+# all'IP del Mac viene risolta nel nome del Mac e presa come utente anonimo,
+# quindi l'utente dell'app (su '%') prende "Access denied" anche con la
+# password giusta (trovato sul runner CI 2026-10-07). Stessa pulizia di
+# mariadb-secure-installation. Su Debian (install.sh) non vengono creati.
+drop_anonymous_mariadb_users() {
+    local hosts h
+    hosts="$(mariadb_admin -N -B -e "SELECT Host FROM mysql.user WHERE User=''")" \
+        || die "Lettura degli utenti di MariaDB fallita"
+    if [ -z "$hosts" ]; then
+        return
+    fi
+    while IFS= read -r h; do
+        [ -n "$h" ] || continue
+        mariadb_admin -e "DROP USER IF EXISTS ''@'$h';" || die "Rimozione dell'utente anonimo di MariaDB ''@'$h' fallita"
+    done <<< "$hosts"
+    ok "Utenti anonimi di MariaDB rimossi (le casse client entrano con l'utente dell'app)"
 }
 
 copy_app_files() {
