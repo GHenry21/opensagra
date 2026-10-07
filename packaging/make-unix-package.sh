@@ -97,6 +97,16 @@ mkdir -p "$stage/wrapper"
 echo "  compilo il wrapper ($goos/$goarch)..."
 (cd "$REPO_ROOT/wrapper" && GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -o "$stage/wrapper/$wrapper_name" .)
 
+# Installer grafico (installer/, la finestra di avanzamento come su Windows):
+# su Linux un eseguibile accanto a install.sh, Go puro come il wrapper. Su
+# macOS no: li' serve cgo (webview) e lo costruisce make-macos-app.sh su un
+# Mac, dentro un'app con questo stesso pacchetto al suo interno.
+if [ "$goos" = linux ]; then
+    echo "  compilo l'installer grafico ($goos/$goarch)..."
+    (cd "$REPO_ROOT/installer" && GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -o "$stage/Installa OpenSagra" .)
+    chmod +x "$stage/Installa OpenSagra"
+fi
+
 mkdir -p "$stage/frankenphp"
 cp "$fp_file" "$stage/frankenphp/$asset"
 chmod +x "$stage/frankenphp/$asset" "$stage/wrapper/$wrapper_name"

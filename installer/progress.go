@@ -67,9 +67,9 @@ var statusRules = []statusRule{
 // fine invece di superare il 100.
 func expectedSteps(goos string) int {
 	if goos == "darwin" {
-		return 18
+		return 19
 	}
-	return 19
+	return 21 // contate su Ubuntu/Fedora in CI, 2026-10-07
 }
 
 type item struct {

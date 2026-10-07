@@ -6,7 +6,9 @@ name: Release
 # packaging/make-installer.ps1 + make-uninstaller.ps1), nessuna logica
 # duplicata qui dentro: se cambia il modo di impacchettare, cambia solo li'.
 # Il job unix-packages allega anche i pacchetti Linux/macOS
-# (packaging/make-unix-package.sh). Entrambi includono FrankenPHP della
+# (packaging/make-unix-package.sh; quelli Linux contengono l'installer
+# grafico "Installa OpenSagra") e il job macos-apps le app per Mac
+# (packaging/make-macos-app.sh). Entrambi includono FrankenPHP della
 # versione fissata in packaging/frankenphp.sha256.
 
 on:
@@ -156,3 +158,49 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: opensagra-*-${{ matrix.target.os }}-${{ matrix.target.arch }}.tar.gz
+
+  # Installer grafico per Mac (packaging/make-macos-app.sh): un'app "Installa
+  # OpenSagra" con dentro il pacchetto macOS, firmata ad-hoc e zippata. Gira
+  # su un Mac perche' la finestra usa la webview di sistema (cgo); il runner
+  # Apple Silicon compila anche per Intel.
+  macos-apps:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tag esatto su HEAD -> file VERSION del pacchetto
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: |
+            wrapper/go.sum
+            installer/go.sum
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+          extensions: intl, mbstring, gd, zip, curl, openssl, dom, fileinfo
+
+      - name: composer install (rigenera vendor/, non e' nel repo)
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Costruisci Installa-OpenSagra-macos-${{ matrix.arch }}.zip
+        run: bash packaging/make-macos-app.sh ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installa-opensagra-macos-${{ matrix.arch }}
+          path: Installa-OpenSagra-macos-${{ matrix.arch }}.zip
+          retention-days: 30
+
+      - name: Allega alla Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Installa-OpenSagra-macos-${{ matrix.arch }}.zip

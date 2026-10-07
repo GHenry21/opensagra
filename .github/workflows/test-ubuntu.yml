@@ -77,9 +77,25 @@ jobs:
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
 
-      - name: install.sh (prima installazione)
+      # Prima installazione dall'installer grafico del pacchetto ("Installa
+      # OpenSagra", installer/), come un doppio click: la finestra e' Chrome in
+      # modalita' app su uno schermo virtuale (Xvfb), fotografata ogni 5 s.
+      # L'installer esce 0 solo se install.sh e' andato a buon fine.
+      - name: Installa OpenSagra (installer grafico, prima installazione)
         timeout-minutes: 25
-        run: bash "$PKG/install.sh"
+        run: |
+          test -x "$PKG/Installa OpenSagra"
+          sudo apt-get install -y -qq xvfb imagemagick >/dev/null
+          Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
+          export DISPLAY=:99
+          sleep 2
+          ( i=0; while :; do sleep 5; i=$((i+1)); import -window root "$OUT/gui-$(printf %03d $i).png" 2>/dev/null || true; done ) &
+          shooter=$!
+          rc=0; "$PKG/Installa OpenSagra" || rc=$?
+          kill $shooter 2>/dev/null || true
+          echo "installer grafico: exit $rc"
+          tail -n 3 /tmp/opensagra-install.log
+          [ "$rc" -eq 0 ]
 
       - name: Verifica installazione
         run: |

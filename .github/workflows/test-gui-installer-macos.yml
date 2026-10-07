@@ -49,50 +49,31 @@ jobs:
             wrapper/go.sum
             installer/go.sum
 
-      - name: Compila l'installer grafico (cgo + WKWebView)
+      - name: go vet dell'installer grafico (cgo + WKWebView)
         working-directory: installer
-        run: |
-          go vet ./...
-          CGO_ENABLED=1 go build -trimpath -o opensagra-installer .
-          file opensagra-installer
+        run: go vet ./...
 
-      - name: Pacchetto macOS arm64 + bundle "Installa OpenSagra.app" (zip)
+      # Lo stesso script della release (packaging/make-macos-app.sh): app con
+      # il pacchetto dentro, firma ad-hoc del bundle, zip. Qui se ne usa
+      # l'app estratta dallo zip, come la vedrebbe chi la scarica.
+      - name: App macOS arm64 (packaging/make-macos-app.sh)
         run: |
-          bash packaging/make-unix-package.sh macos arm64
-          mkdir -p "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/build"
-          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
-          pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
+          bash packaging/make-macos-app.sh arm64
+          mkdir -p "$RUNNER_TEMP/build"
+          ditto -x -k Installa-OpenSagra-macos-arm64.zip "$RUNNER_TEMP/build"
           app="$RUNNER_TEMP/build/Installa OpenSagra.app"
-          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/payload"
-          cp installer/opensagra-installer "$app/Contents/MacOS/"
-          cp -Rp "$pkg/." "$app/Contents/Resources/payload/"
-          cat > "$app/Contents/Info.plist" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>CFBundleExecutable</key><string>opensagra-installer</string>
-            <key>CFBundleIdentifier</key><string>com.opensagra.installer</string>
-            <key>CFBundleName</key><string>Installa OpenSagra</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>LSMinimumSystemVersion</key><string>13.0</string>
-            <key>NSHighResolutionCapable</key><true/>
-          </dict></plist>
-          EOF
-          plutil -lint "$app/Contents/Info.plist"
-          # Firma ad-hoc dell'INTERO bundle (gratuita, nessun account Apple).
-          # Il linker Go firma solo l'eseguibile: con Info.plist e payload
-          # aggiunti dopo, la firma non copre il bundle e Gatekeeper dice
-          # "e' danneggiata, spostala nel Cestino" - messaggio senza "Apri
-          # comunque" in Privacy e sicurezza (visto sul runner, 2026-10-02).
-          codesign --force --sign - --timestamp=none "$app"
           codesign --verify --strict --verbose=2 "$app"
-          # ditto: lo zip "alla Apple" (mantiene permessi e attributi del bundle)
-          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip"
-          ls -la "$RUNNER_TEMP"/*.zip
           echo "APP=$app" >> "$GITHUB_ENV"
-          echo "ZIP=$RUNNER_TEMP/Installa-OpenSagra-macos-arm64.zip" >> "$GITHUB_ENV"
+          echo "ZIP=$PWD/Installa-OpenSagra-macos-arm64.zip" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/shots"
           echo "SHOTS=$RUNNER_TEMP/shots" >> "$GITHUB_ENV"
+
+      # Intel: si costruisce anche questa (cross-compilazione cgo dal runner
+      # Apple Silicon), per scoprire qui e non alla release se si rompe.
+      - name: App macOS x86_64 (solo costruzione)
+        run: |
+          bash packaging/make-macos-app.sh x86_64
+          unzip -l Installa-OpenSagra-macos-x86_64.zip | grep -E 'MacOS/opensagra-installer|install-macos.sh'
 
       - name: Screenshot delle schermate demo (password, errore)
         run: |

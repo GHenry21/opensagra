@@ -105,6 +105,7 @@ EXCLUDE_FROM_COPY=(
     wrapper
     VERSION # metadato del pacchetto (letto da app_version), non un file dell'app
     frankenphp # binario incluso nel pacchetto, lo installa install_frankenphp
+    "Installa OpenSagra" # installer grafico accanto a questo script (installer/)
 )
 
 # app_version: stessa fonte di install.ps1 - il file VERSION che il pacchetto
