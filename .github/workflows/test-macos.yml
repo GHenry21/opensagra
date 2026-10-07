@@ -126,7 +126,34 @@ jobs:
           [ "$(mariadb -N -e "SELECT COUNT(*) FROM mysql.user WHERE User=''")" = "0" ]
           env="$HOME/opensagra/config/variabili.env"
           user=$(sed -n 's/^DB_POS_USER=//p' "$env"); pass=$(sed -n 's/^DB_POS_PASS=//p' "$env")
-          MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock'
+          remote() { MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock' 2>&1; }
+          # Regola: OpenSagra aperto -> accesso dalla rete aperto. Il wrapper
+          # sblocca '<utente app>'@'%' all'avvio (wrapper/remote_access.go,
+          # controllo ogni 15 s) e lo blocca all'uscita.
+          ok=0
+          for i in $(seq 1 12); do
+            if out=$(remote); then echo "$out"; ok=1; break; fi
+            echo "tentativo $i: $out"; sleep 5
+          done
+          [ "$ok" = 1 ]
+          # Uscita pulita del wrapper (SIGTERM, come "Esci"): accesso chiuso,
+          # login dalla rete rifiutato con 4151 (account bloccato). launchd non
+          # lo riavvia (KeepAlive solo se l'uscita non e' pulita).
+          agent="gui/$(id -u)/com.opensagra.wrapper"
+          launchctl kill SIGTERM "$agent"
+          for i in $(seq 1 20); do pgrep -f "$HOME/opensagra/opensagra-wrapper" >/dev/null || break; sleep 1; done
+          if pgrep -f "$HOME/opensagra/opensagra-wrapper"; then echo "::error::wrapper ancora attivo dopo SIGTERM"; exit 1; fi
+          if out=$(remote); then echo "::error::login dalla rete riuscito con OpenSagra chiuso: $out"; exit 1; fi
+          echo "$out"; echo "$out" | grep -q 4151
+          # Riavvio: di nuovo aperto
+          launchctl kickstart "$agent"
+          ok=0
+          for i in $(seq 1 12); do
+            if out=$(remote); then echo "$out"; ok=1; break; fi
+            echo "tentativo $i: $out"; sleep 5
+          done
+          [ "$ok" = 1 ]
+          grep -E 'accesso dalla rete' "$HOME/opensagra/logs/wrapper.log" || true
           # root NON deve essere raggiungibile dalla rete (solo unix_socket)
           if mariadb -h "$ip" --protocol=TCP -u root -e 'SELECT 1' 2>/dev/null; then echo "::error::root raggiungibile dalla rete"; exit 1; fi
           # Firewall: FrankenPHP e mariadbd autorizzati
