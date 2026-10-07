@@ -20,6 +20,11 @@ on:
     branches: [worktree-unix-installer]
   workflow_dispatch:
     inputs:
+      runner:
+        description: "Mac da usare: macos-15 (Apple Silicon) o macos-15-intel (Intel)"
+        type: choice
+        options: [macos-15, macos-15-intel]
+        default: macos-15
       debug:
         description: "Apri VS Code nel browser alla fine"
         type: boolean
@@ -31,7 +36,7 @@ on:
 
 jobs:
   install:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     timeout-minutes: 120
     env:
       # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
@@ -63,9 +68,11 @@ jobs:
       # download all'installazione).
       - name: Costruisci ed estrai il pacchetto macOS arm64
         run: |
-          bash packaging/make-unix-package.sh macos arm64
+          # arm64 (Apple Silicon) o x86_64 (Intel), come il Mac del runner
+          arch=$(uname -m)
+          bash packaging/make-unix-package.sh macos "$arch"
           mkdir -p "$RUNNER_TEMP/pkg"
-          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
+          tar -xzf opensagra-*-macos-"$arch".tar.gz -C "$RUNNER_TEMP/pkg"
           pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
           ls "$pkg" "$pkg/frankenphp" "$pkg/wrapper"
           echo "PKG=$pkg" >> "$GITHUB_ENV"
