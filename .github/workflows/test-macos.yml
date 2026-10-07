@@ -127,9 +127,18 @@ jobs:
           env="$HOME/opensagra/config/variabili.env"
           user=$(sed -n 's/^DB_POS_USER=//p' "$env"); pass=$(sed -n 's/^DB_POS_PASS=//p' "$env")
           remote() { MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock' 2>&1; }
-          # Regola: OpenSagra aperto -> accesso dalla rete aperto. Il wrapper
-          # sblocca '<utente app>'@'%' all'avvio (wrapper/remote_access.go,
-          # controllo ogni 15 s) e lo blocca all'uscita.
+          # Regola (Fase 6c): il DB di un'indipendente resta CHIUSO anche con
+          # OpenSagra attivo; si apre quando una cassa sceglie questo PC come
+          # centrale (api/accept_client.php -> app_config.IS_CENTRAL=1). Da li'
+          # resta aperto mentre il wrapper gira (wrapper/remote_access.go,
+          # controllo ogni 15 s) e si chiude all'uscita.
+          sleep 20
+          out=$(remote) && { echo "::error::DB aperto alla rete prima che una cassa lo scegliesse come centrale: $out"; exit 1; }
+          echo "$out"; echo "$out" | grep -q 4151
+          # Una cassa sceglie questo Mac come centrale (stessa chiamata di
+          # api/set_network_config.php sul client, qui dall'IP di rete)
+          resp=$(curl -sk -X POST -H 'Content-Type: application/json' -d '{}' "https://$ip/api/accept_client.php")
+          echo "$resp"; echo "$resp" | grep -q '"success":true'
           ok=0
           for i in $(seq 1 12); do
             if out=$(remote); then echo "$out"; ok=1; break; fi
@@ -145,7 +154,7 @@ jobs:
           if pgrep -f "$HOME/opensagra/opensagra-wrapper"; then echo "::error::wrapper ancora attivo dopo SIGTERM"; exit 1; fi
           if out=$(remote); then echo "::error::login dalla rete riuscito con OpenSagra chiuso: $out"; exit 1; fi
           echo "$out"; echo "$out" | grep -q 4151
-          # Riavvio: di nuovo aperto
+          # Riavvio: di nuovo aperto da solo (IS_CENTRAL resta salvato)
           launchctl kickstart "$agent"
           ok=0
           for i in $(seq 1 12); do
