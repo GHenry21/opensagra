@@ -76,7 +76,7 @@ Segna ✅ / ❌ e, se ❌, cosa vedi (meglio con uno screenshot).
 |---|---|---|
 | 3.1 | Fine installazione | OpenSagra è già attivo (`https://localhost` risponde), ma la finestra di stato **non** si apre da sola |
 | 3.2 | **OpenSagra.app** in `~/Applications` (anche alias sulla Scrivania, Spotlight, Launchpad) | Si apre la **finestra di stato**: una finestra senza barre di Chrome / Edge / Brave / Chromium se ce n'è uno in `/Applications`, altrimenti una scheda del browser predefinito |
-| 3.3 | "Apri OpenSagra" | `https://localhost` si apre **senza avviso di sicurezza** in Safari e Chrome (Firefox mostra l'avviso: atteso, ha un archivio certificati suo) |
+| 3.3 | "Apri OpenSagra" | `https://localhost` si apre **senza avviso di sicurezza** in Safari e Chrome. Se hai **Firefox**, provalo e annota se mostra l'avviso: ha un archivio certificati suo, e non è ancora stato verificato se su macOS legge anche quello di sistema |
 | 3.4 | Login nell'app, una vendita di prova | La vendita si registra |
 | 3.5 | Pagina **Configurazione Rete** | Mostra l'**IP di rete** del Mac e il QR per i telefoni (se l'IP è vuoto: ❌) |
 | 3.6 | Finestra di stato → **Riavvia tutto** | Tutto torna verde in pochi secondi |
