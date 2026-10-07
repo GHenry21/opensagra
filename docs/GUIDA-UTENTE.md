@@ -269,6 +269,25 @@ Se l'indirizzo cambia comunque:
 - le **casse in modalità Client** vanno ricollegate a mano: su ognuna, apri
   Configurazione Rete e reinserisci l'indirizzo nuovo.
 
+### 3.3 Una rete solo per le casse
+
+OpenSagra non ha un login: **chiunque sia collegato alla stessa rete delle
+casse può aprire l'app** dal proprio telefono e usarla come una cassa,
+compresi catalogo, storni, incassi e impostazioni. È una scelta fatta per
+semplicità al banco, e funziona bene finché sulla rete ci sono solo le
+persone che lavorano alla sagra.
+
+Per questo **le casse devono stare su una rete a cui il pubblico non ha
+accesso**:
+
+- se la sagra offre il WiFi ai visitatori, usa per le casse **un'altra rete**
+  (molti router permettono di creare una seconda rete WiFi, di solito chiamata
+  *"rete ospiti"*: dai quella ai visitatori, non quella delle casse);
+- la rete delle casse deve avere una **password** che conoscono solo i
+  volontari;
+- non stampare e non appendere la password della rete delle casse vicino al
+  banco.
+
 ---
 
 ## 4. Gestione Prodotti: catalogo e magazzino
