@@ -490,7 +490,7 @@ invoke_migrations() {
 
 install_wrapper() {
     local src="$SOURCE_DIR/wrapper/opensagra-wrapper"
-    [ -f "$src" ] || die "Wrapper non trovato ($src). Compilalo prima: cd wrapper && GOOS=linux GOARCH=\$(go env GOARCH) go build -o opensagra-wrapper ./..."
+    [ -f "$src" ] || die "Wrapper non trovato ($src). Compilalo prima: cd wrapper && GOOS=linux GOARCH=\$(go env GOARCH) go build -o opensagra-wrapper ."
     # rm prima di cp, non sovrascrittura in-place: un rilancio con il wrapper
     # GIA' in esecuzione altrimenti fallisce con "Text file busy" (Linux non
     # permette di riscrivere l'inode di un eseguibile mappato in memoria).

@@ -124,6 +124,7 @@ type statusJSON struct {
 	UpdateURL       string `json:"update_url"`      // pagina della release su GitHub
 	UpdateZipURL    string `json:"update_zip_url"`  // "" se da questa installazione serve una reinstallazione completa
 	UpdateFullWhy   string `json:"update_full_why"` // perche' serve la reinstallazione (se UpdateZipURL == "")
+	UpdateSource    string `json:"update_source"`   // "github" | "server" (cassa client: dal PC server in LAN)
 	UpdateNotes     string `json:"update_notes"`    // note della release, da mostrare prima di confermare
 	Updating        bool   `json:"updating"`        // true mentre ApplyUpdate() e' in corso
 	UpdateError     string `json:"update_error"`    // ultimo errore di ApplyUpdate(), se c'e'
@@ -221,6 +222,7 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		UpdateURL:         upd.HTMLURL,
 		UpdateZipURL:      upd.ZipURL,
 		UpdateFullWhy:     upd.FullReason,
+		UpdateSource:      upd.Source,
 		UpdateNotes:       upd.Changelog,
 		Updating:          updating,
 		UpdateError:       updateErr,

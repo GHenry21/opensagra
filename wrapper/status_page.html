@@ -260,8 +260,9 @@ async function refresh() {
   if (s.updating) {
     $("#btnUpdate").title = "Aggiornamento in corso...";
   } else if (s.update_available) {
+    const from = s.update_source === "server" ? " dal PC server" : "";
     $("#btnUpdate").title = s.update_zip_url
-      ? `Nuova versione disponibile: v${s.latest_version} (installata: v${s.wrapper_version}) - clic per aggiornare`
+      ? `Nuova versione disponibile${from}: v${s.latest_version} (installata: v${s.wrapper_version}) - clic per aggiornare`
       : `Nuova versione disponibile: v${s.latest_version} - richiede reinstallazione completa` +
         (s.update_full_why ? ` (${s.update_full_why})` : "");
   } else {
@@ -401,6 +402,7 @@ $("#btnUpdate").onclick = async () => {
   if (!s.update_zip_url) { api("open-update"); return; } // richiede reinstallazione completa
   const notes = (s.update_notes || "").trim();
   const body = `Versione installata: v${s.wrapper_version}\nNuova versione: v${s.latest_version}` +
+    (s.update_source === "server" ? "\nScaricata dal PC server della rete (la stessa versione che usa lui)." : "") +
     `\n\nPrima di aggiornare viene salvata una copia del database. Il server si ferma per qualche secondo.` +
     (notes ? `\n\n${notes}` : "");
   if (await confirmBox(`Aggiornare a v${s.latest_version}?`, body)) api("apply-update");

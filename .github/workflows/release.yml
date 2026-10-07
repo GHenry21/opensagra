@@ -84,6 +84,7 @@ jobs:
             opensagra-uninstaller.exe
             opensagra-app-update.zip
             opensagra-app-update.zip.sha256
+            opensagra-app-update.manifest.json
           retention-days: 30
           if-no-files-found: ignore
 
@@ -96,6 +97,7 @@ jobs:
             opensagra-uninstaller.exe
             opensagra-app-update.zip
             opensagra-app-update.zip.sha256
+            opensagra-app-update.manifest.json
           generate_release_notes: true
 
   # Pacchetti Linux/macOS (packaging/make-unix-package.sh): un archivio per

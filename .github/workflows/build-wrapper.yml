@@ -38,7 +38,7 @@ jobs:
         run: go vet ./...
 
       - name: go build
-        run: go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+        run: go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
 
       - name: Info versione (verifica rapida)
         shell: pwsh

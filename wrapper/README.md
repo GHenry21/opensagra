@@ -153,7 +153,7 @@ Equivalente manuale:
 
 ```sh
 cd wrapper
-go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
 ```
 
 Linux/macOS (nessuno script `build.sh` ancora, solo build manuale - vale la
@@ -161,9 +161,9 @@ pena farne uno se questa build diventa frequente):
 
 ```sh
 cd wrapper
-GOOS=linux GOARCH=arm64 go build -o opensagra-wrapper ./...   # Raspberry Pi
-GOOS=linux GOARCH=amd64 go build -o opensagra-wrapper ./...   # Linux desktop/server x86_64
-GOOS=darwin GOARCH=arm64 go build -o opensagra-wrapper ./...  # Mac Apple Silicon
+GOOS=linux GOARCH=arm64 go build -o opensagra-wrapper .   # Raspberry Pi
+GOOS=linux GOARCH=amd64 go build -o opensagra-wrapper .   # Linux desktop/server x86_64
+GOOS=darwin GOARCH=arm64 go build -o opensagra-wrapper .  # Mac Apple Silicon
 ```
 
 `go.mod`/`go.sum` sono già nel repo. Build puro-Go (nessun cgo, `CGO_ENABLED=0`

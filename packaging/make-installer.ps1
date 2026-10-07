@@ -92,6 +92,18 @@ try {
     $versionFile = Join-Path $Work 'VERSION'
     Set-Content -Path $versionFile -Value $releaseVersion -NoNewline -Encoding ascii
 
+    # Manifesto dei file installati (wrapper/manifest): install.ps1 lo copia
+    # in config/ con il resto, e il wrapper lo confronta con quello di una
+    # versione nuova per decidere offline se basta l'aggiornamento leggero.
+    $manifestFile = Join-Path $Work 'app_manifest.json'
+    Push-Location (Join-Path $RepoRoot 'wrapper')
+    try {
+        go run ./cmd/mkmanifest -root .. -version $releaseVersion -out $manifestFile
+        if ($LASTEXITCODE -ne 0) { throw 'mkmanifest fallito.' }
+    } finally {
+        Pop-Location
+    }
+
     # FrankenPHP incluso nel payload (versione fissata, impronta verificata):
     # install.ps1 lo estrae da qui invece di scaricarlo - vedi Get-FrankenPHP.ps1.
     $frankenZip = Get-FrankenPhpAsset -RepoRoot $RepoRoot -Name 'frankenphp-windows-x86_64.zip'
@@ -112,6 +124,8 @@ try {
             $zip, $uninstallerExe, 'opensagra-uninstaller.exe') | Out-Null
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $versionFile, 'VERSION') | Out-Null
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $manifestFile, 'config/.app_manifest.json') | Out-Null
         # Gia' compresso: NoCompression evita di ricomprimere 56 MB per niente.
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $zip, $frankenZip, 'frankenphp/frankenphp-windows-x86_64.zip',

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"opensagra/wrapper/manifest"
 )
 
 // WrapperVersion: versione del BINARIO del wrapper, iniettata a build time
@@ -26,29 +31,29 @@ var WrapperVersion = "0.0.0-dev"
 // UpdateRepo: repo GitHub "owner/nome" da cui leggere le release.
 const UpdateRepo = "GHenry21/opensagra"
 
-// updateZipAssetName: pacchetto dell'aggiornamento leggero (solo codice app +
-// vendor/, packaging/make-update.ps1), allegato dalla CI a OGNI release
-// insieme al suo .sha256. Se usarlo o no NON lo decide piu' la CI ma questo
-// wrapper, confrontando il tag installato con quello nuovo (lightUpdatePlan,
-// piano Fase 6a): la CI vedeva solo il tag precedente, e chi saltava una
-// release che richiedeva la reinstallazione riceveva lo zip lo stesso.
+// Asset dell'aggiornamento leggero (solo codice app + vendor/,
+// packaging/make-update.ps1), allegati dalla CI a OGNI release: lo zip, la sua
+// impronta e il manifesto (manifest.Manifest). Se usarli o reinstallare lo
+// decide il wrapper confrontando il manifesto INSTALLATO con quello nuovo
+// (manifest.Plan, piano Fase 6c punto C): offline, quindi vale anche per una
+// cassa client senza Internet. Prima la decisione era della CI (contro il
+// solo tag precedente: chi saltava una release da reinstallare riceveva lo
+// zip lo stesso), poi dell'API compare di GitHub (che un client in sagra
+// spesso non raggiunge).
 //
 // Nome diverso dal vecchio "opensagra-update.zip" APPOSTA: i wrapper gia'
 // installati (fino alla v1.0.0) applicano quello alla cieca; non trovandolo
 // ricadono da soli su "serve una reinstallazione completa", che installa
 // questo wrapper.
-const updateZipAssetName = "opensagra-app-update.zip"
+const (
+	updateZipAssetName      = "opensagra-app-update.zip"
+	updateSHA256AssetName   = updateZipAssetName + ".sha256"
+	updateManifestAssetName = "opensagra-app-update.manifest.json"
+)
 
-// fullUpdatePaths: se fra installata e nuova cambia uno di questi percorsi,
-// serve la reinstallazione completa - lo zip porta solo il codice app e non
-// rigenera Caddyfile/php.ini/FrankenPHP/wrapper. composer.*: una nuova
-// estensione PHP richiesta non si abilita copiando vendor/. "install" copre
-// anche installer/ (installer grafico).
-var fullUpdatePrefixes = []string{"wrapper/", "packaging/", "install", "uninstall", "composer.json", "composer.lock"}
-
-// keepOnRemove: file rimossi dal repo che l'aggiornamento NON cancella
-// dall'installazione - uploads/ contiene anche le foto caricate dall'utente
-// (e foto seed a cui un prodotto puo' ancora puntare).
+// keepOnRemovePrefixes: file spariti fra due versioni che l'aggiornamento NON
+// cancella - uploads/ contiene anche le foto caricate dall'utente (e foto
+// seed a cui un prodotto puo' ancora puntare).
 var keepOnRemovePrefixes = []string{"uploads/"}
 
 // installedVersionFile: relativo ad AppRoot. Scritto da install.ps1 al primo
@@ -62,31 +67,40 @@ type UpdateInfo struct {
 	Available bool
 	Latest    string
 	HTMLURL   string
+	// Source: da dove arriva il pacchetto - "github" o "server" (il PC server
+	// in LAN, per una cassa client; vedi dist.go).
+	Source    string
 	ZipURL    string // "" se da QUESTA installazione serve una reinstallazione completa
 	SHA256URL string // impronta dello zip, obbligatoria (ApplyUpdate rifiuta senza)
 	Removed   []string
 	// FullReason: perche' serve la reinstallazione (valorizzato se ZipURL == "").
 	FullReason string
 	Changelog  string // note della release (vuoto se non disponibile o nessun aggiornamento)
+	// lan: il pacchetto si scarica dal PC server, il cui certificato viene
+	// dalla SUA CA locale (non fidata dal sistema di questa macchina). La
+	// cassa si fida gia' del server per tutto (ne scrive il database); lo zip
+	// e' comunque verificato con l'impronta.
+	lan bool
 }
 
-// L'UNICO punto di tutto il wrapper che tocca la rete pubblica (Internet),
-// insieme al download in self_update.go - tutto il resto e' solo-LAN/loopback,
-// e l'app funziona senza Internet. Cache lunga apposta: nessun bisogno di
-// ricontrollare piu' spesso di qualche ora, ed evita di consumare la quota di
-// richieste non autenticate di GitHub (60/h per IP; un controllo con
-// aggiornamento disponibile ne usa due: release + compare).
+// Cache: per il server/indipendente la richiesta a GitHub parte al massimo
+// ogni 12h (quota non autenticata: 60/h per IP); per un client si ricontrolla
+// piu' spesso (solo LAN) e subito se la versione del server cambia.
+const (
+	updateCacheGitHub = 12 * time.Hour
+	updateCacheClient = 10 * time.Minute
+)
+
 var (
 	updateMu   sync.Mutex
 	updateAt   time.Time
+	updateKey  string // ruolo + versione del server: se cambia, la cache non vale
 	cachedInfo UpdateInfo
 )
 
-// invalidateUpdateCache: forza checkForUpdate() a rifare la richiesta a
-// GitHub alla prossima chiamata, invece di aspettare le 12h di cache - senza
-// questo, dopo un aggiornamento leggero applicato con successo l'interfaccia
-// continuerebbe a offrire per ore un aggiornamento gia' installato (il
-// confronto con installedVersion() non passa mai da qui, solo il timestamp).
+// invalidateUpdateCache: forza checkForUpdate() a rifare il controllo alla
+// prossima chiamata - dopo un aggiornamento applicato, altrimenti l'interfaccia
+// continuerebbe a offrire per ore un aggiornamento gia' installato.
 func invalidateUpdateCache() {
 	updateMu.Lock()
 	updateAt = time.Time{}
@@ -122,167 +136,192 @@ func installedVersion(cfg *Config) string {
 	return WrapperVersion
 }
 
+// installedManifest: nil se manca (installazione precedente al manifesto o
+// copia di sviluppo) o se e' di un'altra versione (una reinstallazione da un
+// pacchetto senza manifesto lascia quello vecchio: le copie sovrappongono,
+// non cancellano) - manifest.Plan lo tratta come "serve reinstallare".
+func installedManifest(cfg *Config) *manifest.Manifest {
+	m, err := manifest.Load(filepath.Join(cfg.AppRoot, filepath.FromSlash(manifest.InstalledPath)))
+	if err != nil || m.Version != installedVersion(cfg) {
+		return nil
+	}
+	return m
+}
+
+// inLocalFallback: la cassa e' client ma lavora sul proprio DB perche' il
+// server e' caduto (FALLBACK_ORIGIN_HOST, vedi config/env_reader.php). In
+// quel momento DB_POS_HOST e' 127.0.0.1 e sembrerebbe un server: non si
+// propone nessun aggiornamento, altrimenti supererebbe la versione del server.
+func inLocalFallback(cfg *Config) bool {
+	env := readEnvFile(filepath.Join(cfg.AppRoot, "config", "variabili.env"))
+	return strings.TrimSpace(env["FALLBACK_ORIGIN_HOST"]) != ""
+}
+
 // checkForUpdate: cache-and-refresh, sempre sicuro da chiamare spesso (poll
-// della finestra di stato compreso) - la vera richiesta di rete parte al
-// massimo una volta ogni 12h.
+// della finestra di stato compreso).
 func checkForUpdate(cfg *Config) UpdateInfo {
+	server := isThisMachineServer(cfg) && !inLocalFallback(cfg)
+	serverVer, _ := versionPeers()
+	key := "server"
+	ttl := updateCacheGitHub
+	if !server {
+		key = "client:" + serverVer
+		ttl = updateCacheClient
+	}
+
 	updateMu.Lock()
 	defer updateMu.Unlock()
-	if !updateAt.IsZero() && time.Since(updateAt) < 12*time.Hour {
+	if !updateAt.IsZero() && updateKey == key && time.Since(updateAt) < ttl {
 		return cachedInfo
 	}
-	updateAt = time.Now()
-	cachedInfo = UpdateInfo{}
+	updateAt, updateKey = time.Now(), key
 
-	req, err := http.NewRequest(http.MethodGet,
-		fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", UpdateRepo), nil)
+	switch {
+	case server:
+		cachedInfo = updateFromGitHubLatest(cfg)
+	case inLocalFallback(cfg):
+		cachedInfo = UpdateInfo{}
+	default:
+		cachedInfo = updateFromServer(cfg, serverVer)
+	}
+	return cachedInfo
+}
+
+// updateFromGitHubLatest: server/indipendente - l'ultima release pubblicata.
+func updateFromGitHubLatest(cfg *Config) UpdateInfo {
+	rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", UpdateRepo))
 	if err != nil {
-		return cachedInfo
+		return UpdateInfo{}
 	}
-	// User-Agent obbligatorio per l'API di GitHub, altrimenti risponde 403.
-	req.Header.Set("User-Agent", "opensagra-wrapper")
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return cachedInfo
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return cachedInfo
-	}
-
-	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
-		return cachedInfo
-	}
-
 	latestVer := strings.TrimPrefix(strings.TrimSpace(rel.TagName), "v")
-	if latestVer == "" {
-		return cachedInfo
+	info := UpdateInfo{Latest: latestVer, HTMLURL: rel.HTMLURL, Source: "github"}
+	if latestVer == "" || !isNewerVersion(latestVer, installedVersion(cfg)) {
+		return info
+	}
+	info.Available = true
+	info.Changelog = rel.Body
+	planFromAssets(cfg, &info, rel)
+	return info
+}
+
+// updateFromServer: cassa client - si va SEMPRE alla versione del server,
+// mai oltre (piano, Fase 6c punto C), e la si scarica dal server in LAN.
+// Solo se il server non ha il pacchetto si prova GitHub per quella stessa
+// versione (serve Internet su questa cassa).
+func updateFromServer(cfg *Config, serverVer string) UpdateInfo {
+	if serverVer == "" || !isNewerVersion(serverVer, installedVersion(cfg)) {
+		// "" = server con wrapper precedente, o non raggiungibile: niente.
+		return UpdateInfo{Latest: serverVer}
+	}
+	info := UpdateInfo{
+		Available: true,
+		Latest:    serverVer,
+		HTMLURL:   fmt.Sprintf("https://github.com/%s/releases/tag/v%s", UpdateRepo, serverVer),
 	}
 
-	installed := installedVersion(cfg)
-	cachedInfo.Latest = latestVer
-	cachedInfo.HTMLURL = rel.HTMLURL
-	cachedInfo.Available = isNewerVersion(latestVer, installed)
-	if !cachedInfo.Available {
-		return cachedInfo
+	base := "https://" + net.JoinHostPort(strings.TrimSpace(cfg.DbHost()), "443") + "/api/update_dist.php"
+	if raw, err := httpGet(lanHTTPClient(10*time.Second), base+"?f=manifest", 4<<20); err == nil {
+		if m, err := manifest.Parse(raw); err == nil && m.Version == serverVer {
+			info.Source, info.lan = "server", true
+			removed, reason := manifest.Plan(installedManifest(cfg), m, keepOnRemovePrefixes)
+			if reason != "" {
+				info.FullReason = reason
+				return info
+			}
+			info.ZipURL, info.SHA256URL, info.Removed = base+"?f=zip", base+"?f=sha", removed
+			return info
+		}
 	}
-	cachedInfo.Changelog = rel.Body
 
-	var zipURL, shaURL string
+	rel, err := fetchRelease(fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/v%s", UpdateRepo, serverVer))
+	if err != nil {
+		info.FullReason = fmt.Sprintf("il pacchetto della v%s non e' disponibile ne' sul PC server ne' da GitHub (%v)", serverVer, err)
+		return info
+	}
+	info.Source, info.HTMLURL, info.Changelog = "github", rel.HTMLURL, rel.Body
+	planFromAssets(cfg, &info, rel)
+	return info
+}
+
+// planFromAssets: scarica il manifesto della release e decide (offline).
+func planFromAssets(cfg *Config, info *UpdateInfo, rel ghRelease) {
+	var zipURL, shaURL, manURL string
 	for _, a := range rel.Assets {
 		switch a.Name {
 		case updateZipAssetName:
 			zipURL = a.BrowserDownloadURL
-		case updateZipAssetName + ".sha256":
+		case updateSHA256AssetName:
 			shaURL = a.BrowserDownloadURL
+		case updateManifestAssetName:
+			manURL = a.BrowserDownloadURL
 		}
 	}
-	if zipURL == "" || shaURL == "" {
-		cachedInfo.FullReason = "la release non include il pacchetto di aggiornamento leggero"
-		return cachedInfo
+	if zipURL == "" || shaURL == "" || manURL == "" {
+		info.FullReason = "la release non include il pacchetto di aggiornamento leggero"
+		return
 	}
-	removed, reason := lightUpdatePlan(installed, rel.TagName)
+	raw, err := httpGet(&http.Client{Timeout: 30 * time.Second}, manURL, 4<<20)
+	if err != nil {
+		info.FullReason = "manifesto della release non scaricabile"
+		return
+	}
+	m, err := manifest.Parse(raw)
+	if err != nil || m.Version != info.Latest {
+		info.FullReason = "manifesto della release non valido"
+		return
+	}
+	removed, reason := manifest.Plan(installedManifest(cfg), m, keepOnRemovePrefixes)
 	if reason != "" {
-		cachedInfo.FullReason = reason
-		return cachedInfo
+		info.FullReason = reason
+		return
 	}
-	cachedInfo.ZipURL, cachedInfo.SHA256URL, cachedInfo.Removed = zipURL, shaURL, removed
-	return cachedInfo
+	info.ZipURL, info.SHA256URL, info.Removed = zipURL, shaURL, removed
 }
 
-type ghCompare struct {
-	Status string `json:"status"` // "ahead" atteso: la nuova discende dall'installata
-	Files  []struct {
-		Filename         string `json:"filename"`
-		Status           string `json:"status"` // added, modified, removed, renamed, ...
-		PreviousFilename string `json:"previous_filename"`
-	} `json:"files"`
-}
-
-// ghCompareFileLimit: l'API compare elenca al massimo 300 file - oltre, la
-// lista e' troncata e non si puo' sapere cosa manca.
-const ghCompareFileLimit = 300
-
-// lightUpdatePlan: dal diff reale fra tag installato e tag nuovo decide se lo
-// zip basta. reason != "" -> serve la reinstallazione completa. Fail-safe:
-// qualunque dubbio (versione non x.y.z, GitHub irraggiungibile, tag
-// inesistente, storia divergente, lista troncata) porta alla reinstallazione,
-// mai a uno zip applicato dove non doveva.
-func lightUpdatePlan(installed, latestTag string) (removed []string, reason string) {
-	if !isPlainVersion(installed) {
-		return nil, fmt.Sprintf("versione installata %q non confrontabile", installed)
-	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/compare/v%s...%s", UpdateRepo, installed, latestTag)
+func fetchRelease(url string) (ghRelease, error) {
+	var rel ghRelease
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, "confronto versioni non riuscito"
+		return rel, err
 	}
+	// User-Agent obbligatorio per l'API di GitHub, altrimenti risponde 403.
 	req.Header.Set("User-Agent", "opensagra-wrapper")
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
-		return nil, "confronto versioni non riuscito (GitHub non raggiungibile)"
+		return rel, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Sprintf("confronto versioni non riuscito (HTTP %d)", resp.StatusCode)
+		return rel, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	var cmp ghCompare
-	if err := json.NewDecoder(resp.Body).Decode(&cmp); err != nil {
-		return nil, "confronto versioni non riuscito (risposta illeggibile)"
-	}
-	if cmp.Status != "ahead" {
-		return nil, fmt.Sprintf("la nuova versione non discende da quella installata (%s)", cmp.Status)
-	}
-	if len(cmp.Files) >= ghCompareFileLimit {
-		return nil, "troppi file cambiati per verificarli uno a uno"
-	}
-	for _, f := range cmp.Files {
-		for _, p := range []string{f.Filename, f.PreviousFilename} {
-			if p != "" && hasAnyPrefix(p, fullUpdatePrefixes) {
-				return nil, "questa versione aggiorna anche " + p
-			}
-		}
-		gone := ""
-		switch f.Status {
-		case "removed":
-			gone = f.Filename
-		case "renamed":
-			gone = f.PreviousFilename
-		}
-		if gone != "" && !hasAnyPrefix(gone, keepOnRemovePrefixes) {
-			removed = append(removed, gone)
-		}
-	}
-	return removed, ""
+	err = json.NewDecoder(resp.Body).Decode(&rel)
+	return rel, err
 }
 
-func hasAnyPrefix(s string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return true
-		}
+func httpGet(client *http.Client, url string, max int64) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
 	}
-	return false
+	req.Header.Set("User-Agent", "opensagra-wrapper")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, max))
 }
 
-// isPlainVersion: solo "a.b.c" numerico - "0.0.0-dev" o simili non hanno un
-// tag con cui confrontarsi.
-func isPlainVersion(v string) bool {
-	parts := strings.Split(strings.TrimSpace(v), ".")
-	if len(parts) != 3 {
-		return false
+// lanHTTPClient: verso il PC server in LAN (vedi UpdateInfo.lan).
+func lanHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 	}
-	for _, p := range parts {
-		if _, err := strconv.Atoi(p); err != nil || p == "" {
-			return false
-		}
-	}
-	return true
 }
 
 // isNewerVersion: confronto semver minimale (solo "a.b.c" numerico) - non
@@ -306,4 +345,19 @@ func parseVersionParts(v string) [3]int {
 		out[i] = n
 	}
 	return out
+}
+
+// isPlainVersion: solo "a.b.c" numerico - "0.0.0-dev" o simili non hanno una
+// release su GitHub.
+func isPlainVersion(v string) bool {
+	parts := strings.Split(strings.TrimSpace(v), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, p := range parts {
+		if _, err := strconv.Atoi(p); err != nil || p == "" {
+			return false
+		}
+	}
+	return true
 }

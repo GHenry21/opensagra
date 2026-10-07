@@ -16,7 +16,8 @@
 7. [La pagina di vendita (Vendite)](#7-la-pagina-di-vendita-vendite)
 8. [Storni](#8-storni)
 9. [Statistiche Vendite](#9-statistiche-vendite)
-10. [Cosa manca ancora in questa guida](#10-cosa-manca-ancora-in-questa-guida)
+10. [Aggiornare OpenSagra](#10-aggiornare-opensagra)
+11. [Cosa manca ancora in questa guida](#11-cosa-manca-ancora-in-questa-guida)
 
 ---
 
@@ -591,10 +592,67 @@ casse collegate insieme:
 
 ---
 
-## 10. Cosa manca ancora in questa guida
+## 10. Aggiornare OpenSagra
+
+Quando esce una versione nuova, sul **pannello di controllo** (vedi §1) il
+pulsante in alto a destra mostra un **pallino verde**. Passandoci sopra con
+il mouse vedi quale versione è disponibile; cliccandolo parte
+l'aggiornamento, dopo una conferma.
+
+**Aggiorna fuori dall'orario di servizio**: durante l'aggiornamento il
+programma si ferma per qualche secondo.
+
+### 10.1 Con più casse: prima il PC centrale, poi le casse
+
+Se usi più casse collegate a un PC centrale (modalità Client, §3):
+
+1. **Aggiorna prima il PC centrale.** È l'unico che ha bisogno di Internet
+   per scaricare la versione nuova.
+2. **Poi aggiorna le casse.** Ognuna mostra un avviso in basso nel menu
+   laterale (*"Questa cassa è alla v…, il server alla v…: aggiorna questa
+   cassa"*) e il pallino verde nel suo pannello di controllo. Le casse
+   scaricano l'aggiornamento **dal PC centrale**, attraverso la rete della
+   sagra: non serve Internet sulle casse.
+
+Una cassa non va mai oltre la versione del PC centrale, anche se su Internet
+ce n'è una più nuova: casse e centrale devono usare la stessa versione per
+lavorare insieme. Se una cassa è *più nuova* del centrale, l'avviso te lo
+dice: aggiorna il centrale.
+
+### 10.2 Quando serve reinstallare
+
+Alcune versioni cambiano anche i componenti di base (il server web, il
+database, il pannello di controllo). In quel caso il pulsante non aggiorna
+da solo, ma ti dice che serve una **reinstallazione** e apre la pagina da
+cui scaricare l'installer di quella versione.
+
+**Reinstallare non cancella nulla**: vendite, catalogo, casse, stampanti e
+impostazioni restano come sono. Basta scaricare l'installer e lanciarlo come
+la prima volta (§1), sopra l'installazione esistente.
+
+Se la cassa da reinstallare non ha Internet, scarica l'installer da un altro
+PC e portalo con una chiavetta USB. Ricorda l'ordine: prima il PC centrale,
+poi le casse.
+
+### 10.3 La copia di sicurezza del database
+
+Prima di ogni aggiornamento OpenSagra salva da solo una copia del database di
+quel PC. Le ultime dieci copie si trovano in:
+
+- **Windows**: `%APPDATA%\opensagra\backups` (incollalo nella barra degli
+  indirizzi di Esplora file);
+- **Linux**: `~/.config/opensagra/backups`;
+- **macOS**: `~/Library/Application Support/opensagra/backups`.
+
+Di solito non serve toccarle: se un aggiornamento non riesce, OpenSagra
+rimette da solo i file com'erano prima.
+
+---
+
+## 11. Cosa manca ancora in questa guida
 
 Restano da scrivere, in un prossimo aggiornamento:
 
-- Aggiornare un'installazione esistente e disinstallarla.
+- Disinstallare un'installazione.
 - Casi d'errore più comuni e come risolverli (stampante non raggiungibile,
   rete assente, ecc.).

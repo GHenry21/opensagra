@@ -10,7 +10,7 @@
 //
 // Build Windows senza console:
 //
-//	go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+//	go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
 package main
 
 import (
@@ -99,6 +99,11 @@ func main() {
 	// IP della macchina nel Caddyfile (certificato HTTPS) prima di avviare
 	// FrankenPHP: se il DHCP ha cambiato indirizzo, niente reload da fare.
 	syncCaddyHostsAtStart(cfg)
+	// Dove api/update_dist.php trova il pacchetto da offrire alle casse client
+	// (dist.go): i figli ereditano l'ambiente del wrapper.
+	if d := distDir(); d != "" {
+		_ = os.Setenv(distEnvVar, d)
+	}
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
 	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
@@ -134,6 +139,9 @@ func main() {
 
 	// IP cambiati mentre gira -> Caddyfile riscritto + reload (caddy_hosts.go).
 	go watchCaddyHosts(ctx, cfg, sup)
+
+	// Pacchetto della propria versione pronto per le casse client (dist.go).
+	go ensureDistLoop(ctx, cfg)
 
 	// Sequenza di uscita pulita. Su Windows e' il menu tray "Esci" (dopo
 	// conferma) a invocarla; su Linux/macOS la invoca runEventLoop quando

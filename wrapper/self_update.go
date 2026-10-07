@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"opensagra/wrapper/manifest"
 )
 
 // ApplyUpdate: aggiornamento leggero (solo codice PHP + vendor/, costruito da
@@ -58,19 +60,33 @@ func ApplyUpdate(cfg *Config, sup *Supervisor, info UpdateInfo) error {
 	}
 	defer os.RemoveAll(work)
 
-	// 1. download + impronta
+	// 1. download + impronta (dal PC server in LAN per una cassa client,
+	// vedi UpdateInfo.lan)
+	var client *http.Client
+	if info.lan {
+		client = lanHTTPClient(5 * time.Minute)
+	}
 	zipPath := filepath.Join(work, "update.zip")
-	if err := downloadTo(info.ZipURL, zipPath); err != nil {
+	shaPath := zipPath + ".sha256"
+	if err := downloadTo(client, info.ZipURL, zipPath); err != nil {
 		return fmt.Errorf("download fallito: %w", err)
 	}
-	if err := verifySHA256(zipPath, info.SHA256URL); err != nil {
+	if err := downloadTo(client, info.SHA256URL, shaPath); err != nil {
+		return fmt.Errorf("download dell'impronta fallito: %w", err)
+	}
+	if err := checkSHA256File(zipPath, shaPath); err != nil {
 		return err
 	}
 
-	// 2. staging
+	// 2. staging, e il manifesto dentro lo zip deve essere della versione
+	// attesa (lo zip giusto per la decisione presa in checkForUpdate)
 	staging := filepath.Join(work, "staging")
 	if err := extractTo(zipPath, staging); err != nil {
 		return fmt.Errorf("estrazione fallita: %w", err)
+	}
+	stagedManifest := filepath.Join(staging, filepath.FromSlash(manifest.InstalledPath))
+	if m, err := manifest.Load(stagedManifest); err != nil || m.Version != info.Latest {
+		return fmt.Errorf("il pacchetto non contiene il manifesto della v%s - aggiornamento non applicato", info.Latest)
 	}
 
 	// 3. backup del DB
@@ -109,17 +125,26 @@ func ApplyUpdate(cfg *Config, sup *Supervisor, info UpdateInfo) error {
 	if err := os.WriteFile(versionPath, []byte(info.Latest), 0o644); err != nil {
 		return fmt.Errorf("scrittura della versione installata fallita: %w", err)
 	}
+
+	// Il pacchetto appena applicato resta pronto per le casse client (dist.go).
+	// Non bloccante: l'aggiornamento e' gia' riuscito.
+	if err := saveDist(info.Latest, zipPath, shaPath, stagedManifest); err != nil {
+		log.Printf("aggiornamento: pacchetto non conservato per le casse client: %v", err)
+	}
 	return nil
 }
 
-func downloadTo(url, dest string) error {
+// downloadTo: client nil = client predefinito (GitHub).
+func downloadTo(client *http.Client, url, dest string) error {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", "opensagra-wrapper")
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Minute}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -140,13 +165,9 @@ func downloadTo(url, dest string) error {
 	return f.Close()
 }
 
-// verifySHA256: il file .sha256 e' nel formato di sha256sum ("<hex>  <nome>"),
+// checkSHA256File: il file .sha256 e' nel formato di sha256sum ("<hex>  <nome>"),
 // basta il primo campo.
-func verifySHA256(path, shaURL string) error {
-	shaFile := path + ".sha256"
-	if err := downloadTo(shaURL, shaFile); err != nil {
-		return fmt.Errorf("download dell'impronta fallito: %w", err)
-	}
+func checkSHA256File(path, shaFile string) error {
 	raw, err := os.ReadFile(shaFile)
 	if err != nil {
 		return err
