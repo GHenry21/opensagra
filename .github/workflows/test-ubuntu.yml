@@ -104,47 +104,23 @@ jobs:
       # Chrome (deb, archivio NSS ~/.pki/nssdb) e si fotografa la pagina:
       # l'app = CA fidata, la pagina di errore = avviso all'utente.
       - name: HTTPS nei browser (Firefox snap, Chrome)
-        continue-on-error: true
         run: |
           set -x
           ls "$HOME"/snap/firefox/common/.mozilla/firefox/*/cert9.db 2>/dev/null || true
-          for db in "$HOME"/snap/firefox/common/.mozilla/firefox/*/; do
-            certutil -L -d "sql:$db" 2>/dev/null | grep -i caddy && echo "CA in Firefox snap: $db" || echo "::warning::CA NON presente nel profilo Firefox snap $db"
+          fail=0
+          for db in "$HOME"/snap/firefox/common/.mozilla/firefox/*.default*/ "$HOME/.pki/nssdb"; do
+            if certutil -L -d "sql:$db" 2>/dev/null | grep -q "OpenSagra Local CA"; then echo "CA presente: $db"
+            else echo "::error::CA NON presente in $db"; fail=1; fi
           done
-          certutil -L -d "sql:$HOME/.pki/nssdb" 2>/dev/null | grep -i caddy || echo "::warning::CA NON presente in ~/.pki/nssdb (Chrome/Chromium deb)"
           pkill -f firefox || true; sleep 2
           timeout 90 firefox --headless --window-size=1280,800 --screenshot "$HOME/ff-localhost.png" https://localhost/ 2>&1 | tail -5 || true
           cp "$HOME/ff-localhost.png" "$OUT/" 2>/dev/null || cp "$HOME"/snap/firefox/common/ff-localhost.png "$OUT/" 2>/dev/null || echo "::warning::screenshot Firefox non prodotto"
           if command -v google-chrome >/dev/null; then
-            timeout 60 google-chrome --headless=new --no-sandbox --window-size=1280,800 --screenshot="$OUT/chrome-localhost.png" https://localhost/ || true
-            timeout 60 google-chrome --headless=new --no-sandbox --dump-dom https://localhost/ 2>/dev/null | head -c 600 || true
+            out=$(timeout 60 google-chrome --headless=new --no-sandbox --window-size=1280,800 --screenshot="$OUT/chrome-localhost.png" https://localhost/ 2>&1 || true)
+            echo "$out" | grep -E 'CERT|Page load|written' || true
+            if echo "$out" | grep -q ERR_CERT; then echo "::error::Chrome rifiuta il certificato"; fail=1; fi
           fi
-
-      # Prototipo della correzione (non ancora in install.sh): `frankenphp
-      # trust` vede la CA gia' fidata dal sistema e salta i database NSS dei
-      # browser, quindi Chrome/Chromium (~/.pki/nssdb) e Firefox (profili,
-      # anche snap) mostrano l'avviso. Qui la si aggiunge con certutil e si
-      # riapre https://localhost nei due browser.
-      - name: Prova correzione - CA nei database NSS dei browser
-        continue-on-error: true
-        run: |
-          set -x
-          ca="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
-          ls -la "$ca"
-          nick="OpenSagra Local CA"
-          mkdir -p "$HOME/.pki/nssdb"
-          [ -f "$HOME/.pki/nssdb/cert9.db" ] || certutil -N -d "sql:$HOME/.pki/nssdb" --empty-password
-          dbs=("$HOME/.pki/nssdb")
-          for d in "$HOME"/.mozilla/firefox/*/ "$HOME"/snap/firefox/common/.mozilla/firefox/*/ "$HOME"/snap/chromium/current/.pki/nssdb/; do
-            [ -f "$d/cert9.db" ] && dbs+=("${d%/}")
-          done
-          for d in "${dbs[@]}"; do
-            certutil -A -d "sql:$d" -n "$nick" -t "C,," -i "$ca" && echo "CA aggiunta in $d"
-          done
-          pkill -f firefox || true; sleep 2
-          timeout 60 google-chrome --headless=new --no-sandbox --window-size=1280,800 --screenshot="$OUT/chrome-dopo.png" https://localhost/ 2>&1 | grep -E 'CERT|Page load|written' || true
-          timeout 90 firefox --headless --window-size=1280,800 --screenshot "$HOME/ff-dopo.png" https://localhost/ 2>&1 | tail -5 || true
-          cp "$HOME/ff-dopo.png" "$OUT/" 2>/dev/null || ls -la "$HOME" "$HOME/snap/firefox/common" | head -30
+          exit $fail
 
       - name: Mercure - pubblica e ricevi (token dell'app)
         run: |
@@ -193,6 +169,7 @@ jobs:
           if dpkg -s mariadb-server >/dev/null 2>&1; then echo "MariaDB ancora installato"; exit 1; fi
           test ! -e "$HOME/Desktop/OpenSagra.desktop"
           ls /usr/local/share/ca-certificates/ | grep -i caddy && { echo "CA ancora nello store di sistema"; exit 1; } || true
+          certutil -L -d "sql:$HOME/.pki/nssdb" | grep "OpenSagra Local CA" && { echo "CA ancora in ~/.pki/nssdb"; exit 1; } || true
           ls "$HOME"/opensagra-backup-*.sql
 
       - name: Log

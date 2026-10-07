@@ -657,6 +657,44 @@ register_local_ca_trust() {
     fi
 }
 
+# trust_ca_in_browser_stores: la CA locale nei database NSS dei browser.
+# `frankenphp trust` (sopra) controlla solo se la CA e' gia' fidata dallo store
+# di sistema - e lo e', perche' FrankenPHP ce la mette da solo al primo avvio -
+# e in quel caso non scrive nei database NSS. Ma su Linux Chrome/Chromium
+# (~/.pki/nssdb) e Firefox (un database per profilo, anche dentro ~/snap per
+# lo snap di Ubuntu) usano quelli, non lo store di sistema: risultato,
+# ERR_CERT_AUTHORITY_INVALID / "connessione non sicura" nonostante il
+# "Certificato locale HTTPS fidato" (visto su Ubuntu 24.04 in CI, 2026-10-07;
+# con questa funzione Chrome e Firefox snap aprono l'app senza avvisi).
+# ~/.pki/nssdb si crea se manca (Chrome/Chromium mai aperto finora). Un
+# profilo Firefox creato DOPO l'installazione non ha la CA: si rilancia
+# l'installer. Best-effort: non blocca l'installazione.
+NSS_CA_NICK="OpenSagra Local CA"
+
+browser_nss_dbs() {
+    local d
+    for d in "$HOME/.pki/nssdb" "$HOME"/.mozilla/firefox/*/              "$HOME"/snap/firefox/common/.mozilla/firefox/*/ "$HOME/snap/chromium/current/.pki/nssdb"; do
+        d="${d%/}"
+        [ -f "$d/cert9.db" ] && echo "$d"
+    done
+}
+
+trust_ca_in_browser_stores() {
+    local ca="$HOME/.local/share/caddy/pki/authorities/local/root.crt" d n=0
+    command -v certutil >/dev/null 2>&1 || { log "certutil non disponibile: la CA locale resta fidata solo dal sistema, i browser mostreranno un avviso al primo accesso."; return; }
+    [ -f "$ca" ] || { log "CA locale non trovata ($ca): salto i browser (dettagli in $LOG_FILE)."; return; }
+    if [ ! -f "$HOME/.pki/nssdb/cert9.db" ]; then
+        mkdir -p "$HOME/.pki/nssdb"
+        certutil -N -d "sql:$HOME/.pki/nssdb" --empty-password >>"$LOG_FILE" 2>&1 || true
+    fi
+    while IFS= read -r d; do
+        # -D prima di -A: un rilancio dopo una CA rigenerata la sostituisce
+        certutil -D -d "sql:$d" -n "$NSS_CA_NICK" >/dev/null 2>&1 || true
+        certutil -A -d "sql:$d" -n "$NSS_CA_NICK" -t "C,," -i "$ca" >>"$LOG_FILE" 2>&1 && n=$((n + 1))
+    done < <(browser_nss_dbs)
+    ok "Certificato locale fidato anche nei browser ($n archivi: Chrome/Chromium, Firefox)"
+}
+
 # ============================================================================
 # Orchestrazione
 # ============================================================================
@@ -686,5 +724,6 @@ set_firewall_rules
 
 start_wrapper_and_autostart
 register_local_ca_trust
+trust_ca_in_browser_stores
 
 log "Installazione completata. Log completo in $LOG_FILE"
