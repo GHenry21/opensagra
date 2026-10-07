@@ -62,6 +62,7 @@ jobs:
           RUN dnf install -y -q authselect && authselect select local --force
           RUN useradd -m sagra && echo 'sagra:sagra' | chpasswd \
               && echo 'sagra ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sagra \
+              && echo 'Defaults:sagra !pam_acct_mgmt' >> /etc/sudoers.d/sagra \
               && systemctl enable firewalld
           CMD ["/sbin/init"]
           EOF
@@ -78,6 +79,8 @@ jobs:
           docker exec fed systemctl --failed --no-legend || true
           docker exec fed cat /etc/os-release | head -3
           docker exec fed systemctl is-active firewalld || echo "::warning::firewalld non attivo nel container"
+          docker exec fed bash -c 'getent shadow sagra | cut -d: -f1,3; ls -l /etc/shadow; authselect current | head -2' || true
+          docker exec -u sagra fed sudo -n true && echo "sudo dell'utente sagra: ok" || echo "::error::sudo dell'utente sagra non funziona"
           # Copia del pacchetto nella home dell'utente, come dopo un download.
           docker exec fed bash -c "cp -r /pkg-src /home/sagra/$PKGNAME && chown -R sagra:sagra /home/sagra/$PKGNAME"
           # Sessione systemd --user (su un desktop c'e' dal login).
