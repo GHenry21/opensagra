@@ -224,7 +224,30 @@ install_mariadb() {
         ok "MariaDB installato"
     fi
     sudo systemctl enable --now mariadb || die "Impossibile avviare il servizio mariadb"
+    allow_lan_mariadb
     ok "Servizio MariaDB attivo"
+}
+
+# allow_lan_mariadb: il mariadb-server di Debian ascolta solo su 127.0.0.1
+# (50-server.cnf), quindi questa macchina non poteva fare da SERVER: le casse
+# client scrivono direttamente sulla 3306 del server (trovato 2026-10-07,
+# piano Fase 6). Su Windows l'MSI ascolta gia' su tutte le interfacce. I file
+# di mariadb.conf.d/ si leggono in ordine alfabetico: 99-* prevale su 50-*.
+# L'utente app esiste gia' anche su '%' (crea_dbtable_and_user.php). Il
+# gestore DB grafico (/db) resta solo-localhost: e' una regola del Caddyfile.
+MARIADB_LAN_CNF=/etc/mysql/mariadb.conf.d/99-opensagra.cnf
+allow_lan_mariadb() {
+    local want
+    want="$(printf '%s\n' \
+        '# Generato da OpenSagra (install.sh): MariaDB raggiungibile dalle casse in LAN.' \
+        '[mysqld]' \
+        'bind-address = 0.0.0.0')"
+    if [ -f "$MARIADB_LAN_CNF" ] && [ "$(cat "$MARIADB_LAN_CNF")" = "$want" ]; then
+        return
+    fi
+    printf '%s\n' "$want" | sudo tee "$MARIADB_LAN_CNF" >/dev/null || die "Impossibile scrivere $MARIADB_LAN_CNF"
+    sudo systemctl restart mariadb || die "Riavvio di MariaDB fallito dopo aver abilitato l'accesso dalla LAN"
+    ok "MariaDB raggiungibile dalla LAN (porta 3306)"
 }
 
 # copy_app_files: sovrappone (merge), NON rispecchia - un rm -rf della

@@ -168,6 +168,9 @@ remove_mariadb() {
     sudo apt-get purge -y -qq mariadb-server mariadb-server-core mariadb-client mariadb-client-core mariadb-common 2>>"$LOG_FILE" || true
     sudo apt-get autoremove -y -qq 2>>"$LOG_FILE" || true
     sudo rm -rf /var/lib/mysql
+    # Non appartiene a nessun pacchetto: il purge non lo toglie (install.sh,
+    # allow_lan_mariadb).
+    sudo rm -f /etc/mysql/mariadb.conf.d/99-opensagra.cnf
     ok "MariaDB disinstallato"
 }
 
