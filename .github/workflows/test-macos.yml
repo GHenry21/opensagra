@@ -118,7 +118,7 @@ jobs:
           set -x
           lsof -nP -iTCP:3306 -sTCP:LISTEN
           lsof -nP -iTCP:3306 -sTCP:LISTEN | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'
-          grep -n 'bind-address' "$(brew --prefix)/etc/my.cnf"
+          cat "$(brew --prefix)/etc/my.cnf"; ls "$(brew --prefix)/etc/my.cnf.d"
           ip=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
           echo "IP di rete: $ip"
           env="$HOME/opensagra/config/variabili.env"
