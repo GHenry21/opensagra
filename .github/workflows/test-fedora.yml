@@ -1,17 +1,22 @@
 name: Test installer Fedora
 
-# Prova install.sh / uninstall.sh su Fedora 42. GitHub non ha runner Fedora:
-# si usa un container Fedora con systemd VERO come PID 1 (privilegiato, cgroup
-# dell'host) sul runner Ubuntu - servizi di sistema (mariadb, firewalld),
-# logind, linger e la sessione systemd --user funzionano come su una
-# macchina. Utente normale con sudo, firewalld acceso come su Fedora
-# Workstation. Limite: niente SELinux (il kernel e' quello del runner Ubuntu).
+# Prova install.sh / uninstall.sh su Fedora 42 in una VERA macchina virtuale:
+# GitHub non ha runner Fedora, ma i runner Linux hanno KVM, quindi si avvia
+# l'immagine Cloud ufficiale di Fedora con QEMU e la si configura con
+# cloud-init. Systemd, logind, PAM, firewalld e SELinux (enforcing) sono quelli
+# veri - un container era stato provato prima e scartato: sessione systemd
+# --user, PAM e D-Bus non funzionavano come su una macchina (2026-10-07).
+# Ci si collega via SSH come utente normale con sudo: il login SSH apre una
+# sessione logind con il suo systemd --user e il suo D-Bus, come un desktop.
 # Si installa dal PACCHETTO DI RELEASE (make-unix-package.sh), come un utente.
 
 on:
   push:
     branches: [test-fedora]
   workflow_dispatch: {}
+
+env:
+  FEDORA_RELEASE: "42"
 
 jobs:
   install:
@@ -37,73 +42,64 @@ jobs:
           go-version-file: wrapper/go.mod
           cache-dependency-path: wrapper/go.sum
 
-      - name: Costruisci ed estrai il pacchetto linux x86_64
+      - name: Costruisci il pacchetto linux x86_64
         run: |
           bash packaging/make-unix-package.sh linux x86_64
-          mkdir -p "$RUNNER_TEMP/pkg"
-          tar -xzf opensagra-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP/pkg"
-          name=$(basename "$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)")
-          echo "PKGNAME=$name" >> "$GITHUB_ENV"
+          ls -la opensagra-*-linux-x86_64.tar.gz
+          echo "TARBALL=$(ls opensagra-*-linux-x86_64.tar.gz)" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/out"; echo "OUT=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
 
-      - name: Container Fedora 42 con systemd
+      - name: VM Fedora (QEMU/KVM + cloud-init)
         run: |
-          cat > "$RUNNER_TEMP/Containerfile" <<'EOF'
-          FROM registry.fedoraproject.org/fedora:42
-          # Quello che una Fedora Workstation ha gia' e l'immagine container no.
-          RUN dnf install -y -q systemd sudo iproute procps-ng hostname findutils which \
-                tar gzip curl firewalld util-linux passwd xdg-user-dirs dbus && dnf clean all
-          # Password impostata: con l'account bloccato (useradd senza password) il
-          # PAM di Fedora rifiuta anche il sudo NOPASSWD ("PAM account management
-          # error", primo giro 2026-10-07). Su una macchina vera l'utente ce l'ha.
-          # Profilo di autenticazione locale: l'immagine container usa quello
-          # "sssd" (pam_sss) ma sssd qui non gira, e sudo fallisce con "PAM
-          # account management error" (secondo giro). Su una Fedora vera sssd c'e'.
-          RUN dnf install -y -q authselect && authselect select local --force
-          RUN useradd -m sagra && echo 'sagra:sagra' | chpasswd \
-              && echo 'sagra ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sagra \
-              && echo 'Defaults:sagra !pam_acct_mgmt' >> /etc/sudoers.d/sagra \
-              && systemctl enable firewalld
-          CMD ["/sbin/init"]
+          set -x
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils >/dev/null
+          sudo chmod 666 /dev/kvm
+          base="https://download.fedoraproject.org/pub/fedora/linux/releases/$FEDORA_RELEASE/Cloud/x86_64/images/"
+          img=$(curl -fsSL "$base" | grep -oE 'Fedora-Cloud-Base-Generic[^"]*\.x86_64\.qcow2' | head -1)
+          [ -n "$img" ] || { echo "::error::immagine Cloud di Fedora non trovata in $base"; exit 1; }
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/fedora.qcow2" "$base$img"
+          qemu-img resize "$RUNNER_TEMP/fedora.qcow2" 20G
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/vmkey"
+          # Utente normale con sudo senza password (come il Pi di test: lo
+          # script non fa domande); firewalld acceso come su Fedora Workstation.
+          cat > "$RUNNER_TEMP/user-data" <<EOF
+          #cloud-config
+          users:
+            - name: sagra
+              groups: wheel
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              lock_passwd: false
+              plain_text_passwd: sagra
+              ssh_authorized_keys:
+                - $(cat "$RUNNER_TEMP/vmkey.pub")
+          packages: [firewalld, xdg-user-dirs]
+          runcmd:
+            - systemctl enable --now firewalld
+            - su - sagra -c xdg-user-dirs-update
           EOF
-          docker build -q -t fedora-systemd -f "$RUNNER_TEMP/Containerfile" "$RUNNER_TEMP"
-          sudo cp -r "$RUNNER_TEMP/pkg/$PKGNAME" "$RUNNER_TEMP/pkg-ro"
-          docker run -d --name fed --hostname fedora-cassa --privileged --cgroupns=host \
-            -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock \
-            -v "$RUNNER_TEMP/pkg-ro:/pkg-src:ro" fedora-systemd
-          for i in $(seq 1 30); do
-            st=$(docker exec fed systemctl is-system-running 2>/dev/null || true)
-            case "$st" in running|degraded) break ;; esac; sleep 2
-          done
-          echo "systemd: $st"
-          docker exec fed systemctl --failed --no-legend || true
-          docker exec fed cat /etc/os-release | head -3
-          docker exec fed systemctl is-active firewalld || echo "::warning::firewalld non attivo nel container"
-          docker exec fed bash -c 'getent shadow sagra | cut -d: -f1,3; ls -l /etc/shadow; authselect current | head -2' || true
-          docker exec -u sagra fed sudo -n true && echo "sudo dell'utente sagra: ok" || echo "::error::sudo dell'utente sagra non funziona"
-          # Copia del pacchetto nella home dell'utente, come dopo un download.
-          docker exec fed bash -c "cp -r /pkg-src /home/sagra/$PKGNAME && chown -R sagra:sagra /home/sagra/$PKGNAME"
-          # Sessione systemd --user (su un desktop c'e' dal login).
-          docker exec fed loginctl enable-linger sagra
-          # D-Bus di sessione: senza (l'immagine container non ha il pacchetto
-          # dbus, una Fedora desktop si') systemctl --user fallisce con "Failed
-          # to connect to user scope bus" e install.sh non registra il servizio.
-          for i in $(seq 1 30); do docker exec fed test -S /run/user/1000/bus && break; sleep 1; done
-          docker exec fed systemctl status user@1000.service --no-pager | head -5 || true
-          docker exec fed test -S /run/user/1000/bus || { echo "::error::sessione systemd --user senza bus D-Bus"; exit 1; }
-          docker exec -u sagra fed xdg-user-dirs-update || true
-          docker exec fed ls /home/sagra
+          printf 'instance-id: opensagra-fedora\nlocal-hostname: fedora-cassa\n' > "$RUNNER_TEMP/meta-data"
+          cloud-localds "$RUNNER_TEMP/seed.iso" "$RUNNER_TEMP/user-data" "$RUNNER_TEMP/meta-data"
+          qemu-system-x86_64 -enable-kvm -cpu host -m 4096 -smp 2 \
+            -drive file="$RUNNER_TEMP/fedora.qcow2",if=virtio \
+            -drive file="$RUNNER_TEMP/seed.iso",if=virtio,format=raw \
+            -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 \
+            -display none -serial file:"$RUNNER_TEMP/out/console.log" -daemonize
+          ssh_opts="-p 2222 -i $RUNNER_TEMP/vmkey -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR"
+          echo "SSH_OPTS=$ssh_opts" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do ssh $ssh_opts sagra@127.0.0.1 true 2>/dev/null && break; sleep 5; done
+          ssh $ssh_opts sagra@127.0.0.1 'cloud-init status --wait >/dev/null; cat /etc/os-release | head -3; getenforce; systemctl is-active firewalld; echo "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"; systemctl --user is-system-running || true'
+          scp -P 2222 -i "$RUNNER_TEMP/vmkey" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$TARBALL" sagra@127.0.0.1:
+          ssh $ssh_opts sagra@127.0.0.1 "tar -xzf $TARBALL && ls -d opensagra-*/"
 
-      # fx: un comando come l'utente sagra, con la sessione systemd --user.
       - name: install.sh (prima installazione)
         timeout-minutes: 25
-        run: |
-          docker exec -u sagra -w "/home/sagra/$PKGNAME" -e XDG_RUNTIME_DIR=/run/user/1000 \
-            -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash ./install.sh
+        run: ssh $SSH_OPTS sagra@127.0.0.1 'cd opensagra-*/ && bash ./install.sh'
 
       - name: Verifica installazione
         run: |
-          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
           set -x
           fx 'systemctl --user is-active opensagra-wrapper.service'
           fx 'pgrep -fl "frankenphp run"'
@@ -114,17 +110,27 @@ jobs:
           fx 'ls /etc/pki/ca-trust/source/anchors/'
           fx 'sudo mariadb -e "SHOW DATABASES"' | grep opensagra_pos
           fx 'cat /etc/my.cnf.d/99-opensagra.cnf'
-          fx 'ss -ltn' | grep -E '0.0.0.0:3306|\*:3306'
           fx 'sudo firewall-cmd --list-ports' | tee /dev/stderr | grep -q '80/tcp' || { echo "::error::porte non aperte in firewalld"; exit 1; }
           fx 'certutil -L -d sql:$HOME/.pki/nssdb' | grep "OpenSagra Local CA"
           fx '$HOME/.frankenphp/frankenphp version'
           fx 'sudo getcap $HOME/.frankenphp/frankenphp'
+          fx 'getenforce; sudo ausearch -m avc -ts recent 2>/dev/null | tail -20 || echo "nessun blocco SELinux"'
           fx 'ls -la $HOME/Desktop/ 2>/dev/null || echo "nessuna Scrivania"'
+
+      # Dalla rete, come un telefono o una cassa client: HTTPS sull'IP della VM
+      # (non loopback) e MariaDB in ascolto su tutte le interfacce.
+      - name: Raggiungibile dalla rete (443 e 3306 sull'IP della VM)
+        run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
+          set -x
+          ip=$(fx "ip -4 route get 1.1.1.1 | grep -oP 'src \K\S+'")
+          echo "IP della VM: $ip"
+          fx "curl -sk -o /dev/null -w 'https://$ip -> %{http_code}\n' https://$ip/"
+          fx 'ss -ltn' | grep -E '0.0.0.0:3306|\*:3306|:::3306'
 
       - name: Mercure - pubblica e ricevi (token dell'app)
         run: |
-          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
-          fx '
+          ssh $SSH_OPTS sagra@127.0.0.1 '
             set -ex
             cd "$HOME/opensagra"; fp="$HOME/.frankenphp/frankenphp"; export PHPRC="$HOME/.frankenphp"
             pub=$("$fp" php-cli -r "require \"config/mercure.php\"; echo mintMercureJwt([\"ci-test\"], [], 300);")
@@ -139,7 +145,7 @@ jobs:
 
       - name: Riavvio (crash del wrapper -> systemd lo riavvia)
         run: |
-          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
           set -x
           old=$(fx 'systemctl --user show -p MainPID --value opensagra-wrapper.service')
           fx "kill -KILL $old"; sleep 20
@@ -155,13 +161,12 @@ jobs:
         timeout-minutes: 15
         run: |
           start=$(date +%s)
-          docker exec -u sagra -w "/home/sagra/$PKGNAME" -e XDG_RUNTIME_DIR=/run/user/1000 \
-            -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash ./install.sh
+          ssh $SSH_OPTS sagra@127.0.0.1 'cd opensagra-*/ && bash ./install.sh'
           echo "rilancio in $(( $(date +%s) - start )) s"
 
       - name: uninstall.sh
         run: |
-          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
           fx 'bash $HOME/opensagra/uninstall.sh --force'
           set -x
           fx 'test ! -e $HOME/opensagra'
@@ -171,24 +176,21 @@ jobs:
           fx 'test ! -e /etc/my.cnf.d/99-opensagra.cnf'
           fx 'ls /etc/pki/ca-trust/source/anchors/' | grep -i caddy && { echo "CA ancora nello store di sistema"; exit 1; } || true
           fx 'sudo firewall-cmd --list-ports' | grep -q '80/tcp' && { echo "porte ancora aperte in firewalld"; exit 1; } || true
+          fx 'certutil -L -d sql:$HOME/.pki/nssdb' | grep "OpenSagra Local CA" && { echo "CA ancora in ~/.pki/nssdb"; exit 1; } || true
           fx 'ls $HOME/opensagra-backup-*.sql'
 
       - name: Log
         if: always()
         run: |
+          fx() { ssh $SSH_OPTS sagra@127.0.0.1 "$1"; }
           for f in /tmp/opensagra-install.log /tmp/opensagra-uninstall.log; do
-            docker cp "fed:$f" "$OUT/" 2>/dev/null || continue
+            fx "cat $f" > "$OUT/$(basename "$f")" 2>/dev/null || continue
             echo "::group::$f"; tail -n 150 "$OUT/$(basename "$f")"; echo "::endgroup::"
           done
-          docker exec fed journalctl --no-pager -n 80 -u mariadb -u firewalld 2>/dev/null > "$OUT/journal.txt" || true
-          fx() { docker exec -u sagra -e XDG_RUNTIME_DIR=/run/user/1000 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus fed bash -c "$1"; }
-          echo "::group::wrapper (systemd --user)"
-          fx 'systemctl --user status opensagra-wrapper.service --no-pager -l' || true
-          fx 'journalctl --user -u opensagra-wrapper.service --no-pager -n 60' || true
-          fx 'cat $HOME/.config/systemd/user/opensagra-wrapper.service' || true
-          echo "::endgroup::"
-          docker exec fed bash -c 'for f in /home/sagra/opensagra/logs/*.log; do echo "== $f"; tail -n 60 "$f"; done' > "$OUT/wrapper-logs.txt" 2>&1 || true
-          echo "::group::logs/"; cat "$OUT/wrapper-logs.txt"; echo "::endgroup::"
+          fx 'for f in $HOME/opensagra/logs/*.log; do echo "== $f"; tail -n 60 "$f"; done' > "$OUT/wrapper-logs.txt" 2>&1 || true
+          fx 'systemctl --user status opensagra-wrapper.service --no-pager -l; journalctl --user -u opensagra-wrapper.service --no-pager -n 60' > "$OUT/wrapper-unit.txt" 2>&1 || true
+          fx 'sudo ausearch -m avc 2>/dev/null' > "$OUT/selinux-avc.txt" 2>&1 || true
+          echo "::group::wrapper"; cat "$OUT/wrapper-unit.txt" "$OUT/wrapper-logs.txt" | tail -n 120; echo "::endgroup::"
 
       - uses: actions/upload-artifact@v4
         if: always()
