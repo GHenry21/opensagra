@@ -31,6 +31,10 @@ la parte del tuo sistema, poi il resto della guida vale per tutti.
 - [Mac](#su-mac)
 - [Linux e Raspberry Pi](#su-linux-e-raspberry-pi)
 
+> **Mac e Linux arrivano con la prossima versione di OpenSagra.** La 1.0.0
+> contiene solo l'installer per Windows: i file descritti qui sotto per Mac e
+> Linux saranno tra i download della versione successiva.
+
 ### Su Windows
 
 1. Scarica **`opensagra-installer.exe`** (un unico file — dentro c'è già tutto il
@@ -126,8 +130,9 @@ Serve un Mac con macOS 13 (Ventura) o successivo, e un utente
 
 ### Su Linux e Raspberry Pi
 
-Pensato per **Raspberry Pi OS** (64 bit) e **Debian**, con un utente che può
-usare `sudo` (sul Raspberry Pi l'utente creato al primo avvio può farlo).
+Funziona su **Raspberry Pi OS** (64 bit), **Debian**, **Ubuntu** e **Fedora**, con un
+utente che può usare `sudo` (sul Raspberry Pi l'utente creato al primo avvio
+può farlo).
 
 1. **Scegli il file giusto**: **`…-linux-aarch64.tar.gz`** per Raspberry Pi
    (64 bit), **`…-linux-x86_64.tar.gz`** per un PC normale.
