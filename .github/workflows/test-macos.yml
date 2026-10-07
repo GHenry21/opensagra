@@ -167,6 +167,11 @@ jobs:
           # nessun utente anonimo (prenderebbe il posto di quello dell'app)
           mariadb -N -e "SELECT CONCAT(User,'@',Host) FROM mysql.user"
           [ "$(mariadb -N -e "SELECT COUNT(*) FROM mysql.user WHERE User=''")" = "0" ]
+          # niente ricerca del nome dei client (5 s per connessione via mDNS)
+          [ "$(mariadb -N -e 'SELECT @@skip_name_resolve')" = "1" ]
+          # mariadbd firmato (almeno ad-hoc): senza, il firewall acceso lo blocca
+          codesign -v "$(cd -P "$(brew --prefix mariadb)/bin" && pwd)/mariadbd"
+          codesign -v "$HOME/.frankenphp/frankenphp"
           env="$HOME/opensagra/config/variabili.env"
           user=$(sed -n 's/^DB_POS_USER=//p' "$env"); pass=$(sed -n 's/^DB_POS_PASS=//p' "$env")
           remote() { MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock' 2>&1; }

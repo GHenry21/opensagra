@@ -177,6 +177,7 @@ install_frankenphp() {
     fi
     chmod +x "$tmp"
     xattr -d com.apple.quarantine "$tmp" 2>/dev/null || true
+    ensure_adhoc_signed "$tmp"
     "$tmp" version >/dev/null 2>&1 || { rm -f "$tmp"; die "FrankenPHP non si avvia (binario incompatibile con questo Mac?)"; }
     rm -f "$FRANKEN_DIR/frankenphp"
     mv "$tmp" "$FRANKEN_DIR/frankenphp"
@@ -234,12 +235,42 @@ install_mariadb() {
         brew install mariadb >>"$LOG_FILE" 2>&1 || die "Installazione di MariaDB fallita (dettagli in $LOG_FILE)"
         ok "MariaDB installato"
     fi
+    # Firma PRIMA di avviarlo: codesign riscrive l'eseguibile (vedi
+    # ensure_adhoc_signed). Al rilancio (o dopo un `brew upgrade`) MariaDB
+    # puo' essere gia' attivo: lo si ferma solo se la firma manca davvero.
+    local mariadbd_bin; mariadbd_bin="$(mariadbd_path)"
+    if [ -x "$mariadbd_bin" ] && ! codesign -v "$mariadbd_bin" >/dev/null 2>&1; then
+        brew services stop mariadb >>"$LOG_FILE" 2>&1 || true
+        ensure_adhoc_signed "$mariadbd_bin"
+    fi
     brew services start mariadb >>"$LOG_FILE" 2>&1 || log "brew services start mariadb ha dato errore (dettagli in $LOG_FILE) - verifico se risponde comunque"
 
     wait_for_mariadb
     ok "Servizio MariaDB attivo"
     allow_lan_mariadb
     drop_anonymous_mariadb_users
+}
+
+# mariadbd_path: percorso REALE nel Cellar (la regola del firewall e la firma
+# valgono per quel file; `brew upgrade mariadb` lo cambia).
+mariadbd_path() {
+    echo "$(cd -P "$(brew --prefix mariadb)/bin" 2>/dev/null && pwd)/mariadbd"
+}
+
+# ensure_adhoc_signed: il firewall applicativo di macOS riconosce i programmi
+# dalla FIRMA. Su Apple Silicon ogni eseguibile ha almeno una firma ad-hoc,
+# ma sui Mac Intel il mariadbd di Homebrew non e' firmato per niente ("code
+# object is not signed at all"): con il firewall acceso, anche se autorizzato
+# con --add/--unblockapp, le connessioni dalla rete venivano chiuse prima
+# dell'handshake (ERROR 2013, trovato sul runner macos-15-intel 2026-10-07).
+# Una firma ad-hoc (`codesign --sign -`, la stessa che Apple Silicon richiede
+# comunque) basta. Non tocca un eseguibile gia' firmato.
+ensure_adhoc_signed() {
+    local bin="$1"
+    codesign -v "$bin" >/dev/null 2>&1 && return 0
+    codesign --force --sign - "$bin" >>"$LOG_FILE" 2>&1 \
+        || die "Firma ad-hoc di $bin fallita (serve al firewall di macOS; dettagli in $LOG_FILE)"
+    ok "Firmato ad-hoc $(basename "$bin") (per il firewall di macOS)"
 }
 
 wait_for_mariadb() {
@@ -266,14 +297,40 @@ wait_for_mariadb() {
 # resta raggiungibile solo dal socket locale (unix_socket). Il gestore DB
 # grafico (/db) resta solo-localhost: e' una regola del Caddyfile.
 # Vedi anche drop_anonymous_mariadb_users (stessa ragione: casse client).
+#
+# skip-name-resolve (in my.cnf.d/99-opensagra.cnf, incluso dal my.cnf di
+# MariaDB): senza, MariaDB cerca il NOME di ogni client prima di rispondergli,
+# e su macOS la ricerca passa da mDNS (.local, timeout 5 s): ogni nuova
+# connessione di una cassa aspettava 5 s (misurato sul runner macos-15-intel,
+# 2026-10-07; alla sagra, senza Internet, potrebbe andare peggio). Gli
+# account si confrontano allora per IP: va bene, quelli dell'app sono su
+# '%', '127.0.0.1' e 'localhost' (socket), root solo dal socket.
+MARIADB_OPENSAGRA_CNF_NAME=99-opensagra.cnf
 allow_lan_mariadb() {
-    local cnf; cnf="$(brew --prefix)/etc/my.cnf"
+    local prefix; prefix="$(brew --prefix)"
+    local cnf="$prefix/etc/my.cnf" restart=0
     if [ -f "$cnf" ] && grep -Eq '^[[:space:]]*bind-address[[:space:]]*=[[:space:]]*127\.0\.0\.1' "$cnf"; then
         sed -i '' -E 's/^[[:space:]]*bind-address[[:space:]]*=[[:space:]]*127\.0\.0\.1.*$/bind-address = 0.0.0.0  # OpenSagra (install-macos.sh): raggiungibile dalle casse in LAN/' "$cnf" \
             || die "Impossibile modificare $cnf"
+        restart=1
+    fi
+    local extra="$prefix/etc/my.cnf.d/$MARIADB_OPENSAGRA_CNF_NAME" want
+    want="$(printf '%s\n' \
+        '# Generato da OpenSagra (install-macos.sh): niente ricerca del nome dei' \
+        '# client (5 s di attesa per connessione via mDNS su macOS).' \
+        '[mysqld]' \
+        'skip-name-resolve')"
+    if ! [ -f "$extra" ] || [ "$(cat "$extra")" != "$want" ]; then
+        mkdir -p "$prefix/etc/my.cnf.d"
+        printf '%s\n' "$want" > "$extra" || die "Impossibile scrivere $extra"
+        restart=1
+    fi
+    if [ "$restart" -eq 1 ]; then
         brew services restart mariadb >>"$LOG_FILE" 2>&1 || log "brew services restart mariadb ha dato errore (dettagli in $LOG_FILE) - verifico se risponde comunque"
         wait_for_mariadb
     fi
+    [ "$(mariadb -N -B -e 'SELECT @@skip_name_resolve' 2>/dev/null)" = "1" ] \
+        || log "ATTENZIONE: skip-name-resolve non attivo (my.cnf non include my.cnf.d/?): ogni connessione di una cassa potrebbe aspettare alcuni secondi."
     # Verifica sul socket vero, non sul file: deve ascoltare su tutte le
     # interfacce (*:3306), non solo su 127.0.0.1.
     local i
@@ -686,10 +743,11 @@ set_firewall_rules() {
         ok "Firewall di macOS spento: nessuna regola da aggiungere"
         return
     fi
+    # Entrambi gia' firmati ad-hoc (install_frankenphp, install_mariadb):
+    # senza firma la regola non ha effetto - vedi ensure_adhoc_signed.
     sudo "$fw" --add "$FRANKEN_DIR/frankenphp" >>"$LOG_FILE" 2>&1 || true
     sudo "$fw" --unblockapp "$FRANKEN_DIR/frankenphp" >>"$LOG_FILE" 2>&1 || true
-    local mariadbd_bin
-    mariadbd_bin="$(cd -P "$(brew --prefix mariadb)/bin" 2>/dev/null && pwd)/mariadbd"
+    local mariadbd_bin; mariadbd_bin="$(mariadbd_path)"
     if [ -x "$mariadbd_bin" ]; then
         sudo "$fw" --add "$mariadbd_bin" >>"$LOG_FILE" 2>&1 || true
         sudo "$fw" --unblockapp "$mariadbd_bin" >>"$LOG_FILE" 2>&1 || true
