@@ -237,7 +237,7 @@ function mercureLastPublishError(): string
 function bridgePublishErrorMessage(): string
 {
     return mercureLastPublishError() === 'rejected'
-        ? 'il PC con la stampante ha rifiutato la stampa: probabilmente ha una versione di OpenSagra diversa da questa cassa (aggiornali alla stessa versione)'
+        ? 'il PC con la stampante ha rifiutato la stampa, probabilmente ha una versione di OpenSagra diversa da questa cassa: aggiornali alla stessa versione'
         : 'ponte di stampa non raggiungibile';
 }
 
