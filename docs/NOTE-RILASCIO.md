@@ -25,7 +25,7 @@ Prima versione dopo la v1.0.0 (29 settembre 2026, solo Windows).
   Raspberry Pi OS, Fedora) e su Mac (Apple Silicon e Intel), con lo stesso
   pannello di controllo e un installer grafico. Su Mac l'app non è firmata da
   Apple: al primo avvio va aperta da *Impostazioni di Sistema → Privacy e
-  sicurezza → Apri comunque* (guida, §1).
+  sicurezza → Apri comunque* (guida, §1 "Su Mac").
 - **Qualunque PC può fare da cassa centrale**, anche un Mac o un Linux. Il
   database della centrale si apre alle altre casse solo quando una cassa la
   sceglie e solo mentre OpenSagra è aperto; quello di una cassa indipendente
@@ -65,11 +65,12 @@ Prima versione dopo la v1.0.0 (29 settembre 2026, solo Windows).
 - **FrankenPHP 1.13.x** (server web + PHP 8.5) incluso nei pacchetti, la
   stessa versione su tutti i sistemi; **Mercure 1.x** per il tempo reale
   (token RFC 9068).
-- **MariaDB 12.3** (Windows: installer ufficiale; Linux: pacchetti della
-  distribuzione; Mac: Homebrew).
+- **MariaDB**: Windows con l'installer ufficiale (12.3), Mac con Homebrew,
+  Linux con i pacchetti della distribuzione.
 
 ### Problemi noti
 
-- **Firefox** su Linux e Mac potrebbe chiedere di accettare il certificato
-  una volta (ha un archivio certificati suo); Chrome, Edge e Safari no.
+- **Firefox su Mac**: non ancora verificato se riconosce da solo il
+  certificato locale (su Windows e Linux sì); se mostra l'avviso, va accettato
+  una volta.
 - Su Mac il primo avvio richiede *Apri comunque* (app non firmata da Apple).
