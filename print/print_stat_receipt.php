@@ -202,6 +202,7 @@ try {
             'method' => 'bridge_native',
             'topic' => $routing['topic'],
             'published' => $published,
+            'publish_error' => $published ? null : bridgePublishErrorMessage(),
         ]);
         exit;
     }

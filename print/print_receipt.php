@@ -700,7 +700,8 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
                 'data_base64' => base64_encode($rawReceipt),
             ], $routing['payload']), $bridgeHubUrl, $bridgeHubUrl !== '' ? $bridgeSecret : '');
 
-            recordPrintOutcome($connectionDB, $id_vendita, $published ? null : 'Ponte di stampa non raggiungibile');
+            $publishError = $published ? null : bridgePublishErrorMessage();
+            recordPrintOutcome($connectionDB, $id_vendita, $publishError !== null ? ucfirst($publishError) : null);
 
             return [
                 'method' => 'bridge_native',
@@ -709,6 +710,8 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
                 // (hub o ponte giu') il frontend avvisa e offre la ristampa,
                 // come per un fallimento QZ - non si perde la vendita.
                 'published' => $published,
+                // Perche' non e' partita (versione diversa / irraggiungibile)
+                'publish_error' => $publishError,
             ];
         }
 

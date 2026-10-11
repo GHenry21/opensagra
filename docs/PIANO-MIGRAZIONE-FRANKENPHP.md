@@ -1089,6 +1089,19 @@ Il maintainer `henderkes` l'aveva notato nella PR #2611 senza risposta. Segnalat
 - **Mercure 1.0.4/1.1 — `encode`:** da Caddy 2.11.7 `encode zstd gzip` comprimeva anche lo stream SSE (un encoder da qualche MiB per cassa collegata, rischio BREACH). Installer e `Caddyfile.example` ora hanno `@compressible not path /.well-known/mercure*` + `encode @compressible zstd gzip`; verificato: risposta SSE senza `Content-Encoding`. Il resto delle note di Mercure 1.1 (registro delle sottoscrizioni autenticato, `protocol_version_compatibility 7`, JWKS remoti) non ci riguarda.
 - Il controllo della versione nei test accetta sia `v1.13.1` (Docker) sia `1.13.0` (statico, senza "v").
 
+**Casse a versioni diverse durante il passaggio 1.12.6 → 1.13 (analisi 2026-10-11).** Ogni cassa firma i token Mercure con il codice della **sua** versione, e i punti in cui parla con l'hub di un'**altra** macchina sono tre: la vendita su un client pubblica sull'hub del server (`publishMercureUpdate`), il relay del client si iscrive all'hub del server (`mercure_subscriber.php`), la stampa tramite ponte pubblica sull'hub del PC con la stampante. Con versioni diverse (token claim 0.x contro hub modern mode, `topic=` contro `match=`):
+
+| Cosa | Effetto |
+|---|---|
+| Vendite (MariaDB del server) | invariate |
+| Catalogo/scorte in tempo reale fra casse, avviso "server in chiusura" | non arrivano; resta il polling |
+| **Stampa tramite ponte** | **non esce** (401 dall'hub dell'altro PC). La vendita è salva, ma la ristampa fallisce finché le versioni non coincidono |
+
+- Il meccanismo di aggiornamento della Fase 6c lo gestisce già: `packaging/` e `install*` sono file guard, quindi ogni cassa vede "serve **reinstallare**" e la guida §10.1/§10.2 spiega l'ordine (prima il centrale). Il rischio resta l'aggiornamento del solo centrale **a servizio iniziato**.
+- **Compatibilità nel codice scartata.** Un token "doppio" (claim 0.x + `authorization_details`) e un tentativo `match=` → `topic=` coprirebbero solo il caso "cassa nuova, server vecchio". Il caso realistico ("server nuovo, casse vecchie") dipende dal codice vecchio delle casse, che non si cambia più. Riattivare `protocol_version_compatibility 7` sull'hub nuovo dipenderebbe dai build tag `deprecated_*` delle build statiche, mai garantiti (mancavano nella 1.13.0).
+- **Fatto (branch `frankenphp-1.13`):** guida §10.2 con l'avviso "reinstalla tutte le casse prima del servizio" (cosa funziona e cosa no nel frattempo); `publishMercureUpdate()` ricorda il motivo dell'ultimo fallimento (`mercureLastPublishError()`: `rejected` per 400/401/403, `unreachable` altrimenti), e la stampa tramite ponte (vendita, ristampa dallo storico, report di chiusura, prova dalla configurazione casse) dice *"il PC con la stampante ha rifiutato la stampa: probabilmente ha una versione di OpenSagra diversa"* invece di "ponte di stampa non raggiungibile". Provato dal vivo: token modern mode del branch contro l'hub 1.12.7 classico di HENRY, **con il segreto giusto** → 401 → messaggio "versione diversa"; porta chiusa → "non raggiungibile".
+- Da mettere nelle **note di rilascio** della versione con FrankenPHP 1.13: reinstallazione obbligatoria su tutte le casse, centrale per primo, prima del servizio.
+
 **Quando esce la 1.13.1:**
 1. aggiornare versione e impronte (`gh api repos/php/frankenphp/releases/tags/v1.13.1 --jq '.assets[] | .digest + "  " + .name'`) nei tre installer e in `frankenphp.sha256`;
 2. ricontrollare Mercure e il `php-cli` sui tre binari;

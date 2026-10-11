@@ -756,6 +756,21 @@ Se la cassa da reinstallare non ha Internet, scarica l'installer da un altro
 PC e portalo con una chiavetta USB. Ricorda l'ordine: prima il PC centrale,
 poi le casse.
 
+**Reinstalla tutte le casse prima del servizio, non solo il centrale.** Quando
+serve reinstallare, finché casse e centrale non sono alla stessa versione:
+
+- le **vendite** funzionano normalmente;
+- il catalogo e le scorte si aggiornano fra le casse con qualche secondo di
+  ritardo invece che subito;
+- la **stampa tramite ponte** (una stampante collegata a un altro PC, §6.1)
+  **non funziona**: la vendita resta registrata, ma lo scontrino non esce e la
+  cassa avvisa che *"il PC con la stampante ha una versione di OpenSagra
+  diversa"*. Esce di nuovo appena entrambi sono alla stessa versione (si
+  ristampa dallo storico ordini).
+
+Quindi aggiorna la sera prima o con calma prima dell'apertura, non a
+servizio iniziato.
+
 ### 10.3 La copia di sicurezza del database
 
 Prima di ogni aggiornamento OpenSagra salva da solo una copia del database di

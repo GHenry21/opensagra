@@ -2034,7 +2034,7 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                             // Il browser non fa nulla. Se il ponte non ha ricevuto, la
                             // vendita è comunque registrata: si ristampa dallo storico.
                             if (response.published === false) {
-                                printIssue = 'ponte di stampa non raggiungibile';
+                                printIssue = response.publish_error || 'ponte di stampa non raggiungibile';
                             }
                             break;
 
@@ -2156,7 +2156,7 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                                         throw new Error('Dati stampa RawBT non disponibili');
                                     }
                                 } else if (response && response.method === 'bridge_native' && response.published === false) {
-                                    throw new Error('ponte di stampa non raggiungibile');
+                                    throw new Error(response.publish_error || 'ponte di stampa non raggiungibile');
                                 }
 
                                 // Ristampa riuscita: il server ha gia' azzerato vendite.stampa_errore

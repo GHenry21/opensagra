@@ -207,9 +207,38 @@ function publishMercureUpdate(string $topic, $data, string $hubUrl = '', string 
 
     if ($result === false || $httpCode !== 200) {
         error_log("publishMercureUpdate: pubblicazione su topic '$topic' fallita (HTTP $httpCode) $curlError");
+        $GLOBALS['mercureLastPublishError'] = in_array($httpCode, [400, 401, 403], true) ? 'rejected' : 'unreachable';
         return false;
     }
+    $GLOBALS['mercureLastPublishError'] = '';
     return true;
+}
+
+/**
+ * Perche' e' fallita l'ultima publishMercureUpdate(): '' (riuscita),
+ * 'rejected' (l'hub ha risposto ma ha rifiutato il token: 400/401/403) o
+ * 'unreachable' (nessuna risposta, o altro errore).
+ *
+ * 'rejected' verso un'altra macchina vuol dire quasi sempre VERSIONI DIVERSE
+ * di OpenSagra: dalla 1.13 l'hub usa la modern mode di Mercure (token RFC
+ * 9068, sottoscrizione con match=), e una cassa ancora alla versione
+ * precedente firma token che l'hub nuovo rifiuta (e viceversa). L'altra
+ * causa possibile e' un segreto del ponte non piu' allineato.
+ */
+function mercureLastPublishError(): string
+{
+    return $GLOBALS['mercureLastPublishError'] ?? '';
+}
+
+/**
+ * Messaggio per l'operatore quando la stampa tramite ponte (bridge nativo)
+ * non e' partita - vedi mercureLastPublishError().
+ */
+function bridgePublishErrorMessage(): string
+{
+    return mercureLastPublishError() === 'rejected'
+        ? 'il PC con la stampante ha rifiutato la stampa: probabilmente ha una versione di OpenSagra diversa da questa cassa (aggiornali alla stessa versione)'
+        : 'ponte di stampa non raggiungibile';
 }
 
 /**

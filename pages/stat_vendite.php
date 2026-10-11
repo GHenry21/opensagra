@@ -607,7 +607,7 @@
                         });
 
                         if (response && response.method === 'bridge_native' && response.published === false) {
-                            window.showToast('Report non arrivato alla stampante: ponte non raggiungibile.', 'error');
+                            window.showToast('Report non arrivato alla stampante: ' + (response.publish_error || 'ponte non raggiungibile') + '.', 'error');
                             return;
                         }
 

@@ -92,7 +92,7 @@ try {
         http_response_code(502);
         echo json_encode([
             'success' => false,
-            'error' => "Hub Mercure non raggiungibile: il test non e' stato inviato al ponte ($topic).",
+            'error' => ucfirst(bridgePublishErrorMessage()) . ": il test non e' stato inviato al ponte ($topic).",
         ]);
         exit;
     }
