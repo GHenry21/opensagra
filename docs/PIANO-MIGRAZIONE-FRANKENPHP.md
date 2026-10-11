@@ -1081,6 +1081,14 @@ Il maintainer `henderkes` l'aveva notato nella PR #2611 senza risposta. Segnalat
 
 **Aggiornamento leggero e cambio di FrankenPHP.** Il rischio della sezione precedente (un'installazione che riceve solo il PHP nuovo e perde il realtime) è già coperto da `release.yml`: l'`opensagra-update.zip` viene allegato solo se la release **non** tocca wrapper, installer o `packaging/` rispetto al tag precedente, e il passaggio alla 1.13 cambia sia `install.ps1` sia `packaging/frankenphp.sha256`. Lacuna corretta il 2026-10-07: il controllo guardava solo gli script Windows, ora include anche `install.sh`, `install-macos.sh` e i rispettivi disinstaller (l'aggiornamento leggero lo applica lo stesso wrapper su tutti gli OS).
 
+**Aggiornamento 2026-10-11 — 1.13.1 verificata con l'immagine Docker ufficiale.** La correzione di #2690 è entrata (PR #2691, 10 ottobre) e #2685 è chiusa. Il tag `v1.13.1` e le immagini Docker esistono, ma la release su GitHub è rimasta in bozza: la build Linux x86_64 **debug** è fallita per un `curl: (22) … 500` durante un download, e il caricamento dei file è saltato. Non c'è un cron che la rilanci, perché i cron notturni (00:00 Linux/macOS, 04:00 Docker, 08:00 Windows, UTC) ricompilano solo l'ultima release **pubblicata**: serve che un maintainer rilanci il job. Nel frattempo `test-frankenphp-docker.yml` (branch `frankenphp-1.13`, run `38115424343`, verde) ha provato `dunglas/frankenphp:1.13.1` con il codice di OpenSagra:
+- binario `FrankenPHP v1.13.1 PHP 8.5.11 Caddy v2.11.7`, **Mercure v1.1.1** (tag `deprecated_topic,deprecated_claim`; ora è la stessa versione nel `go.mod` per Windows e per le build statiche, che prendono l'ultima);
+- `php-cli` + `getopt()` → `{"a":"1"}`: **#2690 corretto**;
+- `crea_dbtable_and_user.php --root-*` → database e utente `@'%'`/`127.0.0.1`/`localhost` creati;
+- Caddyfile modern mode accettato, token dell'app, `match=` → evento ricevuto; `topic=` → 400 come previsto; token falso rifiutato; pagina dell'app `302`.
+- **Mercure 1.0.4/1.1 — `encode`:** da Caddy 2.11.7 `encode zstd gzip` comprimeva anche lo stream SSE (un encoder da qualche MiB per cassa collegata, rischio BREACH). Installer e `Caddyfile.example` ora hanno `@compressible not path /.well-known/mercure*` + `encode @compressible zstd gzip`; verificato: risposta SSE senza `Content-Encoding`. Il resto delle note di Mercure 1.1 (registro delle sottoscrizioni autenticato, `protocol_version_compatibility 7`, JWKS remoti) non ci riguarda.
+- Il controllo della versione nei test accetta sia `v1.13.1` (Docker) sia `1.13.0` (statico, senza "v").
+
 **Quando esce la 1.13.1:**
 1. aggiornare versione e impronte (`gh api repos/php/frankenphp/releases/tags/v1.13.1 --jq '.assets[] | .digest + "  " + .name'`) nei tre installer e in `frankenphp.sha256`;
 2. ricontrollare Mercure e il `php-cli` sui tre binari;
