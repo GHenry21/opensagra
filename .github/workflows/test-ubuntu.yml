@@ -147,7 +147,7 @@ jobs:
           pub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt(["ci-test"], [], 300);')
           sub=$("$fp" php-cli -r 'require "config/mercure.php"; echo mintMercureJwt([], ["ci-test"], 300);')
           hub=https://localhost/.well-known/mercure
-          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" > /tmp/sse.txt &
+          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" "$hub?match=ci-test" > /tmp/sse.txt &
           sleep 2
           id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-da-ubuntu "$hub")
           echo "id pubblicazione: $id"

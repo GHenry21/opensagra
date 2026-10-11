@@ -1,0 +1,150 @@
+name: Verifica FrankenPHP (immagine Docker ufficiale)
+
+# Prova una versione di FrankenPHP con il codice di OpenSagra PRIMA che i suoi
+# binari statici siano pubblicati: usa l'immagine Docker ufficiale
+# dunglas/frankenphp:<versione> (stesso codice FrankenPHP/Caddy/Mercure, ma
+# build Debian invece che statica). Nata il 2026-10-11 per la 1.13.1: tag e
+# immagini Docker pubblicati, release su GitHub bloccata da un job fallito
+# (build debug, errore 500 di un download).
+#
+# Verifica: versione di Mercure nel binario, php-cli che passa gli argomenti
+# a getopt() (php/frankenphp#2690), provisioning del DB con
+# crea_dbtable_and_user.php, Caddyfile "modern mode" degli installer, token
+# dell'app (config/mercure.php) accettato, sottoscrizione con match=,
+# stream di Mercure non compresso. NON sostituisce i test degli installer
+# (test-macos.yml, test-ubuntu.yml, ...), che usano i binari statici.
+
+on:
+  # Il lancio manuale funziona solo con il file su main: finche' sta solo
+  # sul branch, parte quando lo si modifica.
+  push:
+    branches: [frankenphp-1.13]
+    paths: [.github/workflows/test-frankenphp-docker.yml]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versione di FrankenPHP (tag dell'immagine Docker)"
+        default: "1.13.1"
+
+permissions:
+  contents: read
+
+jobs:
+  verifica:
+    runs-on: ubuntu-latest
+    env:
+      V: ${{ inputs.version || '1.13.1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable # solo `go version -m` per leggere il binario
+
+      - name: Prepara configurazione, MariaDB e FrankenPHP
+        run: |
+          set -euxo pipefail
+          secret=$(openssl rand -hex 32)
+          echo "SECRET=$secret" >> "$GITHUB_ENV"
+          printf '%s\n' \
+            'DB_POS_HOST=db' 'DB_POS_USER=pos_ci' 'DB_POS_PASS=pos_ci_pw' \
+            "MERCURE_JWT_SECRET=$secret" > config/variabili.env
+          # Stesso blocco di sito di install.sh (modern mode + encode senza
+          # lo stream di Mercure), senza le regole @private non pertinenti.
+          cat > ci.Caddyfile <<EOF
+          {
+          	frankenphp
+          	skip_install_trust
+          }
+
+          https://localhost {
+          	root * /app
+          	@compressible not path /.well-known/mercure*
+          	encode @compressible zstd gzip
+          	php_server
+          	tls internal
+
+          	mercure {
+          		issuer opensagra-hub {
+          			publisher {
+          				jwt $secret
+          			}
+          			subscriber {
+          				jwt $secret
+          			}
+          		}
+          		resource_identifier https://opensagra-hub/.well-known/mercure
+          		cookie_name mercure_authorization
+          		cors_origins https://localhost
+          		heartbeat 20s
+          	}
+          }
+          EOF
+          cat ci.Caddyfile
+          printf '%s\n' '<?php echo json_encode(getopt("", ["a:"])), "\n";' > ci-argv.php
+
+          docker network create t
+          docker run -d --name db --network t -e MARIADB_ROOT_PASSWORD=rootpw mariadb:lts
+          docker pull "dunglas/frankenphp:$V"
+          docker run -d --name fp --network t -p 8443:443 -v "$PWD:/app" -w /app \
+            "dunglas/frankenphp:$V" frankenphp run --config /app/ci.Caddyfile
+          for i in $(seq 1 30); do curl -sk -o /dev/null https://localhost:8443/ && break; sleep 1; done
+          docker logs fp 2>&1 | tail -20
+
+      - name: Versione e Mercure nel binario ufficiale
+        run: |
+          set -eux
+          docker exec fp frankenphp version | tee /tmp/ver.txt
+          grep -wF "$V" /tmp/ver.txt
+          docker cp fp:/usr/local/bin/frankenphp ./fp-bin
+          go version -m ./fp-bin | grep -E 'dunglas/mercure|caddyserver/caddy/v2 |-tags'
+
+      - name: php-cli passa gli argomenti a getopt() (php/frankenphp#2690)
+        run: |
+          set -eux
+          out=$(docker exec fp frankenphp php-cli /app/ci-argv.php --a=1)
+          echo "$out"
+          [ "$out" = '{"a":"1"}' ]
+
+      - name: Provisioning del DB (crea_dbtable_and_user.php con --root-*)
+        run: |
+          set -eux
+          # L'immagine ufficiale non ha mysqli (i binari statici si')
+          docker exec fp install-php-extensions mysqli
+          for i in $(seq 1 30); do docker exec db mariadb -uroot -prootpw -e 'SELECT 1' && break; sleep 2; done
+          docker exec fp frankenphp php-cli config/crea_dbtable_and_user.php \
+            --root-host=db --root-user=root --root-pass=rootpw
+          docker exec db mariadb -uroot -prootpw -e 'SHOW DATABASES' | grep opensagra_pos
+          docker exec db mariadb -uroot -prootpw -N -e "SELECT CONCAT(User,'@',Host) FROM mysql.user WHERE User='pos_ci'"
+
+      - name: Mercure - token dell'app, match=, pubblica e ricevi
+        run: |
+          set -eux
+          mint() { docker exec fp frankenphp php-cli -r "require 'config/mercure.php'; echo mintMercureJwt($1, $2, 300, '$SECRET');"; }
+          pub=$(mint "['ci-test']" "[]")
+          sub=$(mint "[]" "['ci-test']")
+          hub=https://localhost:8443/.well-known/mercure
+          curl -sk -N --max-time 8 -H "Authorization: Bearer $sub" -H 'Accept-Encoding: gzip, zstd' \
+            -D /tmp/sse-headers.txt "$hub?match=ci-test" > /tmp/sse.txt &
+          sleep 2
+          id=$(curl -sk -X POST -H "Authorization: Bearer $pub" -d topic=ci-test -d data=ciao-dalla-1.13 "$hub")
+          echo "id pubblicato: $id"
+          [ -n "$id" ]
+          wait || true
+          cat /tmp/sse-headers.txt
+          cat /tmp/sse.txt
+          grep -q 'data: ciao-dalla-1.13' /tmp/sse.txt
+          # Stream non compresso (encode esclude /.well-known/mercure*)
+          if grep -qi '^content-encoding:' /tmp/sse-headers.txt; then echo "::error::stream di Mercure compresso"; exit 1; fi
+          # Atteso con Mercure 1.x: il vecchio topic= rifiutato (per questo match=)
+          code=$(curl -sk -o /tmp/old.txt -w '%{http_code}' --max-time 5 -H "Authorization: Bearer $sub" "$hub?topic=ci-test" || true)
+          echo "topic= -> $code: $(cat /tmp/old.txt)"
+          # Token sbagliato rifiutato
+          code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer x.y.z" -d topic=ci-test -d data=no "$hub")
+          [ "$code" != "200" ]
+          # La pagina dell'app risponde (PHP vero, non solo l'hub)
+          curl -sk -o /dev/null -w 'https://localhost -> %{http_code}\n' https://localhost:8443/
+
+      - name: Log
+        if: always()
+        run: docker logs fp 2>&1 | tail -60

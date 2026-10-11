@@ -345,7 +345,12 @@ new_caddy_config() {
 
 $https_hosts {
 	root * $INSTALL_DIR
-	encode zstd gzip
+	# Stream di Mercure NON compresso: da Caddy 2.11.7 (FrankenPHP 1.13) `encode`
+	# lo comprimerebbe, con un encoder da qualche MiB per ogni cassa collegata
+	# e rischio BREACH (note di Mercure 1.0.4 e 1.1.0). `*` copre anche
+	# /.well-known/mercure/subscriptions.
+	@compressible not path /.well-known/mercure*
+	encode @compressible zstd gzip
 	php_server
 	tls internal
 
