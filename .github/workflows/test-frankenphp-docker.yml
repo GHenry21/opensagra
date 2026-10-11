@@ -95,7 +95,7 @@ jobs:
         run: |
           set -eux
           docker exec fp frankenphp version | tee /tmp/ver.txt
-          grep -wF "$V" /tmp/ver.txt
+          grep -E "(^| |v)${V//./\.}( |$)" /tmp/ver.txt
           docker cp fp:/usr/local/bin/frankenphp ./fp-bin
           go version -m ./fp-bin | grep -E 'dunglas/mercure|caddyserver/caddy/v2 |-tags'
 

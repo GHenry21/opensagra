@@ -102,7 +102,7 @@ jobs:
           test ! -e "$HOME/opensagra/VERSION"
           # FrankenPHP: la versione fissata, presa dal pacchetto (nessun download)
           want=$(sed -n 's/^#[[:space:]]*version:[[:space:]]*//p' packaging/frankenphp.sha256)
-          "$HOME/.frankenphp/frankenphp" version | grep -wF "$want"
+          "$HOME/.frankenphp/frankenphp" version | grep -E "(^| |v)${want//./\.}( |$)"
           if grep -q 'Scarico FrankenPHP' /tmp/opensagra-install.log; then echo "::error::FrankenPHP scaricato invece di usare quello del pacchetto"; exit 1; fi
           test ! -e "$HOME/opensagra/frankenphp"
 
