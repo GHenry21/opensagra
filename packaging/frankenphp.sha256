@@ -11,10 +11,13 @@
 # Windows 0.24 (php/frankenphp#2685, vedi PIANO-MIGRAZIONE-FRANKENPHP.md,
 # Fase 4): per questo si era rimasti alla v1.12.6 con la sintassi Mercure 0.x.
 # Con Mercure 1.0 il Caddyfile usa il modern mode (blocco issuer, token
-# RFC 9068 firmati da config/mercure.php). Per aggiornare: nuova versione qui
-# sotto + impronte (gh api repos/php/frankenphp/releases/tags/vX.Y.Z --jq
-# '.assets[] | .digest + "  " + .name'), controllando che la Mercure sia
-# ancora la stessa su tutti gli OS (lo fa .github/workflows/frankenphp-watch.yml).
+# RFC 9068 firmati da config/mercure.php). Per aggiornare:
+#   bash packaging/set-frankenphp-version.sh X.Y.Z
+# che legge le impronte dalla release, controlla Mercure uguale su tutti gli
+# OS e php-cli + getopt(), e solo allora riscrive questo file e gli installer.
+# Attenzione: le ricompilazioni notturne di FrankenPHP cambiano le impronte
+# (e possono cambiare Mercure: il 2026-10-11 la 1.13.0 ricompilata aveva
+# Mercure v1.1.1 su Linux/macOS e v1.0.3 su Windows) - rilanciare lo script.
 #
 # Le stesse costanti (versione) sono negli installer: FRANKENPHP_VERSION in
 # install.sh / install-macos.sh, $Script:FrankenPhpVersion in install.ps1 -
