@@ -18,6 +18,11 @@
 # Attenzione: le ricompilazioni notturne di FrankenPHP cambiano le impronte
 # (e possono cambiare Mercure: il 2026-10-11 la 1.13.0 ricompilata aveva
 # Mercure v1.1.1 su Linux/macOS e v1.0.3 su Windows) - rilanciare lo script.
+# Per non dipendere da quelle ricompilazioni, subito dopo i test:
+#   bash packaging/mirror-frankenphp.sh
+# copia i cinque asset in una pre-release frankenphp-v<versione> di questo
+# repo; make-unix-package.sh, Get-FrankenPHP.ps1 e gli installer scaricano
+# prima da li', poi dalla release ufficiale (impronta verificata comunque).
 #
 # Le stesse costanti (versione) sono negli installer: FRANKENPHP_VERSION in
 # install.sh / install-macos.sh, $Script:FrankenPhpVersion in install.ps1 -

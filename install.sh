@@ -184,9 +184,10 @@ install_frankenphp() {
     if [ -f "$SOURCE_DIR/frankenphp/$asset" ]; then
         cp "$SOURCE_DIR/frankenphp/$asset" "$tmp"
     else
-        local url="https://github.com/php/frankenphp/releases/download/v$FRANKENPHP_VERSION/$asset"
+        # Prima la copia nel repo di OpenSagra (packaging/mirror-frankenphp.sh):
+        # la release ufficiale viene ricompilata ogni notte, la copia no.
         log "Scarico FrankenPHP $FRANKENPHP_VERSION ($asset)..."
-        curl -fL --retry 3 -o "$tmp" "$url" || die "Download di FrankenPHP fallito ($url)"
+        curl -fsL --retry 3 -o "$tmp" "https://github.com/GHenry21/opensagra/releases/download/frankenphp-v$FRANKENPHP_VERSION/$asset"             || curl -fL --retry 3 -o "$tmp" "https://github.com/php/frankenphp/releases/download/v$FRANKENPHP_VERSION/$asset"             || die "Download di FrankenPHP $FRANKENPHP_VERSION ($asset) fallito"
     fi
     chmod +x "$tmp"
     "$tmp" version >/dev/null 2>&1 || { rm -f "$tmp"; die "FrankenPHP non si avvia (binario incompatibile con questa CPU/libc?)"; }

@@ -43,10 +43,20 @@ function Get-FrankenPhpAsset {
     $path = Join-Path $cacheDir $Name
 
     if (-not (Test-Path $path) -or (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected) {
-        $url = "https://github.com/php/frankenphp/releases/download/v$($lock.Version)/$Name"
-        Write-Host "     scarico $Name (FrankenPHP v$($lock.Version))..." -ForegroundColor DarkGray
+        # Prima la NOSTRA copia (packaging/mirror-frankenphp.sh, release
+        # frankenphp-v<versione> di questo repo): FrankenPHP ricompila ogni notte
+        # gli asset della sua ultima release (impronte cambiate, a volte un'altra
+        # Mercure solo su Linux/macOS), la copia no. Poi la release ufficiale.
         $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest e' lentissimo con la barra
-        Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
+        foreach ($base in @("https://github.com/GHenry21/opensagra/releases/download/frankenphp-v$($lock.Version)",
+                            "https://github.com/php/frankenphp/releases/download/v$($lock.Version)")) {
+            Write-Host "     scarico $Name (FrankenPHP v$($lock.Version)) da $($base -replace '/releases/.*$', '')..." -ForegroundColor DarkGray
+            try { Invoke-WebRequest -Uri "$base/$Name" -OutFile $path -UseBasicParsing -ErrorAction Stop }
+            catch { Remove-Item $path -Force -ErrorAction SilentlyContinue; continue }
+            if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -eq $expected) { break }
+            Write-Host "       impronta diversa, provo la fonte successiva" -ForegroundColor DarkGray
+        }
+        if (-not (Test-Path $path)) { throw "Download di '$Name' (FrankenPHP v$($lock.Version)) fallito da tutte le fonti." }
     }
 
     $actual = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()

@@ -56,10 +56,21 @@ fp_hash="$(awk -v n="$asset" '$2==n {print $1}' "$LOCK")"
 cache="$REPO_ROOT/.cache/frankenphp/v$fp_version"
 mkdir -p "$cache"
 fp_file="$cache/$asset"
+# Prima la NOSTRA copia (packaging/mirror-frankenphp.sh, release
+# frankenphp-v<versione> di questo repo): FrankenPHP ricompila ogni notte gli
+# asset della sua ultima release e li sostituisce (impronte cambiate, a volte
+# un'altra Mercure solo su Linux/macOS), la copia no. Se manca, la release
+# ufficiale. L'impronta si verifica comunque.
 if [ ! -f "$fp_file" ] || [ "$(sha256 "$fp_file")" != "$fp_hash" ]; then
-    echo "  scarico $asset (FrankenPHP v$fp_version)..."
-    curl -fsSL --retry 3 -o "$fp_file" "https://github.com/php/frankenphp/releases/download/v$fp_version/$asset"
+    for base in "https://github.com/GHenry21/opensagra/releases/download/frankenphp-v$fp_version" \
+                "https://github.com/php/frankenphp/releases/download/v$fp_version"; do
+        echo "  scarico $asset (FrankenPHP v$fp_version) da ${base%%/releases/*}..."
+        curl -fsSL --retry 3 -o "$fp_file" "$base/$asset" 2>/dev/null || { rm -f "$fp_file"; continue; }
+        [ "$(sha256 "$fp_file")" = "$fp_hash" ] && break
+        echo "    impronta diversa, provo la fonte successiva"
+    done
 fi
+[ -f "$fp_file" ] || die "download di $asset (FrankenPHP v$fp_version) fallito da tutte le fonti"
 actual="$(sha256 "$fp_file")"
 if [ "$actual" != "$fp_hash" ]; then
     rm -f "$fp_file"

@@ -436,7 +436,13 @@ function Install-FrankenPHP {
         $zipPath = $bundledZip
     } else {
         $zipPath = Join-Path $env:TEMP "frankenphp-windows-$PID.zip"
-        Invoke-WebRequest -Uri "https://github.com/php/frankenphp/releases/download/v$($Script:FrankenPhpVersion)/frankenphp-windows-x86_64.zip" -OutFile $zipPath
+        # Prima la copia nel repo di OpenSagra (packaging/mirror-frankenphp.sh):
+        # la release ufficiale viene ricompilata ogni notte, la copia no.
+        try {
+            Invoke-WebRequest -Uri "https://github.com/GHenry21/opensagra/releases/download/frankenphp-v$($Script:FrankenPhpVersion)/frankenphp-windows-x86_64.zip" -OutFile $zipPath -ErrorAction Stop
+        } catch {
+            Invoke-WebRequest -Uri "https://github.com/php/frankenphp/releases/download/v$($Script:FrankenPhpVersion)/frankenphp-windows-x86_64.zip" -OutFile $zipPath
+        }
         $downloaded = $true
     }
     # Se una cartella parziale resta da un tentativo precedente interrotto,

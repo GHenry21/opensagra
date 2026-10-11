@@ -142,4 +142,5 @@ replace_line "$root/install.ps1" "^[$]Script:FrankenPhpVersion = '" "\$Script:Fr
 
 echo
 echo "OK: FrankenPHP $version in packaging/frankenphp.sha256, install.sh, install-macos.sh, install.ps1."
-echo "Ora: rileggi il changelog di FrankenPHP/Mercure, poi i test degli installer (vedi intestazione)."
+echo "Ora: rileggi il changelog di FrankenPHP/Mercure, poi i test degli installer (vedi intestazione),"
+echo "poi SUBITO la copia degli asset nel nostro repo: bash packaging/mirror-frankenphp.sh"
