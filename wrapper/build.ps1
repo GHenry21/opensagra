@@ -113,7 +113,7 @@ try {
     $ldflags = "-X main.WrapperVersion=$releaseVersion"
     if (-not $Console) { $ldflags = "-H=windowsgui $ldflags" }
     Write-Host "`ngo build$(if ($Console) { ' (console, debug)' } else { ' (-H=windowsgui, produzione)' })..." -ForegroundColor Cyan
-    $buildArgs = @('build', '-ldflags', $ldflags, '-o', $OutExe, './...')
+    $buildArgs = @('build', '-ldflags', $ldflags, '-o', $OutExe, '.')
     & $goExe @buildArgs
     if ($LASTEXITCODE -ne 0) { throw 'go build fallito.' }
 }

@@ -31,7 +31,27 @@ function detectLocalLanIp(): ?string
 
 function detectLocalLanIpUncached(): ?string
 {
-    // Metodo primario (Windows): l'adattatore con un gateway predefinito è
+    // Metodo primario, ogni OS: un socket UDP "connesso" verso un indirizzo
+    // esterno non invia nulla (UDP non ha handshake), ma fa scegliere al
+    // sistema l'interfaccia d'uscita della rotta predefinita - quella con il
+    // gateway, esattamente il criterio del metodo PowerShell qui sotto, senza
+    // lanciare un processo. Aggiunto 2026-10-07: su Linux/macOS PowerShell non
+    // c'e' e il fallback gethostbyname() dava 127.0.1.1 (Debian lo scrive in
+    // /etc/hosts per l'hostname), quindi la pagina Rete di un server Linux non
+    // mostrava ne' l'IP ne' il QR per i telefoni. 192.0.2.1 = TEST-NET-1
+    // (RFC 5737), mai instradato davvero. Senza rotta predefinita fallisce e
+    // si passa ai metodi sotto.
+    $sock = @stream_socket_client('udp://192.0.2.1:9', $errno, $errstr, 1);
+    if ($sock !== false) {
+        $name = stream_socket_get_name($sock, false);
+        fclose($sock);
+        $ip = is_string($name) ? substr($name, 0, (int) strrpos($name, ':')) : '';
+        if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && !str_starts_with($ip, '127.') && $ip !== '0.0.0.0') {
+            return $ip;
+        }
+    }
+
+    // Windows: l'adattatore con un gateway predefinito è
     // quello davvero collegato alla LAN — esclude naturalmente gli switch
     // virtuali (Hyper-V, VMware), Tailscale, il PAN Bluetooth, che di norma
     // non ne hanno uno. Scoperto necessario il 2026-09-07: dopo aver

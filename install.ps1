@@ -612,6 +612,36 @@ function Register-MariaDBService {
     Add-InstallChecklistItem 'Servizio MariaDB registrato e avviato'
 }
 
+function Set-MariaDBNameResolution {
+    # skip-name-resolve: senza, MariaDB cerca il nome di ogni client (reverse
+    # DNS) prima dell'handshake. Alla sagra, senza Internet e con un DNS che non
+    # risponde, la ricerca puo' durare 5 s o piu' - oltre il timeout di 3 s con
+    # cui le casse si collegano (config/get_db_connection.php): ogni cassa
+    # client cadrebbe in fallback. Nessun account di OpenSagra dipende da un
+    # nome host (solo localhost, 127.0.0.1 e '%'; l'MSI crea anche
+    # root@<nome-pc>, mai usato). Idempotente: riavvia MariaDB solo se cambia.
+    $ini = Join-Path $Script:MariaDbDir 'data\my.ini'
+    if (-not (Test-Path $ini)) {
+        Add-InstallChecklistItem "my.ini di MariaDB non trovato ($ini): ricerca DNS dei client lasciata attiva" -State error
+        return
+    }
+    $lines = @(Get-Content -Path $ini)
+    if ($lines | Where-Object { $_ -match '^\s*skip[-_]name[-_]resolve\b' }) {
+        return
+    }
+    if ($lines | Where-Object { $_ -match '^\s*\[mysqld\]\s*$' }) {
+        $out = foreach ($l in $lines) {
+            $l
+            if ($l -match '^\s*\[mysqld\]\s*$') { 'skip-name-resolve' }
+        }
+    } else {
+        $out = @('[mysqld]', 'skip-name-resolve') + $lines
+    }
+    Set-Content -Path $ini -Value $out -Encoding ascii
+    Restart-Service MariaDB
+    Add-InstallChecklistItem 'MariaDB: nessuna ricerca DNS sui client (connessioni veloci anche senza Internet)'
+}
+
 function Copy-AppFiles {
     New-Item -ItemType Directory -Force -Path $Script:InstallPath | Out-Null
     Get-ChildItem -Path $Script:SourcePath -Force | Where-Object {
@@ -763,6 +793,25 @@ function New-CaddyConfig {
 	}
 "@
 
+    # Il webroot e' l'intera cartella dell'app: senza questo blocco FrankenPHP
+    # serviva a chiunque in LAN config\variabili.env (password DB + segreto
+    # Mercure), il Caddyfile, i log, e i php-cli di bin\ e config\ eseguibili
+    # via HTTP (trovato 2026-10-07, piano Fase 6). Al browser servono solo
+    # pages/ api/ print/ assets/ uploads/ cert/ e l'hub /.well-known/mercure.
+    # 404 e non 403: non conferma che il file esista. `respond` e' ordinato da
+    # Caddy prima di php_server; i `handle` di /db restano prima di entrambi.
+    $privateRoute = @"
+	@private path /config/* /bin/* /logs/* /wrapper/* /private/* /tools/* /vendor/* /includes/* /frankenphp/* /packaging/* /docs/* /e2e/* /node_modules/* /Caddyfile* /composer.json /composer.lock /package.json /package-lock.json /*.ps1 /*.sh /*.exe /*.zip /*.md /*.log /*.sql /*.env
+	@dotfiles {
+		path_regexp /\.
+		not path /.well-known/*
+	}
+	@uploadsphp path_regexp (?i)^/uploads/.*\.(php|phtml|phar)
+	respond @private 404
+	respond @dotfiles 404
+	respond @uploadsphp 404
+"@
+
     # Solo HTTPS - niente piu' un blocco http://:80 che serve l'app in chiaro.
     # Motivo storico dell'HTTP (vedi docs/PIANO-MIGRAZIONE-FRANKENPHP.md,
     # "Appendice C"): QZ Tray, il vecchio metodo di stampa condivisa via
@@ -793,6 +842,7 @@ $httpsHosts {
 	tls internal
 
 $dbRoute
+$privateRoute
 $httpsMercure
 }
 "@ | Out-File -FilePath $caddyPath -Encoding ascii -Force
@@ -803,9 +853,22 @@ $httpsMercure
 # Invoke-NativeCaptured (vedi la nota li' per il perche' - qui serviva anche
 # per evitare che l'output finisse sull'host minimale di ps2exe come
 # MessageBox bloccante per riga, oltre al rischio di restare impantanato).
+#
+# OPENSAGRA_DB_HOST=127.0.0.1 (letto da config/env_reader.php): provisioning,
+# seed del segreto Mercure e migrazioni toccano SEMPRE il MariaDB di questa
+# macchina. Su un client DB_POS_HOST punta al server: senza, la reinstallazione
+# di un client migrerebbe il DB condiviso e ci scriverebbe il proprio segreto
+# Mercure (piano, Fase 6c punto B). Solo per la durata del figlio: il wrapper
+# avviato a fine installazione eredita l'ambiente, e FrankenPHP non deve mai
+# vederla.
 function Invoke-PhpCli {
     param([Parameter(Mandatory)][string]$ScriptPath)
-    $result = Invoke-NativeCaptured -FilePath "$Script:FrankenDir\frankenphp.exe" -ArgumentList @('php-cli', $ScriptPath)
+    $env:OPENSAGRA_DB_HOST = '127.0.0.1'
+    try {
+        $result = Invoke-NativeCaptured -FilePath "$Script:FrankenDir\frankenphp.exe" -ArgumentList @('php-cli', $ScriptPath)
+    } finally {
+        Remove-Item Env:\OPENSAGRA_DB_HOST -ErrorAction SilentlyContinue
+    }
     return $result.ExitCode
 }
 
@@ -1060,6 +1123,7 @@ try {
 
     Set-InstallProgress -Percent 35 -Status 'Registrazione del servizio database...'
     Register-MariaDBService
+    Set-MariaDBNameResolution
 
     Set-InstallProgress -Percent 45 -Status 'Copia dei file dell''app...'
     Copy-AppFiles

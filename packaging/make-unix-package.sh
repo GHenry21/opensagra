@@ -97,11 +97,26 @@ mkdir -p "$stage/wrapper"
 echo "  compilo il wrapper ($goos/$goarch)..."
 (cd "$REPO_ROOT/wrapper" && GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -o "$stage/wrapper/$wrapper_name" .)
 
+# Installer grafico (installer/, la finestra di avanzamento come su Windows):
+# su Linux un eseguibile accanto a install.sh, Go puro come il wrapper. Su
+# macOS no: li' serve cgo (webview) e lo costruisce make-macos-app.sh su un
+# Mac, dentro un'app con questo stesso pacchetto al suo interno.
+if [ "$goos" = linux ]; then
+    echo "  compilo l'installer grafico ($goos/$goarch)..."
+    (cd "$REPO_ROOT/installer" && GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -trimpath -o "$stage/Installa OpenSagra" .)
+    chmod +x "$stage/Installa OpenSagra"
+fi
+
 mkdir -p "$stage/frankenphp"
 cp "$fp_file" "$stage/frankenphp/$asset"
 chmod +x "$stage/frankenphp/$asset" "$stage/wrapper/$wrapper_name"
 chmod +x "$stage"/install*.sh "$stage"/uninstall*.sh 2>/dev/null || true
 printf '%s' "$version" > "$stage/VERSION"
+
+# Manifesto dei file installati (wrapper/manifest): install.sh lo copia in
+# config/ con il resto, e il wrapper lo confronta con quello di una versione
+# nuova per decidere offline se basta l'aggiornamento leggero.
+(cd "$REPO_ROOT/wrapper" && go run ./cmd/mkmanifest -root .. -version "$version" -out "$stage/config/.app_manifest.json")
 
 out="$REPO_ROOT/$name-$OS-$ARCH.tar.gz"
 tar -C "$work" -czf "$out" "$name"

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Installer OpenSagra per Linux (Debian/Raspberry Pi OS) - equivalente di
-# install.ps1 per Windows. Porta una macchina con solo Debian/Raspberry Pi OS
-# a "app funzionante" (FrankenPHP + MariaDB + wrapper come supervisore dei
+# Installer OpenSagra per Linux (Debian, Raspberry Pi OS, Ubuntu, Fedora) -
+# equivalente di install.ps1 per Windows. Porta una macchina Linux appena
+# installata a "app funzionante" (FrankenPHP + MariaDB + wrapper come supervisore dei
 # processi), stessa configurazione "indipendente" di default - il passaggio a
 # client si fa DOPO, dalla pagina Configurazione Rete dentro l'app (vedi
 # install.ps1 per lo stesso ragionamento, identico qui).
@@ -9,7 +9,7 @@
 # A differenza di install.ps1 (un solo eseguibile elevato, con un task
 # pianificato INTERACTIVE per de-elevare l'avvio del wrapper) qui non serve
 # nessun trucco di de-elevazione: lo script gira come utente normale e usa
-# `sudo` solo sui singoli comandi che lo richiedono davvero (apt, setcap,
+# `sudo` solo sui singoli comandi che lo richiedono davvero (apt/dnf, setcap,
 # systemctl di sistema per MariaDB, loginctl). Il wrapper e la sua unit
 # systemd --user restano SEMPRE nel contesto dell'utente normale.
 #
@@ -32,12 +32,61 @@ set -euo pipefail
 INSTALL_DIR="$HOME/opensagra"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRANKEN_DIR="$HOME/.frankenphp"
+# $USER non e' garantito (docker exec, cron, alcuni servizi): con set -u
+# una variabile non impostata ferma lo script (visto nel test Fedora).
+USER="${USER:-$(id -un)}"
 LOG_FILE="/tmp/opensagra-install.log"
 : > "$LOG_FILE"
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG_FILE"; }
 ok()  { echo "  OK: $*" | tee -a "$LOG_FILE"; }
 die() { echo "ERRORE: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
+
+# Famiglia della distribuzione. Cambiano i comandi dei pacchetti, la cartella
+# dei .cnf di MariaDB, il firewall e lo store dei certificati: famiglia
+# "debian" (Debian, Raspberry Pi OS, Ubuntu - apt) o "fedora" (Fedora e
+# derivate RHEL - dnf). Stesso blocco in install.sh e uninstall.sh.
+if command -v apt-get >/dev/null 2>&1; then
+    DISTRO_FAMILY=debian
+elif command -v dnf >/dev/null 2>&1; then
+    DISTRO_FAMILY=fedora
+else
+    DISTRO_FAMILY=unsupported
+fi
+
+# pkg_installed: dpkg -s / rpm -q, non `command -v`: i binari di sistema
+# stanno spesso in /usr/sbin, che una shell utente non ha nel $PATH (falso
+# "assente" e reinstallazione a ogni rilancio, visto sul Pi 2026-10-02).
+pkg_installed() {
+    case "$DISTRO_FAMILY" in
+        debian) dpkg -s "$1" >/dev/null 2>&1 ;;
+        fedora) rpm -q "$1" >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
+pkg_install() {
+    case "$DISTRO_FAMILY" in
+        debian) sudo apt-get update -qq && sudo apt-get install -y -qq "$@" ;;
+        fedora) sudo dnf install -y -q "$@" ;;
+        *) return 1 ;;
+    esac
+}
+
+# rand_hex <byte>: stringa casuale esadecimale. /dev/urandom + od (coreutils,
+# sempre presenti) e non `openssl rand`: il comando openssl manca su alcune
+# installazioni minimali (visto nel container Fedora di test, 2026-10-07).
+rand_hex() { head -c "$1" /dev/urandom | od -An -vtx1 | tr -d ' \n'; }
+
+# pkg_name <nome-debian> <nome-fedora>: stesso programma, pacchetto diverso.
+pkg_name() { if [ "$DISTRO_FAMILY" = fedora ]; then echo "$2"; else echo "$1"; fi; }
+
+# .cnf di MariaDB, letti in ordine alfabetico da entrambe: 99-* prevale.
+if [ "$DISTRO_FAMILY" = fedora ]; then
+    MARIADB_CNF_DIR=/etc/my.cnf.d
+else
+    MARIADB_CNF_DIR=/etc/mysql/mariadb.conf.d
+fi
 
 # Cartelle/file del repo da NON copiare in $INSTALL_DIR - materiale di
 # sviluppo, non serve a chi usa l'app. Stessa lista logica di
@@ -56,6 +105,7 @@ EXCLUDE_FROM_COPY=(
     wrapper
     VERSION # metadato del pacchetto (letto da app_version), non un file dell'app
     frankenphp # binario incluso nel pacchetto, lo installa install_frankenphp
+    "Installa OpenSagra" # installer grafico accanto a questo script (installer/)
 )
 
 # app_version: stessa fonte di install.ps1 - il file VERSION che il pacchetto
@@ -81,7 +131,11 @@ test_prerequisites() {
     [ "$(uname -s)" = "Linux" ] || die "Questo installer supporta solo Linux."
     [ "$EUID" -ne 0 ] || die "Non lanciare come root: lo script chiede sudo da solo dove serve (systemd --user va registrato come utente normale, non come root)."
     command -v sudo >/dev/null || die "sudo non trovato."
-    ok "prerequisiti di base"
+    [ "$DISTRO_FAMILY" != unsupported ] || die "Distribuzione non supportata: servono apt (Debian, Raspberry Pi OS, Ubuntu) o dnf (Fedora)."
+    # curl serve (API admin di Caddy, download di riserva di FrankenPHP) ma
+    # manca su alcune installazioni minimali (es. Debian senza desktop).
+    command -v curl >/dev/null 2>&1 || pkg_install curl || die "Installazione di curl fallita"
+    ok "prerequisiti di base ($(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}"))"
 }
 
 # install_frankenphp: binario statico ufficiale (musl, "portable" - nessuna
@@ -159,13 +213,13 @@ install_frankenphp() {
 # setcap/getcap vivono in /usr/sbin, che una shell utente normale spesso non
 # ha nel $PATH (a differenza di `sudo`, il cui secure_path lo include quasi
 # sempre) - un `command -v setcap` senza sudo puo' dare falso-negativo anche
-# a pacchetto gia' installato, facendo ritentare l'apt install ad ogni
-# rilancio (innocuo ma inutile). dpkg -s e' l'unico controllo affidabile
-# indipendente dal $PATH di chi lancia lo script.
+# a pacchetto gia' installato: per questo pkg_installed (dpkg -s / rpm -q).
 grant_bind_service_capability() {
-    if ! dpkg -s libcap2-bin >/dev/null 2>&1; then
-        log "installo libcap2-bin (setcap/getcap)..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq libcap2-bin || die "Installazione di libcap2-bin fallita"
+    local libcap
+    libcap="$(pkg_name libcap2-bin libcap)"
+    if ! pkg_installed "$libcap"; then
+        log "installo $libcap (setcap/getcap)..."
+        pkg_install "$libcap" || die "Installazione di $libcap fallita"
     fi
     if sudo getcap "$FRANKEN_DIR/frankenphp" 2>/dev/null | grep -q cap_net_bind_service; then
         ok "FrankenPHP puo' gia' legarsi alle porte 80/443 senza root"
@@ -209,23 +263,52 @@ EOF
     ok "php.ini scritto, estensioni PHP verificate"
 }
 
-# install_mariadb: dal repository di sistema (Debian/Raspbian la
-# impacchettano gia', a differenza di Windows dove va scaricata a mano) -
-# niente download diretto come per FrankenPHP.
+# install_mariadb: dal repository di sistema (Debian e Fedora la
+# impacchettano gia' - stesso pacchetto, mariadb-server, e stesso servizio,
+# mariadb -, a differenza di Windows dove va scaricata a mano). pkg_installed
+# e non `command -v mariadbd` (sta in /usr/sbin, vedi sopra).
 install_mariadb() {
-    # dpkg -s, non `command -v mariadbd`: mariadbd sta in /usr/sbin, che una
-    # shell utente normale spesso non ha nel $PATH - il controllo dava sempre
-    # "assente" e ripeteva l'apt install a ogni rilancio (~2 minuti sul Pi,
-    # visto 2026-10-02). Stesso motivo di grant_bind_service_capability.
-    if dpkg -s mariadb-server >/dev/null 2>&1; then
+    if pkg_installed mariadb-server; then
         ok "MariaDB gia' presente"
     else
         log "Installo mariadb-server..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq mariadb-server || die "Installazione di MariaDB fallita"
+        pkg_install mariadb-server || die "Installazione di MariaDB fallita"
         ok "MariaDB installato"
     fi
     sudo systemctl enable --now mariadb || die "Impossibile avviare il servizio mariadb"
+    allow_lan_mariadb
     ok "Servizio MariaDB attivo"
+}
+
+# allow_lan_mariadb: il mariadb-server di Debian ascolta solo su 127.0.0.1
+# (50-server.cnf), quindi questa macchina non poteva fare da SERVER: le casse
+# client scrivono direttamente sulla 3306 del server (trovato 2026-10-07,
+# piano Fase 6). Su Windows l'MSI ascolta gia' su tutte le interfacce. I file
+# di mariadb.conf.d/ si leggono in ordine alfabetico: 99-* prevale su 50-*.
+# Fedora: stessa idea in /etc/my.cnf.d (vedi MARIADB_CNF_DIR).
+# L'utente app esiste gia' anche su '%' (crea_dbtable_and_user.php). Il
+# gestore DB grafico (/db) resta solo-localhost: e' una regola del Caddyfile.
+#
+# skip-name-resolve: senza, MariaDB cerca il nome di ogni client (reverse DNS)
+# prima dell'handshake. Alla sagra, senza Internet e con un DNS che non
+# risponde, la ricerca puo' durare 5 s o piu' - oltre il timeout di 3 s con
+# cui le casse si collegano (config/get_db_connection.php): ogni cassa client
+# cadrebbe in fallback. Nessun account di OpenSagra dipende da un nome host
+# (solo localhost, 127.0.0.1 e '%'). Misurato su macOS: 5,06 s a connessione.
+MARIADB_LAN_CNF="$MARIADB_CNF_DIR/99-opensagra.cnf"
+allow_lan_mariadb() {
+    local want
+    want="$(printf '%s\n' \
+        '# Generato da OpenSagra (install.sh): MariaDB raggiungibile dalle casse in LAN.' \
+        '[mysqld]' \
+        'bind-address = 0.0.0.0' \
+        'skip-name-resolve')"
+    if [ -f "$MARIADB_LAN_CNF" ] && [ "$(cat "$MARIADB_LAN_CNF")" = "$want" ]; then
+        return
+    fi
+    printf '%s\n' "$want" | sudo tee "$MARIADB_LAN_CNF" >/dev/null || die "Impossibile scrivere $MARIADB_LAN_CNF"
+    sudo systemctl restart mariadb || die "Riavvio di MariaDB fallito dopo aver abilitato l'accesso dalla LAN"
+    ok "MariaDB raggiungibile dalla LAN (porta 3306)"
 }
 
 # copy_app_files: sovrappone (merge), NON rispecchia - un rm -rf della
@@ -272,7 +355,7 @@ get_or_new_mercure_secret() {
             return
         fi
     fi
-    openssl rand -hex 32
+    rand_hex 32
 }
 
 new_env_file() {
@@ -371,6 +454,19 @@ $https_hosts {
 		respond "Il gestore DB e' raggiungibile solo dal PC server." 403
 	}
 
+	# File interni dell'app mai serviti via HTTP: il webroot e' l'intera
+	# cartella (variabili.env, Caddyfile, log, php-cli di bin/ e config/) -
+	# come in install.ps1, vedi li' il perche'. Non toccare /.well-known/ (hub).
+	@private path /config/* /bin/* /logs/* /wrapper/* /private/* /tools/* /vendor/* /includes/* /frankenphp/* /packaging/* /docs/* /e2e/* /node_modules/* /Caddyfile* /composer.json /composer.lock /package.json /package-lock.json /*.ps1 /*.sh /*.exe /*.zip /*.md /*.log /*.sql /*.env
+	@dotfiles {
+		path_regexp /\.
+		not path /.well-known/*
+	}
+	@uploadsphp path_regexp (?i)^/uploads/.*\.(php|phtml|phar)
+	respond @private 404
+	respond @dotfiles 404
+	respond @uploadsphp 404
+
 	mercure {
 		issuer opensagra-hub {
 			publisher {
@@ -390,8 +486,12 @@ EOF
     ok "Caddyfile generato (host: ${hosts[*]})"
 }
 
+# OPENSAGRA_DB_HOST=127.0.0.1 (letto da config/env_reader.php): provisioning,
+# seed del segreto Mercure e migrazioni toccano SEMPRE il MariaDB di questa
+# macchina, anche su un client con DB_POS_HOST verso il server (piano, Fase 6c
+# punto B). Solo per questo figlio, mai esportata: FrankenPHP non deve vederla.
 invoke_php_cli() {
-    "$FRANKEN_DIR/frankenphp" php-cli "$@"
+    OPENSAGRA_DB_HOST=127.0.0.1 "$FRANKEN_DIR/frankenphp" php-cli "$@"
 }
 
 # invoke_database_provisioning: crea_dbtable_and_user.php si aspetta
@@ -407,7 +507,7 @@ invoke_php_cli() {
 # sia lo stato dell'account root SQL.
 invoke_database_provisioning() {
     local tmp_user="opensagra_setup_tmp"
-    local tmp_pass; tmp_pass="$(openssl rand -hex 16)"
+    local tmp_pass; tmp_pass="$(rand_hex 16)"
 
     sudo mariadb -e "
         DROP USER IF EXISTS '$tmp_user'@'127.0.0.1';
@@ -460,7 +560,7 @@ invoke_migrations() {
 
 install_wrapper() {
     local src="$SOURCE_DIR/wrapper/opensagra-wrapper"
-    [ -f "$src" ] || die "Wrapper non trovato ($src). Compilalo prima: cd wrapper && GOOS=linux GOARCH=\$(go env GOARCH) go build -o opensagra-wrapper ./..."
+    [ -f "$src" ] || die "Wrapper non trovato ($src). Compilalo prima: cd wrapper && GOOS=linux GOARCH=\$(go env GOARCH) go build -o opensagra-wrapper ."
     # rm prima di cp, non sovrascrittura in-place: un rilancio con il wrapper
     # GIA' in esecuzione altrimenti fallisce con "Text file busy" (Linux non
     # permette di riscrivere l'inode di un eseguibile mappato in memoria).
@@ -611,14 +711,22 @@ start_wrapper_and_autostart() {
     fi
 }
 
+# set_firewall_rules: ufw (Debian/Ubuntu, spesso installato ma spento) o
+# firewalld (Fedora, ACCESO di default: senza queste regole 80/443 restano
+# chiuse e telefoni e casse client non si collegano).
 set_firewall_rules() {
     if command -v ufw >/dev/null 2>&1; then
         sudo ufw allow 80/tcp >/dev/null 2>&1 || true
         sudo ufw allow 443/tcp >/dev/null 2>&1 || true
         sudo ufw allow 3306/tcp >/dev/null 2>&1 || true
         ok "Regole ufw configurate (80, 443, 3306)"
+    elif systemctl is-active --quiet firewalld 2>/dev/null; then
+        sudo firewall-cmd --quiet --permanent --add-port=80/tcp --add-port=443/tcp --add-port=3306/tcp \
+            && sudo firewall-cmd --quiet --reload \
+            || die "Impossibile aprire le porte 80/443/3306 in firewalld"
+        ok "Regole firewalld configurate (80, 443, 3306)"
     else
-        log "ufw non installato: nessuna regola firewall da configurare (se ne usi un altro, apri tu le porte 80/443/3306)."
+        log "Nessun firewall riconosciuto (ufw/firewalld): nessuna regola da configurare (se ne usi un altro, apri tu le porte 80/443/3306)."
     fi
 }
 
@@ -641,13 +749,13 @@ set_firewall_rules() {
 register_local_ca_trust() {
     [ -x "$FRANKEN_DIR/frankenphp" ] || return
 
-    # certutil (pacchetto libnss3-tools) e' quello che `frankenphp trust`
+    # certutil (libnss3-tools, nss-tools su Fedora) e' quello che `frankenphp trust`
     # usa per scrivere nei database NSS di Firefox/Chrome - senza, tocca solo
     # lo store di sistema (comunque sufficiente per curl/wget/app non-browser).
     if ! command -v certutil >/dev/null 2>&1; then
-        log "installo libnss3-tools (certutil, per fidare la CA locale anche in Firefox/Chrome)..."
-        sudo apt-get update -qq && sudo apt-get install -y -qq libnss3-tools 2>>"$LOG_FILE" || \
-            log "installazione di libnss3-tools fallita (non bloccante, resta il trust dello store di sistema)"
+        log "installo $(pkg_name libnss3-tools nss-tools) (certutil, per fidare la CA locale anche in Firefox/Chrome)..."
+        pkg_install "$(pkg_name libnss3-tools nss-tools)" 2>>"$LOG_FILE" || \
+            log "installazione di certutil fallita (non bloccante, resta il trust dello store di sistema)"
     fi
 
     local admin_up=0 i
@@ -665,6 +773,44 @@ register_local_ca_trust() {
     else
         log "Certificato locale HTTPS: da confermare al primo avvio nel browser (dettagli in $LOG_FILE)"
     fi
+}
+
+# trust_ca_in_browser_stores: la CA locale nei database NSS dei browser.
+# `frankenphp trust` (sopra) controlla solo se la CA e' gia' fidata dallo store
+# di sistema - e lo e', perche' FrankenPHP ce la mette da solo al primo avvio -
+# e in quel caso non scrive nei database NSS. Ma su Linux Chrome/Chromium
+# (~/.pki/nssdb) e Firefox (un database per profilo, anche dentro ~/snap per
+# lo snap di Ubuntu) usano quelli, non lo store di sistema: risultato,
+# ERR_CERT_AUTHORITY_INVALID / "connessione non sicura" nonostante il
+# "Certificato locale HTTPS fidato" (visto su Ubuntu 24.04 in CI, 2026-10-07;
+# con questa funzione Chrome e Firefox snap aprono l'app senza avvisi).
+# ~/.pki/nssdb si crea se manca (Chrome/Chromium mai aperto finora). Un
+# profilo Firefox creato DOPO l'installazione non ha la CA: si rilancia
+# l'installer. Best-effort: non blocca l'installazione.
+NSS_CA_NICK="OpenSagra Local CA"
+
+browser_nss_dbs() {
+    local d
+    for d in "$HOME/.pki/nssdb" "$HOME"/.mozilla/firefox/*/              "$HOME"/snap/firefox/common/.mozilla/firefox/*/ "$HOME/snap/chromium/current/.pki/nssdb"; do
+        d="${d%/}"
+        [ -f "$d/cert9.db" ] && echo "$d"
+    done
+}
+
+trust_ca_in_browser_stores() {
+    local ca="$HOME/.local/share/caddy/pki/authorities/local/root.crt" d n=0
+    command -v certutil >/dev/null 2>&1 || { log "certutil non disponibile: la CA locale resta fidata solo dal sistema, i browser mostreranno un avviso al primo accesso."; return; }
+    [ -f "$ca" ] || { log "CA locale non trovata ($ca): salto i browser (dettagli in $LOG_FILE)."; return; }
+    if [ ! -f "$HOME/.pki/nssdb/cert9.db" ]; then
+        mkdir -p "$HOME/.pki/nssdb"
+        certutil -N -d "sql:$HOME/.pki/nssdb" --empty-password >>"$LOG_FILE" 2>&1 || true
+    fi
+    while IFS= read -r d; do
+        # -D prima di -A: un rilancio dopo una CA rigenerata la sostituisce
+        certutil -D -d "sql:$d" -n "$NSS_CA_NICK" >/dev/null 2>&1 || true
+        certutil -A -d "sql:$d" -n "$NSS_CA_NICK" -t "C,," -i "$ca" >>"$LOG_FILE" 2>&1 && n=$((n + 1))
+    done < <(browser_nss_dbs)
+    ok "Certificato locale fidato anche nei browser ($n archivi: Chrome/Chromium, Firefox)"
 }
 
 # ============================================================================
@@ -696,5 +842,6 @@ set_firewall_rules
 
 start_wrapper_and_autostart
 register_local_ca_trust
+trust_ca_in_browser_stores
 
 log "Installazione completata. Log completo in $LOG_FILE"

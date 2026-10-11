@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="it" translate="no">
+<head>
+<meta charset="UTF-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installazione OpenSagra</title>
+<!--
+  Replica della finestra WPF di install.ps1 (Show-InstallWindow): stessi
+  colori, misure e testi. Se cambia la', va cambiata anche qui.
+  Contenitori (parametro ?d=):
+    webview -> macOS, WKWebView: la testata gialla la fa la barra del titolo
+               nativa (colorata dal Go), qui si nasconde;
+    app     -> Chromium/Edge --app: barra del titolo nativa del sistema;
+    browser -> scheda del browser predefinito (ultimo ripiego su Linux).
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    color-scheme: light;
+    --yellow: #E0B020; --brown: #33260A; --ink: #111827; --muted: #5F6773;
+    --track: #F3F4F6; --ok: #0F9D5F; --warn: #D98A00; --err: #C73646;
+  }
+  html, body { height: 100%; }
+  body {
+    font: 12px/1.35 "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, "Cantarell", "Ubuntu", sans-serif;
+    background: #FEFEFE; color: var(--ink);
+    -webkit-user-select: none; user-select: none; cursor: default;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* In una scheda del browser la finestra e' enorme: si ricrea la "card"
+     di Windows (460x360, angoli 16, ombra) al centro. */
+  body.d-browser { background: #EEF0F3; align-items: center; justify-content: center; }
+  body.d-browser .card {
+    flex: none; width: 460px; height: 380px; border-radius: 16px; overflow: hidden;
+    background: #FEFEFE; border: 1px solid #222E2E33;
+    box-shadow: 0 4px 24px rgba(0,0,0,.25);
+  }
+  .card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+  header {
+    height: 44px; flex-shrink: 0; background: var(--yellow); color: var(--brown);
+    display: flex; align-items: center; padding: 0 18px;
+    font-weight: 700; font-size: 14px;
+  }
+  body.d-webview header { display: none; }
+
+  main { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 20px 28px 20px; }
+  .hero { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .hero img { width: 42px; height: 42px; flex-shrink: 0; }
+  .hero h1 { font-size: 15px; font-weight: 700; color: var(--ink); }
+  .hero p { font-size: 11px; color: var(--muted); }
+
+  .track { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; }
+  .fill { height: 100%; width: 0; border-radius: 5px; background: var(--yellow); transition: width .4s ease; }
+  .statusrow { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; }
+  #status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #status.err { color: var(--err); white-space: normal; }
+  #pct { font-weight: 700; color: var(--brown); flex-shrink: 0; }
+
+  #list { margin-top: 18px; flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+  #list div { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+  #list i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--ok); transform: translateY(-1px); }
+  #list .warn i { background: var(--warn); }
+  #list .error i { background: var(--err); }
+  #list .error { color: var(--err); }
+
+  .actions { display: none; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .actions.show { display: flex; }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 7px 14px;
+    border: 1px solid #D5D8DD; background: #fff; color: var(--ink);
+  }
+  button:hover { background: #F6F7F8; }
+  button.primary { background: var(--yellow); border-color: var(--yellow); color: var(--brown); }
+  button.primary:hover { background: #E9BC33; }
+  button:disabled { opacity: .55; cursor: default; }
+
+  /* Password (sudo): prende il posto della barra finche' non e' verificata. */
+  #pw { display: none; flex-direction: column; gap: 10px; }
+  #pw p { color: var(--muted); }
+  #pw .row { display: flex; gap: 8px; }
+  #pw input {
+    flex: 1; font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid #C9CDD3; outline: none; -webkit-user-select: text; user-select: text;
+  }
+  #pw input:focus { border-color: var(--yellow); box-shadow: 0 0 0 3px #E0B02033; }
+  #pwerr { color: var(--err); min-height: 16px; }
+  body.ask #pw { display: flex; }
+  body.ask #progress { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <header>Installazione OpenSagra</header>
+  <main>
+    <div class="hero">
+      <img src="/logo.svg" alt="" onerror="this.style.visibility='hidden'">
+      <div>
+        <h1 id="title">Sto preparando la tua sagra</h1>
+        <p id="subtitle">Questa finestra si chiuder&agrave; da sola a fine installazione</p>
+      </div>
+    </div>
+
+    <form id="pw" autocomplete="off">
+      <p id="pwtext">Inserisci la password del computer: serve per installare il database e il certificato HTTPS.</p>
+      <div class="row">
+        <input id="pwinput" type="password" aria-label="Password" autofocus>
+        <button class="primary" id="pwbtn" type="submit">Continua</button>
+      </div>
+      <div id="pwerr" role="alert"></div>
+    </form>
+
+    <div id="progress">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <div class="statusrow"><span id="status">Avvio...</span><span id="pct">0%</span></div>
+    </div>
+
+    <div id="list" aria-live="polite"></div>
+
+    <div class="actions" id="actions">
+      <button type="button" id="logbtn">Apri il log</button>
+      <button type="button" class="primary" id="closebtn">Chiudi</button>
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  var token = location.hash.slice(1);
+  var display = new URLSearchParams(location.search).get('d') || 'app';
+  document.body.classList.add('d-' + display);
+  var $ = function (id) { return document.getElementById(id); };
+  var shownItems = 0, lastPhase = '', sending = false, stopped = false;
+
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'X-Token': token }, opts.headers || {});
+    return fetch(path, opts);
+  }
+
+  function render(s) {
+    if (s.phase !== lastPhase) {
+      document.body.classList.toggle('ask', s.phase === 'password');
+      if (s.phase === 'password') {
+        $('pwtext').textContent = s.os === 'darwin'
+          ? 'Inserisci la password che usi per accedere al Mac: serve per installare il database e il certificato HTTPS.'
+          : 'Inserisci la tua password (quella che usi con sudo): serve per installare il database e il certificato HTTPS.';
+        setTimeout(function () { $('pwinput').focus(); }, 50);
+      }
+      lastPhase = s.phase;
+    }
+    $('fill').style.width = s.percent + '%';
+    $('pct').textContent = s.percent + '%';
+    var st = $('status');
+    if (s.phase === 'error') {
+      st.textContent = 'Errore: ' + (s.error || 'installazione non riuscita');
+      st.className = 'err';
+      $('title').textContent = 'Installazione non riuscita';
+      $('subtitle').textContent = 'Dettagli completi nel log: ' + s.logPath;
+      $('actions').classList.add('show');
+    } else {
+      st.textContent = s.status;
+      st.className = '';
+    }
+    if (s.phase === 'done') {
+      $('title').textContent = 'La tua sagra è pronta';
+      if (display === 'browser') $('subtitle').textContent = 'Fatto! Puoi chiudere questa scheda.';
+    }
+
+    var list = $('list');
+    var atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
+    for (; shownItems < s.items.length; shownItems++) {
+      var it = s.items[shownItems];
+      var row = document.createElement('div');
+      row.className = it.state;
+      row.appendChild(document.createElement('i'));
+      row.appendChild(document.createTextNode(it.text));
+      list.appendChild(row);
+    }
+    if (atBottom) list.scrollTop = list.scrollHeight;
+  }
+
+  function poll() {
+    if (stopped) return;
+    api('/api/state').then(function (r) { return r.json(); }).then(function (s) {
+      render(s);
+      if (s.phase === 'done' && display === 'browser') stopped = true;
+      setTimeout(poll, s.phase === 'done' || s.phase === 'error' ? 1500 : 400);
+    }).catch(function () {
+      // Server chiuso: installer finito (la finestra sta per chiudersi).
+      setTimeout(poll, 2000);
+    });
+  }
+
+  $('pw').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = $('pwinput').value;
+    if (!v || sending) return;
+    sending = true;
+    $('pwbtn').disabled = true;
+    $('pwerr').textContent = '';
+    $('pwbtn').textContent = 'Verifica...';
+    api('/api/password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: v })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      $('pwerr').textContent = res.error || '';
+    }).catch(function () {}).finally(function () {
+      sending = false;
+      $('pwinput').value = '';
+      $('pwbtn').disabled = false;
+      $('pwbtn').textContent = 'Continua';
+      $('pwinput').focus();
+    });
+  });
+  $('closebtn').addEventListener('click', function () {
+    api('/api/close', { method: 'POST' }).catch(function () {});
+    if (display === 'browser') window.close();
+  });
+  $('logbtn').addEventListener('click', function () {
+    api('/api/openlog', { method: 'POST' }).catch(function () {});
+  });
+
+  poll();
+})();
+</script>
+</body>
+</html>

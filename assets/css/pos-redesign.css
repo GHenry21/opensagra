@@ -627,6 +627,22 @@ body.dark-mode .pos-icon-btn:hover {
   cursor: default;
 }
 
+/* Versione di questa cassa diversa da quella del server (Fase 6c punto A). */
+.pos-version-mismatch {
+  flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: var(--ui-radius-sm);
+  background: color-mix(in srgb, var(--mc-warning) 16%, var(--mc-panel-muted));
+  border: 1px solid color-mix(in srgb, var(--mc-warning) 45%, transparent);
+  color: var(--mc-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .pos-sidebar-overlay {
   display: none;
   position: fixed;

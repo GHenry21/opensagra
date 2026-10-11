@@ -16,11 +16,26 @@
 7. [La pagina di vendita (Vendite)](#7-la-pagina-di-vendita-vendite)
 8. [Storni](#8-storni)
 9. [Statistiche Vendite](#9-statistiche-vendite)
-10. [Cosa manca ancora in questa guida](#10-cosa-manca-ancora-in-questa-guida)
+10. [Aggiornare OpenSagra](#10-aggiornare-opensagra)
+11. [Cosa manca ancora in questa guida](#11-cosa-manca-ancora-in-questa-guida)
 
 ---
 
 ## 1. Installazione
+
+OpenSagra si installa su **Windows**, **Mac** e **Linux** (compreso il
+Raspberry Pi). Su tutti e tre la finestra di installazione è la stessa: segui
+la parte del tuo sistema, poi il resto della guida vale per tutti.
+
+- [Windows](#su-windows)
+- [Mac](#su-mac)
+- [Linux e Raspberry Pi](#su-linux-e-raspberry-pi)
+
+> **Mac e Linux arrivano con la prossima versione di OpenSagra.** La 1.0.0
+> contiene solo l'installer per Windows: i file descritti qui sotto per Mac e
+> Linux saranno tra i download della versione successiva.
+
+### Su Windows
 
 1. Scarica **`opensagra-installer.exe`** (un unico file — dentro c'è già tutto il
    necessario, non serve scaricare nient'altro a parte quello che l'installer
@@ -46,6 +61,95 @@
 
    ![Finestra di avanzamento dell'installazione, con la lista dei passaggi completati](img/guida/03-installer-avanzamento.png)
 4. A fine installazione l'app è già pronta e raggiungibile su questo PC.
+
+### Su Mac
+
+Serve un Mac con macOS 13 (Ventura) o successivo, e un utente
+**amministratore** (quello con cui hai configurato il Mac di solito lo è).
+
+1. **Scegli il file giusto per il tuo Mac.** Menu Apple () → **Informazioni
+   su questo Mac**:
+   - se alla voce *Chip* c'è **Apple M1, M2, M3…** scarica
+     **`Installa-OpenSagra-macos-arm64.zip`**;
+   - se c'è *Processore* **Intel** scarica
+     **`Installa-OpenSagra-macos-x86_64.zip`**.
+2. Fai doppio click sul file `.zip` scaricato: accanto compare l'app
+   **Installa OpenSagra**. Trascinala sulla **Scrivania** (non è obbligatorio,
+   ma la ritrovi più facilmente).
+3. Fai doppio click su **Installa OpenSagra**. La prima volta **il Mac la
+   blocca**: *"Installa OpenSagra non è stata aperta — Apple non è in grado
+   di verificare che Installa OpenSagra non contenga malware…"*. È normale:
+   OpenSagra è un progetto gratuito e non paga ad Apple la "firma" degli
+   sviluppatori — non significa che ci sia qualcosa che non va. Clicca
+   **Fine** (non "Sposta nel Cestino").
+
+   ![Avviso di macOS: Installa OpenSagra non è stata aperta — pulsanti Sposta nel Cestino e Fine](img/guida/22-mac-gatekeeper-avviso.png)
+4. Apri **Impostazioni di Sistema** → **Privacy e sicurezza** e scorri fino
+   alla sezione **Sicurezza**: subito sotto *"Consenti applicazioni da"* c'è
+   la riga *"Il Mac ha bloccato Installa OpenSagra per garantire la
+   sicurezza"* con il pulsante **Apri comunque**. Cliccalo.
+
+   ![Privacy e sicurezza, sezione Sicurezza: pulsante "Apri comunque"](img/guida/23-mac-apri-comunque.png)
+
+   Il Mac chiede conferma due volte: *"Vuoi aprire Installa OpenSagra?"* →
+   clicca di nuovo **Apri comunque**; poi nome utente e password da
+   amministratore (quelli con cui accedi al Mac) → **OK**.
+
+   ![Conferma: Vuoi aprire Installa OpenSagra? — pulsante Apri comunque](img/guida/23b-mac-conferma.png)
+   ![Richiesta di nome utente e password da amministratore](img/guida/23c-mac-password-admin.png)
+
+   Il pulsante resta visibile per circa un'ora dopo il blocco: se non lo
+   trovi, rifai il doppio click sull'app e torna qui. Lo fai **una volta
+   sola**: le volte successive l'app si apre subito.
+
+   > Se invece il messaggio dice che l'app **"è danneggiata"** e propone solo
+   > di spostarla nel Cestino, il file scaricato è incompleto o rovinato:
+   > cancellalo e scaricalo di nuovo.
+
+   > Su macOS 13 e 14 c'è anche una scorciatoia: **clic destro** sull'app →
+   > **Apri** → **Apri**. Su macOS 15 (Sequoia) e successivi questa
+   > scorciatoia non c'è più, serve il passaggio da Impostazioni.
+5. Si apre la finestra di installazione e chiede la **password che usi per
+   accedere al Mac**: serve per installare il database e il certificato della
+   connessione protetta (§1.1). Scrivila e premi **Continua**.
+
+   ![Finestra di installazione su Mac: richiesta della password](img/guida/24-mac-password.png)
+6. Da qui in poi **non c'è più nulla da fare**: la finestra mostra
+   l'avanzamento e si chiude da sola a fine installazione. Ci vogliono alcuni
+   minuti la prima volta (scarica anche Homebrew e MariaDB, se non ci sono già).
+
+   ![Finestra di avanzamento dell'installazione su Mac](img/guida/25-mac-avanzamento.png)
+7. A fine installazione trovi l'app **OpenSagra** nella cartella *Applicazioni*
+   della tua utenza e sulla Scrivania, e OpenSagra riparte da solo ogni volta
+   che accedi al Mac.
+
+> **Se qualcosa va storto** la finestra resta aperta con il messaggio
+> d'errore in rosso e due pulsanti: **Apri il log** (il resoconto dettagliato,
+> utile a chi ti aiuta) e **Chiudi**. Puoi rilanciare l'installer quando vuoi:
+> ripete solo i passaggi che mancano.
+
+### Su Linux e Raspberry Pi
+
+Funziona su **Raspberry Pi OS** (64 bit), **Debian**, **Ubuntu** e **Fedora**, con un
+utente che può usare `sudo` (sul Raspberry Pi l'utente creato al primo avvio
+può farlo).
+
+1. **Scegli il file giusto**: **`…-linux-aarch64.tar.gz`** per Raspberry Pi
+   (64 bit), **`…-linux-x86_64.tar.gz`** per un PC normale.
+2. Estrai l'archivio: clic destro sul file → **Estrai qui**. Compare una
+   cartella `opensagra-<versione>`.
+3. Apri la cartella e fai doppio click su **Installa OpenSagra**. Se il file
+   manager chiede cosa fare con il file, scegli **Esegui**. Se invece non
+   succede nulla: clic destro → **Proprietà** → **Permessi** → spunta
+   *"Consenti l'esecuzione"* (o simile), poi riprova.
+4. Si apre la **stessa finestra di installazione di Windows e Mac**. Se chiede
+   la password, è quella del tuo utente (quella che usi con `sudo`).
+5. Da qui in poi non c'è più nulla da fare: la finestra si chiude da sola a
+   fine installazione. Sul desktop trovi il collegamento **OpenSagra**.
+
+> La finestra usa **Chromium** o **Google Chrome** (sul Raspberry Pi c'è già).
+> Se non ce n'è nessuno, l'installazione si apre in una scheda del browser:
+> funziona lo stesso, aspetta che dica *"Fatto!"* prima di chiuderla.
 
 ### Il pannello di controllo
 
@@ -175,6 +279,13 @@ quando vuoi:
   `192.168.1.10`) — te lo indica la pagina stessa dell'altro PC, sotto "Come
   collegare altre casse a questo PC come server".
 
+**OpenSagra deve essere aperto sul PC centrale.** Sul PC centrale non c'è
+nulla da attivare: diventa "centrale" da solo la prima volta che una cassa lo
+sceglie. Per sicurezza il database di un PC indipendente lo usa solo quel PC;
+quello di un PC centrale è raggiungibile dalle altre casse solo mentre
+OpenSagra è aperto su di lui. Se provi a collegarti a un PC con OpenSagra
+chiuso, la cassa te lo dice con un messaggio chiaro.
+
 **Il cambio ha effetto subito**: non serve riavviare niente, né su questo PC
 né sull'altro.
 
@@ -233,6 +344,52 @@ L'app non si ricollega da sola in
 automatico, per una buona ragione: è meglio che sia una persona a confermare
 che il PC centrale è davvero di nuovo pronto, non un tentativo automatico
 ripetuto alla cieca. 
+
+### 3.2 Dai al PC centrale un indirizzo fisso
+
+Le casse in modalità Client trovano il PC centrale tramite il suo **indirizzo
+di rete** (es. `192.168.1.10`). Di solito è il router a distribuire gli
+indirizzi, e può decidere di darne uno diverso al PC centrale da un giorno
+all'altro, per esempio dopo che il PC o il router sono stati spenti. Se
+succede, le casse collegate non lo trovano più e passano a lavorare in locale
+(come in §3.1) finché non le ricolleghi al nuovo indirizzo.
+
+**Per evitarlo, prima della sagra assegna al PC centrale un indirizzo fisso
+sul router.** Quasi tutti i router lo permettono: la funzione si chiama di
+solito *"prenotazione DHCP"*, *"IP statico"* o *"indirizzo riservato"*, e si
+trova nelle impostazioni della rete locale (LAN). Scegli il PC centrale
+dall'elenco dei dispositivi collegati e conferma: da quel momento avrà
+sempre lo stesso indirizzo. Se non sai come fare, chiedi a chi gestisce la
+rete della sagra: è un'operazione di un minuto.
+
+Se l'indirizzo cambia comunque:
+
+- **telefoni e tablet** che aprono OpenSagra dal PC centrale continuano a
+  funzionare con il lucchetto: il PC centrale si accorge da solo del nuovo
+  indirizzo entro un minuto (basta riaprire la pagina con il nuovo indirizzo);
+- il **pannello di controllo** del PC centrale mostra un avviso con il
+  vecchio e il nuovo indirizzo;
+- le **casse in modalità Client** vanno ricollegate a mano: su ognuna, apri
+  Configurazione Rete e reinserisci l'indirizzo nuovo.
+
+### 3.3 Una rete solo per le casse
+
+OpenSagra non ha un login: **chiunque sia collegato alla stessa rete delle
+casse può aprire l'app** dal proprio telefono e usarla come una cassa,
+compresi catalogo, storni, incassi e impostazioni. È una scelta fatta per
+semplicità al banco, e funziona bene finché sulla rete ci sono solo le
+persone che lavorano alla sagra.
+
+Per questo **le casse devono stare su una rete a cui il pubblico non ha
+accesso**:
+
+- se la sagra offre il WiFi ai visitatori, usa per le casse **un'altra rete**
+  (molti router permettono di creare una seconda rete WiFi, di solito chiamata
+  *"rete ospiti"*: dai quella ai visitatori, non quella delle casse);
+- la rete delle casse deve avere una **password** che conoscono solo i
+  volontari;
+- non stampare e non appendere la password della rete delle casse vicino al
+  banco.
 
 ---
 
@@ -557,10 +714,67 @@ casse collegate insieme:
 
 ---
 
-## 10. Cosa manca ancora in questa guida
+## 10. Aggiornare OpenSagra
+
+Quando esce una versione nuova, sul **pannello di controllo** (vedi §1) il
+pulsante in alto a destra mostra un **pallino verde**. Passandoci sopra con
+il mouse vedi quale versione è disponibile; cliccandolo parte
+l'aggiornamento, dopo una conferma.
+
+**Aggiorna fuori dall'orario di servizio**: durante l'aggiornamento il
+programma si ferma per qualche secondo.
+
+### 10.1 Con più casse: prima il PC centrale, poi le casse
+
+Se usi più casse collegate a un PC centrale (modalità Client, §3):
+
+1. **Aggiorna prima il PC centrale.** È l'unico che ha bisogno di Internet
+   per scaricare la versione nuova.
+2. **Poi aggiorna le casse.** Ognuna mostra un avviso in basso nel menu
+   laterale (*"Questa cassa è alla v…, il server alla v…: aggiorna questa
+   cassa"*) e il pallino verde nel suo pannello di controllo. Le casse
+   scaricano l'aggiornamento **dal PC centrale**, attraverso la rete della
+   sagra: non serve Internet sulle casse.
+
+Una cassa non va mai oltre la versione del PC centrale, anche se su Internet
+ce n'è una più nuova: casse e centrale devono usare la stessa versione per
+lavorare insieme. Se una cassa è *più nuova* del centrale, l'avviso te lo
+dice: aggiorna il centrale.
+
+### 10.2 Quando serve reinstallare
+
+Alcune versioni cambiano anche i componenti di base (il server web, il
+database, il pannello di controllo). In quel caso il pulsante non aggiorna
+da solo, ma ti dice che serve una **reinstallazione** e apre la pagina da
+cui scaricare l'installer di quella versione.
+
+**Reinstallare non cancella nulla**: vendite, catalogo, casse, stampanti e
+impostazioni restano come sono. Basta scaricare l'installer e lanciarlo come
+la prima volta (§1), sopra l'installazione esistente.
+
+Se la cassa da reinstallare non ha Internet, scarica l'installer da un altro
+PC e portalo con una chiavetta USB. Ricorda l'ordine: prima il PC centrale,
+poi le casse.
+
+### 10.3 La copia di sicurezza del database
+
+Prima di ogni aggiornamento OpenSagra salva da solo una copia del database di
+quel PC. Le ultime dieci copie si trovano in:
+
+- **Windows**: `%APPDATA%\opensagra\backups` (incollalo nella barra degli
+  indirizzi di Esplora file);
+- **Linux**: `~/.config/opensagra/backups`;
+- **macOS**: `~/Library/Application Support/opensagra/backups`.
+
+Di solito non serve toccarle: se un aggiornamento non riesce, OpenSagra
+rimette da solo i file com'erano prima.
+
+---
+
+## 11. Cosa manca ancora in questa guida
 
 Restano da scrivere, in un prossimo aggiornamento:
 
-- Aggiornare un'installazione esistente e disinstallarla.
+- Disinstallare un'installazione.
 - Casi d'errore più comuni e come risolverli (stampante non raggiungibile,
   rete assente, ecc.).

@@ -61,6 +61,18 @@ Thumbs.db
 /opensagra-*-macos-*.tar.gz
 
 # Pacchetto di aggiornamento leggero (solo codice app + vendor/), prodotto da
-# packaging\make-update.ps1 - allegato alle release solo quando wrapper/
-# installer/uninstaller non sono cambiati (vedi release.yml)
+# packaging\make-update.ps1 - allegato a ogni release con il suo .sha256
+# (vedi release.yml). Il vecchio nome resta ignorato per le copie locali.
 /opensagra-update.zip
+/opensagra-app-update.zip
+/opensagra-app-update.zip.sha256
+/opensagra-app-update.manifest.json
+
+# Versione installata e manifesto: li scrivono installer e wrapper su ogni
+# macchina (wrapper/update_check.go), mai parte del repository.
+/config/.installed_version
+/config/.app_manifest.json
+
+# Download e catture dello strumento Playwright MCP delle sessioni Claude:
+# mai nei pacchetti (gli script di packaging prendono anche i non tracciati).
+/.playwright-mcp/

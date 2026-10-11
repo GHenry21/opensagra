@@ -10,7 +10,7 @@
 //
 // Build Windows senza console:
 //
-//	go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...
+//	go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
 package main
 
 import (
@@ -96,6 +96,14 @@ func main() {
 	// Prima di avviare i figli: chiudi quelli rimasti orfani da un'istanza
 	// precedente morta di colpo (macOS/Linux - vedi childPidsFile).
 	reapStaleChildren(cfg.LogDir)
+	// IP della macchina nel Caddyfile (certificato HTTPS) prima di avviare
+	// FrankenPHP: se il DHCP ha cambiato indirizzo, niente reload da fare.
+	syncCaddyHostsAtStart(cfg)
+	// Dove api/update_dist.php trova il pacchetto da offrire alle casse client
+	// (dist.go): i figli ereditano l'ambiente del wrapper.
+	if d := distDir(); d != "" {
+		_ = os.Setenv(distEnvVar, d)
+	}
 	sup := newSupervisor(cfg.LogDir, job)
 	sup.Start(ctx, buildChildren(cfg))
 	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
@@ -125,6 +133,20 @@ func main() {
 	// snapshot (il relay si autoregola gia' da solo con exit(0)).
 	go watchDbHost(ctx, cfg, sup)
 
+	// Versione di questa macchina sul DB a cui punta + versione del server
+	// (piano, Fase 6c punto A) - vedi nodes.go.
+	go nodeHeartbeatLoop(ctx, cfg)
+
+	// IP cambiati mentre gira -> Caddyfile riscritto + reload (caddy_hosts.go).
+	go watchCaddyHosts(ctx, cfg, sup)
+
+	// Pacchetto della propria versione pronto per le casse client (dist.go).
+	go ensureDistLoop(ctx, cfg)
+
+	// Accesso dalla rete al DB: aperto mentre OpenSagra gira (non sui client),
+	// chiuso all'uscita (remote_access.go).
+	go watchRemoteAccess(ctx, cfg)
+
 	// Sequenza di uscita pulita. Su Windows e' il menu tray "Esci" (dopo
 	// conferma) a invocarla; su Linux/macOS la invoca runEventLoop quando
 	// arriva un segnale di arresto (systemctl/launchctl stop) o -quit
@@ -133,8 +155,9 @@ func main() {
 		log.Print("wrapper: uscita richiesta")
 		removeLock(cfg.LogDir)
 		announceShutdown(cfg) // avvisa le casse PRIMA di fermare FrankenPHP
-		cancel()              // exec.CommandContext uccide i figli
+		cancel()              // exec.CommandContext uccide i figli (e ferma watchRemoteAccess)
 		sup.Wait()
+		closeRemoteAccessOnExit(cfg) // dopo: watchRemoteAccess non lo riapre piu'
 		sup.Close()
 		if job != nil {
 			job.close() // rete di sicurezza per eventuali superstiti

@@ -175,6 +175,54 @@ foreach ($userHosts as $userHost) {
     }
 }
 
+// Accesso al DB dalla rete (piano, Fase 6c, regola dell'utente 2026-10-07):
+// OpenSagra aperto -> aperto, OpenSagra chiuso -> chiuso; su una cassa client
+// sempre chiuso. L'account '$nuovo_utente'@'%' (quello con cui entrano le casse
+// client) si blocca/sblocca con ACCOUNT LOCK: lo fa il wrapper all'avvio,
+// al cambio di ruolo e all'uscita (wrapper/remote_access.go), qui si parte
+// chiusi. Gli account locali (localhost/127.0.0.1, quelli che usa l'app sulla
+// propria macchina) non si toccano mai. Senza dare all'utente dell'app il
+// privilegio CREATE USER (gli permetterebbe di cambiare la password di root):
+// passa da una procedura SQL SECURITY DEFINER il cui definer e' un account
+// dedicato, a sua volta bloccato (nessun login possibile), con il solo CREATE
+// USER + lettura dello stato. Il firewall resta aperto: chiuderlo e riaprirlo
+// richiederebbe i permessi di amministratore, il wrapper gira come utente
+// normale.
+$remoteAdmin = 'opensagra_netadmin';
+$remoteProc = 'opensagra_remote_access';
+$qUser = $connRoot->real_escape_string($nuovo_utente);
+$qDb = str_replace('`', '``', $db_nome);
+$remoteSetup = [
+    "CREATE USER IF NOT EXISTS '$remoteAdmin'@'localhost' ACCOUNT LOCK",
+    "ALTER USER '$remoteAdmin'@'localhost' ACCOUNT LOCK",
+    "GRANT CREATE USER ON *.* TO '$remoteAdmin'@'localhost'",
+    "GRANT SELECT ON mysql.global_priv TO '$remoteAdmin'@'localhost'",
+    "CREATE OR REPLACE DEFINER='$remoteAdmin'@'localhost' PROCEDURE `$qDb`.`$remoteProc`(IN p_action VARCHAR(8))
+     SQL SECURITY DEFINER
+     BEGIN
+       IF p_action = 'lock' THEN ALTER USER '$qUser'@'%' ACCOUNT LOCK;
+       ELSEIF p_action = 'unlock' THEN ALTER USER '$qUser'@'%' ACCOUNT UNLOCK;
+       END IF;
+       SELECT IFNULL(JSON_VALUE(Priv, '$.account_locked'), 'false') AS locked
+         FROM mysql.global_priv WHERE User = '$qUser' AND Host = '%';
+     END",
+    "GRANT EXECUTE ON PROCEDURE `$qDb`.`$remoteProc` TO '$remoteAdmin'@'localhost'",
+];
+foreach ($remoteSetup as $sql) {
+    if (!$connRoot->query($sql)) {
+        fail('Errore nella configurazione dell\'accesso dalla rete: ' . $connRoot->error);
+    }
+}
+
+// Si parte chiusi: lo apre il wrapper quando OpenSagra e' in esecuzione.
+if (!$connRoot->query("CALL `$remoteProc`('lock')")) {
+    fail("Errore nell'applicare lo stato dell'accesso dalla rete: " . $connRoot->error);
+}
+while ($connRoot->more_results() && $connRoot->next_result()) {
+    // svuota i result set della CALL prima delle query successive
+}
+outLine("Accesso dalla rete al database: lo apre OpenSagra mentre e' in esecuzione (mai sulle casse client).");
+
 if (!$connRoot->query('FLUSH PRIVILEGES;')) {
     fail('Errore nel flush dei privilegi: ' . $connRoot->error);
 }

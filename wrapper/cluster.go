@@ -228,6 +228,7 @@ func watchDbHost(ctx context.Context, cfg *Config, sup *Supervisor) {
 				}
 				log.Printf("wrapper: DB_POS_HOST cambiato -> %s | ruolo ora: %s", cfg.DbHost(), role)
 				syncSnapshotChild(cfg, sup)
+				go nodeHeartbeat(cfg) // ruolo/DB nuovi visibili subito, non al prossimo battito
 			}
 		}
 	}

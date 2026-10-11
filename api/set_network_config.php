@@ -19,6 +19,37 @@ require_once __DIR__ . '/../config/env_reader.php';
 require_once __DIR__ . '/../config/env_writer.php';
 require_once __DIR__ . '/../config/app_config.php';
 require_once __DIR__ . '/../config/catalog_backup.php';
+require_once __DIR__ . '/../config/remote_access.php';
+
+// MariaDB: "Access denied, this account is locked" - il PC indicato non ha
+// aperto il suo database: OpenSagra chiuso, oppure e' a sua volta una cassa
+// client (config/remote_access.php, api/accept_client.php).
+const ER_ACCOUNT_HAS_BEEN_LOCKED = 4151;
+$lockedServerMessage = "Il PC all'indirizzo '%s' non accetta casse in questo momento: verifica che OpenSagra "
+    . 'sia aperto su quel PC e che sia una cassa indipendente (non a sua volta collegata a un altro PC), poi riprova.';
+
+/**
+ * Chiede al PC $host di fare da cassa centrale (api/accept_client.php): apre
+ * l'accesso dalla rete al suo database. Best effort: un centrale con una
+ * versione precedente non ha l'endpoint (e ha gia' l'accesso aperto). TLS non
+ * verificato: il certificato del centrale viene dalla sua CA locale; si parla
+ * solo con l'indirizzo scelto dall'operatore.
+ */
+function requestCentral(string $host): void
+{
+    $ch = curl_init('https://' . $host . '/api/accept_client.php');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => '{}',
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,
+    ]);
+    curl_exec($ch);
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 $mode = $data['mode'] ?? '';
@@ -50,6 +81,11 @@ $env = loadPosEnvVars();
 //                    prossimi client lo trovano.
 $remoteSecret = '';
 
+// Il PC scelto diventa cassa centrale: apre il suo database alle casse.
+if ($mode === 'client') {
+    requestCentral($targetHost);
+}
+
 // Verifica la connessione PRIMA di scrivere: mai salvare un host che non
 // risponde, altrimenti l'app resta rotta finché non si torna qui a mano.
 try {
@@ -60,7 +96,9 @@ try {
         http_response_code(422);
         echo json_encode([
             'success' => false,
-            'error' => "Impossibile collegarsi a '$targetHost' con le credenziali attuali. Verifica indirizzo, rete e che l'altra installazione sia raggiungibile.",
+            'error' => mysqli_connect_errno() === ER_ACCOUNT_HAS_BEEN_LOCKED
+                ? sprintf($lockedServerMessage, $targetHost)
+                : "Impossibile collegarsi a '$targetHost' con le credenziali attuali. Verifica indirizzo, rete e che l'altra installazione sia raggiungibile.",
         ]);
         exit;
     }
@@ -72,7 +110,12 @@ try {
     $conn->close();
 } catch (mysqli_sql_exception $e) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'error' => 'Connessione fallita: ' . $e->getMessage()]);
+    echo json_encode([
+        'success' => false,
+        'error' => $e->getCode() === ER_ACCOUNT_HAS_BEEN_LOCKED
+            ? sprintf($lockedServerMessage, $targetHost)
+            : 'Connessione fallita: ' . $e->getMessage(),
+    ]);
     exit;
 }
 
@@ -140,6 +183,21 @@ if ($mode === 'indipendente') {
         }
     } catch (Throwable $e) {
         error_log('set_network_config: ripristino catalogo locale fallito (non bloccante): ' . $e->getMessage());
+    }
+}
+
+// Passando a Client questo PC smette di essere cassa centrale (se lo era):
+// lavora sul DB di un altro, il suo non serve a nessuno -> chiuso. Tornando
+// Indipendente resta chiuso finche' una cassa non lo sceglie come centrale
+// (api/accept_client.php). Il wrapper riallinea comunque entro pochi secondi
+// (wrapper/remote_access.go). Non bloccante: su un'installazione precedente a
+// questa funzionalita' la procedura non c'e'.
+if ($mode === 'client') {
+    $localForAccess = connectLocalDb();
+    if ($localForAccess !== null) {
+        setAppConfig($localForAccess, 'IS_CENTRAL', '0');
+        callRemoteAccess($localForAccess, 'lock');
+        $localForAccess->close();
     }
 }
 
