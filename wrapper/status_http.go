@@ -9,7 +9,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,6 +112,7 @@ type statusJSON struct {
 	AppURL            string     `json:"app_url"`
 	Autostart         bool       `json:"autostart"`
 	AllPaused         bool       `json:"all_paused"`
+	CanQuit           bool       `json:"can_quit"` // pulsante "Esci" nella pagina: Linux/macOS (su Windows c'e' il menu della tray)
 	MariadbUp         bool       `json:"mariadb_up"`
 	MariadbVersion    string     `json:"mariadb_version"`    // "" se il DB non risponde
 	FrankenphpVersion string     `json:"frankenphp_version"` // "" se non ancora rilevata
@@ -210,6 +213,7 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		AppURL:            h.cfg.AppURL,
 		Autostart:         autostartEnabled(),
 		AllPaused:         h.sup.allPaused(),
+		CanQuit:           runtime.GOOS != "windows",
 		MariadbUp:         mdbUp,
 		MariadbVersion:    mdbVer,
 		FrankenphpVersion: fpVer,
@@ -287,6 +291,14 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST", http.StatusMethodNotAllowed)
 		return
 	}
+	// Solo dalla pagina del pannello: il bind su 127.0.0.1 non basta, una
+	// pagina web qualunque aperta nel browser puo' fare POST su localhost.
+	// fetch() della pagina manda Origin = http://127.0.0.1:<porta>; senza
+	// Origin (curl, test) si accetta, come prima.
+	if o := r.Header.Get("Origin"); o != "" && o != "http://"+h.addr {
+		http.Error(w, "origine non ammessa", http.StatusForbidden)
+		return
+	}
 	op := r.URL.Query().Get("op")
 	name := r.URL.Query().Get("name")
 
@@ -308,6 +320,24 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 		h.sup.pause(name)
 	case "resume":
 		h.sup.resume(name)
+	case "quit":
+		// Linux/macOS non hanno una tray con "Esci": la pagina chiede conferma
+		// (stesso avviso del menu tray di Windows) e poi questa azione. Il
+		// wrapper manda SIGTERM a se stesso: runEventLoop (main_unix.go)
+		// esegue la stessa uscita pulita di systemctl/launchctl stop, con
+		// codice 0, quindi ne' launchd (KeepAlive SuccessfulExit=false) ne'
+		// systemd (Restart=on-failure) lo fanno ripartire. Risposta prima,
+		// segnale dopo: la pagina deve ricevere l'ok.
+		if runtime.GOOS == "windows" {
+			writeJSON(w, map[string]any{"ok": false, "error": "su Windows si esce dal menu dell'icona vicino all'orologio"})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			_ = signalQuit(os.Getpid())
+		}()
+		return
 	case "open-app":
 		openURL(h.cfg.AppURL)
 	case "open-db":

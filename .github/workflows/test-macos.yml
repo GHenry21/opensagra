@@ -284,11 +284,43 @@ jobs:
           set -x
           ps eww -p $(pgrep -f 'frankenphp run') | tr ' ' '\n' | grep '^PHPRC='
 
+      # "Esci da OpenSagra" della pagina di stato (Linux/macOS non hanno la
+      # tray): il wrapper esce pulito e launchd NON lo fa ripartire. Il
+      # rilancio dell'installer, subito dopo, deve riavviarlo.
+      - name: Esci dalla pagina di stato
+        run: |
+          set -x
+          url=$(sed -n 2p "$HOME/opensagra/logs/wrapper.lock")
+          origin="${url%/}"
+          curl -s "${url}api/status" | grep -o '"can_quit":[a-z]*'
+          curl -s "${url}api/status" | grep -q '"can_quit":true'
+          # Un altro sito aperto nel browser non puo' comandare il pannello
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: https://esempio.invalid' "${url}api/action?op=pause-all")
+          [ "$code" = "403" ]
+          curl -s -X POST -H "Origin: $origin" "${url}api/action?op=quit" | tee /tmp/quit.json
+          grep -q '"ok":true' /tmp/quit.json
+          for i in $(seq 1 30); do pgrep -f "$HOME/opensagra/opensagra-wrapper" >/dev/null || break; sleep 1; done
+          if pgrep -fl "$HOME/opensagra/opensagra-wrapper"; then echo "::error::wrapper ancora attivo dopo Esci"; exit 1; fi
+          if pgrep -fl 'frankenphp run'; then echo "::error::FrankenPHP ancora attivo dopo Esci"; exit 1; fi
+          sleep 15
+          if pgrep -fl "$HOME/opensagra/opensagra-wrapper"; then echo "::error::launchd ha fatto ripartire il wrapper dopo Esci"; exit 1; fi
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|last exit' || true
+          code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 https://localhost/ || true)
+          echo "https dopo Esci -> $code"
+          [ "$code" = "000" ]
+          tail -5 "$HOME/opensagra/logs/wrapper.log"
+
       - name: install-macos.sh (rilancio, deve essere idempotente)
         timeout-minutes: 15
         run: |
           bash "$PKG/install-macos.sh"
-          curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
+          for i in $(seq 1 30); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 https://localhost/ || true)
+            [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ] && break
+            sleep 1
+          done
+          echo "dopo rilancio (anche dopo Esci) -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
           lsof -nP -iTCP:3306 -sTCP:LISTEN | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'
 
       - name: Log
