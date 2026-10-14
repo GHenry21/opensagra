@@ -20,6 +20,11 @@ on:
     branches: [worktree-unix-installer]
   workflow_dispatch:
     inputs:
+      runner:
+        description: "Mac da usare: macos-15 (Apple Silicon) o macos-15-intel (Intel)"
+        type: choice
+        options: [macos-15, macos-15-intel]
+        default: macos-15
       debug:
         description: "Apri VS Code nel browser alla fine"
         type: boolean
@@ -30,15 +35,24 @@ on:
         default: false
 
 jobs:
-  install:
-    runs-on: macos-15
-    timeout-minutes: 120
-    env:
-      # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
-      HAS_DEBUG_TOKEN: ${{ secrets.MAC_DEBUG_TOKEN != '' }}
-
+  # Il pacchetto si costruisce su Linux (come in release.yml): PHP/Composer
+  # servono solo qui, e setup-php non riesce a installare PHP sui runner Mac
+  # Intel (macos-15-intel: "Could not setup PHP 8.3", 2026-10-07). Il Mac
+  # riceve il pacchetto gia' pronto, come un utente.
+  package:
+    runs-on: ubuntu-latest
+    outputs:
+      arch: ${{ steps.arch.outputs.arch }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Architettura del Mac da provare
+        id: arch
+        run: |
+          case "${{ inputs.runner || 'macos-15' }}" in
+            *intel*) echo "arch=x86_64" >> "$GITHUB_OUTPUT" ;;
+            *)       echo "arch=arm64"  >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -54,18 +68,47 @@ jobs:
           go-version-file: wrapper/go.mod
           cache-dependency-path: wrapper/go.sum
 
-      - name: go vet del wrapper
+      - name: go vet del wrapper (macOS)
         working-directory: wrapper
-        run: go vet ./...
+        env:
+          GOOS: darwin
+          GOARCH: ${{ steps.arch.outputs.arch == 'x86_64' && 'amd64' || 'arm64' }}
+        run: go vet .
 
       # Si installa dal PACCHETTO DI RELEASE (come un utente), non dalla copia
       # del repo: copre make-unix-package.sh e il FrankenPHP incluso (nessun
       # download all'installazione).
-      - name: Costruisci ed estrai il pacchetto macOS arm64
+      - name: Costruisci il pacchetto macOS
+        run: bash packaging/make-unix-package.sh macos "${{ steps.arch.outputs.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacchetto-macos
+          path: opensagra-*-macos-*.tar.gz
+          retention-days: 3
+
+  install:
+    needs: package
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 120
+    env:
+      # I secret non sono leggibili negli `if:` - si espone solo SE esiste.
+      HAS_DEBUG_TOKEN: ${{ secrets.MAC_DEBUG_TOKEN != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pacchetto-macos
+          path: ${{ runner.temp }}/dl
+
+      - name: Estrai il pacchetto
         run: |
-          bash packaging/make-unix-package.sh macos arm64
+          arch="${{ needs.package.outputs.arch }}"
+          [ "$(uname -m)" = "$arch" ] || { echo "::error::pacchetto $arch su un Mac $(uname -m)"; exit 1; }
           mkdir -p "$RUNNER_TEMP/pkg"
-          tar -xzf opensagra-*-macos-arm64.tar.gz -C "$RUNNER_TEMP/pkg"
+          tar -xzf "$RUNNER_TEMP"/dl/opensagra-*-macos-"$arch".tar.gz -C "$RUNNER_TEMP/pkg"
           pkg=$(ls -d "$RUNNER_TEMP"/pkg/opensagra-*)
           ls "$pkg" "$pkg/frankenphp" "$pkg/wrapper"
           echo "PKG=$pkg" >> "$GITHUB_ENV"
@@ -76,6 +119,11 @@ jobs:
           launchctl print "gui/$(id -u)" >/dev/null && echo "sessione grafica: si" || echo "sessione grafica: NO"
           brew list --formula | grep -Ei 'mysql|mariadb' || echo "nessun MySQL/MariaDB preinstallato"
           lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|2019) ' || echo "porte 80/443/3306/2019 libere"
+          # Firewall di macOS acceso (spento di default sul runner), cosi' si
+          # prova anche set_firewall_rules dell'installer.
+          fw=/usr/libexec/ApplicationFirewall/socketfilterfw
+          sudo "$fw" --setglobalstate on
+          "$fw" --getglobalstate
 
       - name: install-macos.sh (prima installazione)
         timeout-minutes: 25
@@ -104,6 +152,92 @@ jobs:
           "$HOME/.frankenphp/frankenphp" version | grep -E '(^| |v)1\.12\.6( |$)'
           if grep -q 'Scarico FrankenPHP' /tmp/opensagra-install.log; then echo "::error::FrankenPHP scaricato invece di usare quello del pacchetto"; exit 1; fi
           test ! -e "$HOME/opensagra/frankenphp"
+
+      # Questo Mac come SERVER: le casse client scrivono direttamente sulla
+      # 3306. MariaDB deve ascoltare su tutte le interfacce e l'utente dell'app
+      # deve entrare dall'IP di rete del Mac (TCP, non localhost/socket).
+      - name: MariaDB raggiungibile dalla LAN (Mac come server)
+        run: |
+          set -x
+          lsof -nP -iTCP:3306 -sTCP:LISTEN
+          lsof -nP -iTCP:3306 -sTCP:LISTEN | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'
+          cat "$(brew --prefix)/etc/my.cnf"; ls "$(brew --prefix)/etc/my.cnf.d"
+          ip=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+          echo "IP di rete: $ip"
+          # nessun utente anonimo (prenderebbe il posto di quello dell'app)
+          mariadb -N -e "SELECT CONCAT(User,'@',Host) FROM mysql.user"
+          [ "$(mariadb -N -e "SELECT COUNT(*) FROM mysql.user WHERE User=''")" = "0" ]
+          # niente ricerca del nome dei client (5 s per connessione via mDNS)
+          [ "$(mariadb -N -e 'SELECT @@skip_name_resolve')" = "1" ]
+          # mariadbd firmato (almeno ad-hoc): senza, il firewall acceso lo blocca
+          codesign -v "$(cd -P "$(brew --prefix mariadb)/bin" && pwd)/mariadbd"
+          codesign -v "$HOME/.frankenphp/frankenphp"
+          env="$HOME/opensagra/config/variabili.env"
+          user=$(sed -n 's/^DB_POS_USER=//p' "$env"); pass=$(sed -n 's/^DB_POS_PASS=//p' "$env")
+          remote() { MYSQL_PWD="$pass" mariadb -h "$ip" -P 3306 --protocol=TCP -u "$user" -N -e 'SELECT CURRENT_USER(), COUNT(*) FROM opensagra_pos.stock' 2>&1; }
+          # Regola (Fase 6c): il DB di un'indipendente resta CHIUSO anche con
+          # OpenSagra attivo; si apre quando una cassa sceglie questo PC come
+          # centrale (api/accept_client.php -> app_config.IS_CENTRAL=1). Da li'
+          # resta aperto mentre il wrapper gira (wrapper/remote_access.go,
+          # controllo ogni 15 s) e si chiude all'uscita.
+          sleep 20
+          out=$(remote) && { echo "::error::DB aperto alla rete prima che una cassa lo scegliesse come centrale: $out"; exit 1; }
+          echo "$out"; echo "$out" | grep -q 4151
+          # Una cassa sceglie questo Mac come centrale (stessa chiamata di
+          # api/set_network_config.php sul client, qui dall'IP di rete)
+          resp=$(curl -sk -X POST -H 'Content-Type: application/json' -d '{}' "https://$ip/api/accept_client.php")
+          echo "$resp"; echo "$resp" | grep -q '"success":true'
+          ok=0
+          for i in $(seq 1 12); do
+            if out=$(remote); then echo "$out"; ok=1; break; fi
+            echo "tentativo $i: $out"; sleep 5
+          done
+          [ "$ok" = 1 ]
+          # Uscita pulita del wrapper (SIGTERM, come "Esci"): accesso chiuso,
+          # login dalla rete rifiutato con 4151 (account bloccato). launchd non
+          # lo riavvia (KeepAlive solo se l'uscita non e' pulita).
+          agent="gui/$(id -u)/com.opensagra.wrapper"
+          launchctl kill SIGTERM "$agent"
+          for i in $(seq 1 20); do pgrep -f "$HOME/opensagra/opensagra-wrapper" >/dev/null || break; sleep 1; done
+          if pgrep -f "$HOME/opensagra/opensagra-wrapper"; then echo "::error::wrapper ancora attivo dopo SIGTERM"; exit 1; fi
+          if out=$(remote); then echo "::error::login dalla rete riuscito con OpenSagra chiuso: $out"; exit 1; fi
+          echo "$out"; echo "$out" | grep -q 4151
+          # Riavvio: di nuovo aperto da solo (IS_CENTRAL resta salvato)
+          launchctl kickstart "$agent"
+          ok=0
+          for i in $(seq 1 12); do
+            if out=$(remote); then echo "$out"; ok=1; break; fi
+            echo "tentativo $i: $out"; sleep 5
+          done
+          [ "$ok" = 1 ]
+          grep -E 'accesso dalla rete' "$HOME/opensagra/logs/wrapper.log" || true
+          # root NON deve essere raggiungibile dalla rete (solo unix_socket)
+          if mariadb -h "$ip" --protocol=TCP -u root -e 'SELECT 1' 2>/dev/null; then echo "::error::root raggiungibile dalla rete"; exit 1; fi
+          # Firewall: FrankenPHP e mariadbd autorizzati
+          /usr/libexec/ApplicationFirewall/socketfilterfw --listapps | tee /tmp/fwapps.txt
+          grep -q 'frankenphp' /tmp/fwapps.txt
+          grep -q 'mariadbd' /tmp/fwapps.txt
+
+      # Solo se il passo sopra fallisce: perche' un client TCP non riceve
+      # l'handshake di MariaDB (visto su macos-15-intel, 2026-10-07: ERROR 2013
+      # "reading initial communication packet", system error 35).
+      - name: Diagnosi MariaDB dalla rete (solo se fallisce)
+        if: failure()
+        run: |
+          set -x
+          ip=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+          time dscacheutil -q host -a ip_address "$ip" || true
+          time (host "$ip" || true)
+          scutil --dns | head -30 || true
+          /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+          /usr/libexec/ApplicationFirewall/socketfilterfw --listapps || true
+          codesign -dv "$(cd -P "$(brew --prefix mariadb)/bin" && pwd)/mariadbd" 2>&1 | head -5 || true
+          tail -40 "$(brew --prefix)"/var/mysql/*.err || true
+          time (mariadb -h "$ip" --protocol=TCP -u nessuno --connect-timeout=30 -e 'SELECT 1' 2>&1 || true)
+          time (mariadb -h 127.0.0.1 --protocol=TCP -u nessuno --connect-timeout=30 -e 'SELECT 1' 2>&1 || true)
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+          time (mariadb -h "$ip" --protocol=TCP -u nessuno --connect-timeout=30 -e 'SELECT 1' 2>&1 || true)
+          mariadb -N -e "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('skip_name_resolve','connect_timeout','bind_address','version')"
 
       - name: Riavvio via launchd (crash -> deve ripartire, uscita pulita -> no)
         run: |
@@ -150,11 +284,44 @@ jobs:
           set -x
           ps eww -p $(pgrep -f 'frankenphp run') | tr ' ' '\n' | grep '^PHPRC='
 
+      # "Esci da OpenSagra" della pagina di stato (Linux/macOS non hanno la
+      # tray): il wrapper esce pulito e launchd NON lo fa ripartire. Il
+      # rilancio dell'installer, subito dopo, deve riavviarlo.
+      - name: Esci dalla pagina di stato
+        run: |
+          set -x
+          url=$(sed -n 2p "$HOME/opensagra/logs/wrapper.lock")
+          origin="${url%/}"
+          curl -s "${url}api/status" | grep -o '"can_quit":[a-z]*'
+          curl -s "${url}api/status" | grep -q '"can_quit":true'
+          # Un altro sito aperto nel browser non puo' comandare il pannello
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: https://esempio.invalid' "${url}api/action?op=pause-all")
+          [ "$code" = "403" ]
+          curl -s -X POST -H "Origin: $origin" "${url}api/action?op=quit" | tee /tmp/quit.json
+          grep -q '"ok":true' /tmp/quit.json
+          for i in $(seq 1 30); do pgrep -f "$HOME/opensagra/opensagra-wrapper" >/dev/null || break; sleep 1; done
+          if pgrep -fl "$HOME/opensagra/opensagra-wrapper"; then echo "::error::wrapper ancora attivo dopo Esci"; exit 1; fi
+          if pgrep -fl 'frankenphp run'; then echo "::error::FrankenPHP ancora attivo dopo Esci"; exit 1; fi
+          sleep 15
+          if pgrep -fl "$HOME/opensagra/opensagra-wrapper"; then echo "::error::launchd ha fatto ripartire il wrapper dopo Esci"; exit 1; fi
+          launchctl print "gui/$(id -u)/com.opensagra.wrapper" | grep -E 'state|last exit' || true
+          code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 https://localhost/ || true)
+          echo "https dopo Esci -> $code"
+          [ "$code" = "000" ]
+          tail -5 "$HOME/opensagra/logs/wrapper.log"
+
       - name: install-macos.sh (rilancio, deve essere idempotente)
         timeout-minutes: 15
         run: |
           bash "$PKG/install-macos.sh"
-          curl -sk -o /dev/null -w 'dopo rilancio -> %{http_code}\n' https://localhost/
+          for i in $(seq 1 30); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 https://localhost/ || true)
+            [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ] && break
+            sleep 1
+          done
+          echo "dopo rilancio (anche dopo Esci) -> $code"
+          [ "$code" -ge 200 ] && [ "$code" -lt 400 ]
+          lsof -nP -iTCP:3306 -sTCP:LISTEN | grep -Eq '(\*|0\.0\.0\.0|\[::\]):3306'
 
       - name: Log
         if: always()
@@ -281,3 +448,6 @@ jobs:
           if pgrep -f opensagra-wrapper; then echo "wrapper ancora vivo"; exit 1; fi
           if brew list --formula mariadb >/dev/null 2>&1; then echo "MariaDB ancora installato"; exit 1; fi
           ls "$HOME"/opensagra-backup-*.sql
+          # Regole del firewall tolte
+          /usr/libexec/ApplicationFirewall/socketfilterfw --listapps | tee /tmp/fwapps.txt
+          if grep -Eq 'frankenphp|mariadbd' /tmp/fwapps.txt; then echo "::error::regole firewall rimaste"; exit 1; fi
