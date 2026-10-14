@@ -145,6 +145,10 @@
     <button class="grow" id="btnRestartAll" data-icon="rotate-cw"><span>Riavvia tutto</span></button>
     <button class="grow" id="btnLogs" data-icon="folder-open"><span>Apri cartella log</span></button>
   </div>
+  <!-- Linux/macOS: niente tray con "Esci" (su Windows e' nel menu dell'icona). -->
+  <div class="row" id="quitRow" hidden>
+    <button class="grow" id="btnQuit" data-icon="x-circle"><span>Esci da OpenSagra</span></button>
+  </div>
 
   <label class="autostart">
     <input type="checkbox" id="chkAutostart"> Avvia all'accensione
@@ -195,6 +199,7 @@ const ICONS = {
   "power": '<path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>',
   "play": '<polygon points="6 3 20 12 6 21 6 3"/>',
   "pause": '<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>',
+  "x-circle": '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
   "rotate-cw": '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
   "folder-open": '<path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>',
   "github": '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
@@ -290,6 +295,7 @@ async function refresh() {
   renderVersions(s);
 
   $("#btnPause").innerHTML = ic("power", 15) + `<span>${s.all_paused ? "Avvia server" : "Ferma server"}</span>`;
+  $("#quitRow").hidden = !s.can_quit;
   $("#chkAutostart").checked = s.autostart;
 
   // MariaDB: read-only, non e' un figlio supervisionato (servizio Windows)
@@ -413,6 +419,14 @@ $("#btnPause").onclick = async () => {
   if (($("#btnPause").textContent || "").trim() === "Avvia server") { api("resume-all"); return; }
   if (await confirmBox("Fermare il server?", "Le casse collegate perderanno l'accesso finché non premi “Avvia server”.\nMariaDB resta attivo."))
     api("pause-all");
+};
+$("#btnQuit").onclick = async () => {
+  if (!(await confirmBox("Vuoi davvero chiudere OpenSagra?",
+      "⚠️ Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra.
+Per riaprirlo usa l'icona OpenSagra (Applicazioni sul Mac, collegamento sul desktop su Linux).")))
+    return;
+  try { await fetch("/api/action?op=quit", { method: "POST" }); } catch (e) {}
+  document.body.innerHTML = '<main style="padding:2rem;font:15px system-ui,sans-serif">OpenSagra è stato chiuso. Puoi chiudere questa finestra.</main>';
 };
 $("#chkAutostart").onchange = e => api(e.target.checked ? "autostart-on" : "autostart-off");
 $("#logSel").onchange = refreshLog;
