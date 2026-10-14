@@ -1266,6 +1266,20 @@ Aperta il 2026-10-07, dopo un'analisi di come funzionano oggi aggiornamento legg
 - [ ] **D. Regola per le migrazioni: compatibili con la versione precedente.** Solo aggiunte (colonne con default, tabelle nuove), mai rinominare/eliminare nella stessa release: per qualche minuto il server è nuovo e i client vecchi. Le quattro migrazioni esistenti (`001`–`004`) la rispettano già. Vale anche per gli `ALTER` a runtime (es. `ensureVenditeIdempotencyColumn` in `print_receipt.php`, che può partire da qualunque macchina).
 - [ ] **E. Blocco solo se serve davvero.** `app_config.SCHEMA_MIN_APP_VERSION`: un client sotto quella soglia non vende e chiede di aggiornarsi. Solo per le rare release che violano D; di norma basta l'avviso di A.
 
+
+## Lavori in parallelo mentre si aspetta FrankenPHP 1.13.1 (assegnati 2026-10-15)
+
+La 1.13.1 è taggata ma la sua release su GitHub è ferma in bozza (un job di build fallito, vedi Fase 4 "FrankenPHP v1.13.0"). Il lavoro che non dipende da lei è diviso fra sessioni. Ognuna scrive qui sotto lo stato del proprio punto e **non pubblica su `origin/main`** senza l'ok dell'utente. Il sito (5f/5g) segue già la sessione "Opensagra piano sito web fase 5".
+
+| # | Lavoro | Sessione | Stato |
+|---|---|---|---|
+| 1 | **Consolidare i branch**: pubblicare `main` (commit locali di più sessioni), unire `macos-server` (Mac come server, "Esci", Mac Intel), tenere `frankenphp-1.13` aggiornato con `main` | "FrankenPHP 1.13 / macOS" (`f7b1feba`) | in attesa dell'ok dell'utente |
+| 2 | **Aggiornamento reale su VM Windows**: v1.0.0 (release pubblicata) installata → reinstallazione con la build di `main` (poi di nuovo con la 1.13); `skip-name-resolve` di `install.ps1` (`Set-MariaDBNameResolution`) su un'installazione vera | nuova sessione **avviata come amministratore** (Hyper-V) | da iniziare |
+| 3 | **Linux come centrale, giro completo**: Pi centrale + cassa client vera (HENRY o VM): vendite, realtime, stampa (anche via ponte), uscita del centrale, fallback e ritorno | stessa sessione del punto 2 (dopo il 2) | da iniziare |
+| 4 | **6c C3**: la centrale conserva anche gli installer per gli OS delle casse (visti nel battito), così una reinstallazione senza Internet non richiede la chiavetta. Diventa concreto con la prossima release, che richiede la reinstallazione su tutte le casse | "Aggiornamenti e reinstallazioni di OpenSagra" (`d9d269e5`) | da iniziare |
+| 5 | **6c D**: controllo automatico in CI sulle migrazioni (vietati `DROP`, `RENAME`, `CHANGE`/`MODIFY` che restringono, colonne `NOT NULL` senza default) e sugli `ALTER` a runtime. E resta "solo se serve" | stessa sessione del punto 4 | da iniziare |
+| 6 | **5h**: schermata della password dell'installer grafico con un utente **senza** `NOPASSWD`, fino a installazione completata (CI Ubuntu con utente creato apposta) | "Installer grafico per linux e mac" (`ed7cce75`) | da iniziare |
+
 ---
 
 ## Appendice A — Estensioni PHP: lista e abilitazione
