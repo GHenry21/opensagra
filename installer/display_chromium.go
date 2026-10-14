@@ -9,9 +9,12 @@ package main
 // si'. Senza nessun Chromium: scheda del browser predefinito.
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -28,6 +31,11 @@ func showWindow(s *server, quit <-chan struct{}) {
 			args = append(args, "--ozone-platform=wayland")
 		}
 		cmd := exec.Command(bin, args...)
+		// stderr di Chromium tenuto da parte: se esce subito, il motivo
+		// (display, sandbox, profilo...) finisce sull'output dell'installer
+		// invece di sparire - senza, una finestra mancante non si spiegava.
+		var errOut bytes.Buffer
+		cmd.Stderr = &errOut
 		ownProcessGroup(cmd)
 		if cmd.Start() == nil {
 			started := time.Now()
@@ -46,11 +54,21 @@ func showWindow(s *server, quit <-chan struct{}) {
 				if time.Since(started) > 3*time.Second {
 					return
 				}
+				fmt.Fprintf(os.Stderr, "installer: %s non si e' aperto, ripiego sul browser predefinito. Ultime righe:\n%s\n",
+					filepath.Base(bin), lastLines(errOut.String(), 15))
 			}
 		}
 	}
 	openURL(s.url("browser"))
 	<-quit
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // removeProfile: i processi figli di Chromium possono scrivere nel profilo
