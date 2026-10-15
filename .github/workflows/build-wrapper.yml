@@ -37,6 +37,16 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # La finestra di stato e' una pagina HTML con il suo JavaScript, servita
+      # dal wrapper: un errore di sintassi la blocca del tutto su ogni OS e i
+      # test che usano le API del wrapper non se ne accorgono (successo il
+      # 2026-10-15: un a capo vero dentro una stringa, corretto in bab0631).
+      - name: Sintassi JavaScript della finestra di stato
+        shell: bash
+        run: |
+          python3 -c "import re,sys; s=open('status_page.html',encoding='utf-8').read(); open('status_page.check.js','w',encoding='utf-8').write('\n'.join(re.findall(r'<script>(.*?)</script>', s, re.S)))"
+          node --check status_page.check.js
+
       - name: go build
         run: go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
 
