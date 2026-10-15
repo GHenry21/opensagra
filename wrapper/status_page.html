@@ -422,8 +422,7 @@ $("#btnPause").onclick = async () => {
 };
 $("#btnQuit").onclick = async () => {
   if (!(await confirmBox("Vuoi davvero chiudere OpenSagra?",
-      "⚠️ Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra.
-Per riaprirlo usa l'icona OpenSagra (Applicazioni sul Mac, collegamento sul desktop su Linux).")))
+      "⚠️ Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra.\nPer riaprirlo usa l'icona OpenSagra (Applicazioni sul Mac, collegamento sul desktop su Linux).")))
     return;
   try { await fetch("/api/action?op=quit", { method: "POST" }); } catch (e) {}
   document.body.innerHTML = '<main style="padding:2rem;font:15px system-ui,sans-serif">OpenSagra è stato chiuso. Puoi chiudere questa finestra.</main>';
