@@ -241,7 +241,7 @@ function restoreTableRows(mysqli $local, string $table, array $rows): void
     $stage = $table . '__restorenew';
 
     $local->query('SET FOREIGN_KEY_CHECKS = 0');
-    $local->query("DROP TABLE IF EXISTS `$stage`");
+    $local->query("DROP TABLE IF EXISTS `$stage`"); // schema-compat: ok - tabelle di appoggio sul DB LOCALE (backup del catalogo), scambio atomico
     if (!$local->query("CREATE TABLE `$stage` LIKE `$table`")) {
         $local->query('SET FOREIGN_KEY_CHECKS = 1');
         throw new RuntimeException("CREATE `$stage` fallita: " . $local->error);
@@ -276,16 +276,16 @@ function restoreTableRows(mysqli $local, string $table, array $rows): void
         }
 
         $old = $table . '__restoreold';
-        $local->query("DROP TABLE IF EXISTS `$old`");
-        if (!$local->query("RENAME TABLE `$table` TO `$old`, `$stage` TO `$table`")) {
+        $local->query("DROP TABLE IF EXISTS `$old`"); // schema-compat: ok - tabelle di appoggio sul DB LOCALE (backup del catalogo), scambio atomico
+        if (!$local->query("RENAME TABLE `$table` TO `$old`, `$stage` TO `$table`")) { // schema-compat: ok - tabelle di appoggio sul DB LOCALE (backup del catalogo), scambio atomico
             throw new RuntimeException("RENAME swap `$table` fallita: " . $local->error);
         }
-        $local->query("DROP TABLE IF EXISTS `$old`");
+        $local->query("DROP TABLE IF EXISTS `$old`"); // schema-compat: ok - tabelle di appoggio sul DB LOCALE (backup del catalogo), scambio atomico
     } catch (Throwable $e) {
         if ($inTx) {
             try { $local->rollback(); } catch (Throwable $ignored) {}
         }
-        try { $local->query("DROP TABLE IF EXISTS `$stage`"); } catch (Throwable $ignored) {}
+        try { $local->query("DROP TABLE IF EXISTS `$stage`"); } catch (Throwable $ignored) {} // schema-compat: ok - tabelle di appoggio sul DB LOCALE (backup del catalogo), scambio atomico
         $local->query('SET FOREIGN_KEY_CHECKS = 1');
         throw $e;
     }
