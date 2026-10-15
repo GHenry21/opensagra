@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,8 @@ type nodeInfo struct {
 	Hostname string `json:"hostname"`
 	Role     string `json:"role"`
 	Version  string `json:"version"`
+	OS       string `json:"os"`   // runtime.GOOS della cassa ("" = wrapper precedente)
+	Arch     string `json:"arch"` // runtime.GOARCH
 	LastSeen string `json:"last_seen"` // "HH:MM:SS", ora del DB
 	Self     bool   `json:"self"`
 }
@@ -128,14 +131,23 @@ func nodeHeartbeatOnce(cfg *Config) (string, []nodeInfo, error) {
 		" hostname VARCHAR(255) NOT NULL PRIMARY KEY,"+
 		" ruolo VARCHAR(16) NOT NULL,"+
 		" versione VARCHAR(64) NOT NULL,"+
+		" os VARCHAR(16) NOT NULL DEFAULT '',"+
+		" arch VARCHAR(16) NOT NULL DEFAULT '',"+
 		" last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"+
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); err != nil {
 		return "", nil, err
 	}
+	// os/arch: aggiunti dopo (6c C3, la centrale conserva gli installer per
+	// le piattaforme delle casse). Colonne con default: compatibili con un
+	// server e casse con codice precedente (6c D).
+	if err := ensureNodePlatformColumns(ctx, db, host); err != nil {
+		return "", nil, err
+	}
 	if _, err := db.ExecContext(ctx,
-		"INSERT INTO app_nodi (hostname, ruolo, versione, last_seen) VALUES (?, ?, ?, CURRENT_TIMESTAMP)"+
-			" ON DUPLICATE KEY UPDATE ruolo = VALUES(ruolo), versione = VALUES(versione), last_seen = CURRENT_TIMESTAMP",
-		hostname, role, version); err != nil {
+		"INSERT INTO app_nodi (hostname, ruolo, versione, os, arch, last_seen) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"+
+			" ON DUPLICATE KEY UPDATE ruolo = VALUES(ruolo), versione = VALUES(versione),"+
+			" os = VALUES(os), arch = VALUES(arch), last_seen = CURRENT_TIMESTAMP",
+		hostname, role, version, runtime.GOOS, runtime.GOARCH); err != nil {
 		return "", nil, err
 	}
 
@@ -154,7 +166,7 @@ func nodeHeartbeatOnce(cfg *Config) (string, []nodeInfo, error) {
 		}
 
 		rows, err := db.QueryContext(ctx,
-			"SELECT hostname, ruolo, versione, DATE_FORMAT(last_seen, '%H:%i:%s') FROM app_nodi"+
+			"SELECT hostname, ruolo, versione, os, arch, DATE_FORMAT(last_seen, '%H:%i:%s') FROM app_nodi"+
 				" WHERE last_seen > NOW() - INTERVAL ? SECOND ORDER BY ruolo DESC, hostname",
 			int(nodeFreshWindow/time.Second))
 		if err != nil {
@@ -164,7 +176,7 @@ func nodeHeartbeatOnce(cfg *Config) (string, []nodeInfo, error) {
 		var nodes []nodeInfo
 		for rows.Next() {
 			var n nodeInfo
-			if err := rows.Scan(&n.Hostname, &n.Role, &n.Version, &n.LastSeen); err != nil {
+			if err := rows.Scan(&n.Hostname, &n.Role, &n.Version, &n.OS, &n.Arch, &n.LastSeen); err != nil {
 				return "", nil, err
 			}
 			n.Self = n.Hostname == hostname
@@ -182,6 +194,29 @@ func nodeHeartbeatOnce(cfg *Config) (string, []nodeInfo, error) {
 		return "", nil, err
 	}
 	return strings.TrimSpace(serverVer), nil, nil
+}
+
+var (
+	nodeColsMu   sync.Mutex
+	nodeColsDone = map[string]bool{} // host DB -> colonne os/arch gia' verificate
+)
+
+// ensureNodePlatformColumns: os/arch su un app_nodi creato da un wrapper
+// precedente. Una volta per host DB a processo: ADD COLUMN IF NOT EXISTS e'
+// innocuo ma prende comunque un lock di metadati.
+func ensureNodePlatformColumns(ctx context.Context, db *sql.DB, host string) error {
+	nodeColsMu.Lock()
+	defer nodeColsMu.Unlock()
+	if nodeColsDone[host] {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, "ALTER TABLE app_nodi"+
+		" ADD COLUMN IF NOT EXISTS os VARCHAR(16) NOT NULL DEFAULT '',"+
+		" ADD COLUMN IF NOT EXISTS arch VARCHAR(16) NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	nodeColsDone[host] = true
+	return nil
 }
 
 // isMissingTable: errore MySQL 1146 (tabella inesistente) - app_config manca

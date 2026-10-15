@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,8 @@ func saveDist(version, zipPath, shaPath, manifestPath string) error {
 // reinstallazione), la scarica dalla release su GitHub. Solo per versioni
 // pubblicate (non "0.0.0-dev"); senza Internet riprova ogni ora. Gira su ogni
 // macchina: una indipendente puo' diventare server in qualunque momento.
+// Su una cassa centrale conserva anche gli installer completi per le
+// piattaforme delle sue casse (installers.go, 6c punto C3).
 func ensureDistLoop(ctx context.Context, cfg *Config) {
 	wait := distFirstWait
 	for {
@@ -83,14 +86,21 @@ func ensureDistLoop(ctx context.Context, cfg *Config) {
 		}
 		wait = distRetry
 		installed := installedVersion(cfg)
-		if !isPlainVersion(installed) || distVersion(distDir()) == installed {
+		if !isPlainVersion(installed) {
 			continue
 		}
-		if err := fetchDistFromGitHub(installed); err != nil {
-			log.Printf("dist: pacchetto v%s non ancora scaricato: %v", installed, err)
-			continue
+		if distVersion(distDir()) != installed {
+			if err := fetchDistFromGitHub(installed); err != nil {
+				log.Printf("dist: pacchetto v%s non ancora scaricato: %v", installed, err)
+			} else {
+				log.Printf("dist: pacchetto v%s pronto per le casse client", installed)
+			}
 		}
-		log.Printf("dist: pacchetto v%s pronto per le casse client", installed)
+		if isThisMachineServer(cfg) && !inLocalFallback(cfg) && isCentral(cfg) {
+			if err := ensureInstallers(cfg, installed); err != nil {
+				log.Printf("dist: installer per le casse incompleti, riprovo tra %s: %v", distRetry, err)
+			}
+		}
 	}
 }
 
@@ -117,7 +127,7 @@ func fetchDistFromGitHub(version string) error {
 	zipPath := filepath.Join(work, updateZipAssetName)
 	shaPath := zipPath + ".sha256"
 	manPath := filepath.Join(work, updateManifestAssetName)
-	if err := downloadTo(nil, urls[updateZipAssetName], zipPath); err != nil {
+	if err := downloadTo(&http.Client{Timeout: installerTimeout}, urls[updateZipAssetName], zipPath); err != nil {
 		return err
 	}
 	if err := downloadTo(nil, urls[updateSHA256AssetName], shaPath); err != nil {
