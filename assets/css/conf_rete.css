@@ -238,3 +238,11 @@ label.rete-mode-option {
         grid-template-columns: 1fr
     }
 }
+
+/* Installer per le casse (piano 6c C3) */
+.installers-list {
+    margin: 10px 0 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 6px
+}

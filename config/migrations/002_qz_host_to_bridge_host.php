@@ -54,14 +54,14 @@ $hasNew = columnExists($connectionDB, 'casse_stampanti', 'bridge_host');
 if ($hasOld && !$hasNew) {
     // CHANGE COLUMN conserva i dati esistenti (gli IP dei PC-ponte gia' salvati).
     run($connectionDB, 'rinomina qz_host -> bridge_host',
-        'ALTER TABLE casse_stampanti CHANGE COLUMN qz_host bridge_host VARCHAR(255) NULL');
+        'ALTER TABLE casse_stampanti CHANGE COLUMN qz_host bridge_host VARCHAR(255) NULL'); // schema-compat: ok - qz_host esiste solo su database precedenti alla v0.1.0, mai in una release
 } elseif ($hasOld && $hasNew) {
     // Caso raro: entrambe presenti (una ensure ha gia' aggiunto bridge_host
     // vuota prima della migrazione). Travasa i valori e lascia cadere qz_host.
     run($connectionDB, 'travaso qz_host residuo -> bridge_host',
         "UPDATE casse_stampanti SET bridge_host = qz_host
           WHERE (bridge_host IS NULL OR bridge_host = '') AND qz_host IS NOT NULL AND qz_host <> ''");
-    run($connectionDB, 'drop qz_host', 'ALTER TABLE casse_stampanti DROP COLUMN qz_host');
+    run($connectionDB, 'drop qz_host', 'ALTER TABLE casse_stampanti DROP COLUMN qz_host'); // schema-compat: ok - qz_host esiste solo su database precedenti alla v0.1.0, mai in una release
 } elseif (!$hasNew) {
     run($connectionDB, 'aggiungi bridge_host (nessuna qz_host da rinominare)',
         'ALTER TABLE casse_stampanti ADD COLUMN bridge_host VARCHAR(255) NULL AFTER porta');

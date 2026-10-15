@@ -752,9 +752,27 @@ cui scaricare l'installer di quella versione.
 impostazioni restano come sono. Basta scaricare l'installer e lanciarlo come
 la prima volta (§1), sopra l'installazione esistente.
 
-Se la cassa da reinstallare non ha Internet, scarica l'installer da un altro
-PC e portalo con una chiavetta USB. Ricorda l'ordine: prima il PC centrale,
-poi le casse.
+**Con più casse, l'installer lo tiene il PC centrale.** Quando il PC centrale
+ha Internet, scarica da solo anche l'installer della sua versione per il
+proprio tipo di PC e per quello delle casse collegate a lui. Così le casse
+si reinstallano dal PC centrale, attraverso la rete della sagra, anche senza
+Internet. Ricorda l'ordine: prima il PC centrale, poi le casse.
+
+- **Dal pannello della cassa**: il pulsante dice che serve reinstallare e che
+  l'installer è sul PC centrale. Cliccandolo, la cassa lo scarica nella
+  cartella Download e te lo prepara: su Windows lo avvia (conferma la
+  richiesta di Windows), su Linux apre la cartella con **Installa
+  OpenSagra**, su Mac apre la cartella con lo zip (doppio clic sullo zip,
+  poi sull'app).
+- **Dal browser della cassa**, se il suo pannello non lo propone (per
+  esempio una cassa con una versione vecchia): apri la pagina
+  **Configurazione Rete** del PC centrale (`https://<indirizzo del PC
+  centrale>/pages/conf_rete.php`) e scarica l'installer adatto dal
+  riquadro **"Installer per le casse"**.
+
+Se il PC centrale non ha l'installer giusto (non ha mai avuto Internet dopo
+l'aggiornamento, o la cassa è di un tipo che non ha ancora visto), scarica
+l'installer da un altro PC e portalo con una chiavetta USB.
 
 **Reinstalla tutte le casse prima del servizio, non solo il centrale.** Quando
 serve reinstallare, finché casse e centrale non sono alla stessa versione:

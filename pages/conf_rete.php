@@ -144,6 +144,23 @@
                 </p>
             </section>
 
+            <!-- Piano 6c C3: installer completi conservati da questo PC (solo se
+                 e' una cassa centrale e ne ha scaricati). Servono alle casse che
+                 devono reinstallare OpenSagra senza Internet: si apre questa
+                 pagina dal loro browser e si scarica da qui. -->
+            <section class="rete-card" id="installersCard" hidden>
+                <div class="panel-title-row">
+                    <h3>Installer per le casse</h3>
+                </div>
+                <p class="inline-muted">
+                    Se una cassa deve reinstallare OpenSagra e non ha Internet, apri questa pagina dal
+                    suo browser<?= $localIp ? ' (<code>https://' . htmlspecialchars($localIp) . $appBasePath . '/pages/conf_rete.php</code>)' : '' ?>
+                    e scarica l'installer adatto: i dati restano, è come la prima installazione.
+                    Versione: <strong id="installersVersion"></strong>.
+                </p>
+                <ul class="installers-list" id="installersList"></ul>
+            </section>
+
             <?php if ($certUrl): ?>
             <section class="rete-card">
                 <div class="panel-title-row">
@@ -271,6 +288,36 @@
                     }
                 });
             }
+
+            // Installer conservati da questo PC (api/update_dist.php?f=installers).
+            (function loadInstallers() {
+                const card = document.getElementById('installersCard');
+                const list = document.getElementById('installersList');
+                fetch('../api/update_dist.php?f=installers')
+                    .then((r) => r.json())
+                    .then((idx) => {
+                        const items = (idx && idx.installers) || [];
+                        if (!items.length) {
+                            return;
+                        }
+                        document.getElementById('installersVersion').textContent = 'v' + idx.version;
+                        list.replaceChildren(...items.map((e) => {
+                            const li = document.createElement('li');
+                            const a = document.createElement('a');
+                            a.href = '../api/update_dist.php?f=installer&os=' + encodeURIComponent(e.os) +
+                                '&arch=' + encodeURIComponent(e.arch);
+                            a.textContent = e.label;
+                            a.setAttribute('download', e.name);
+                            const meta = document.createElement('span');
+                            meta.className = 'inline-muted';
+                            meta.textContent = ` — ${e.name}, ${Math.round(e.size / 1048576)} MB`;
+                            li.append(a, meta);
+                            return li;
+                        }));
+                        card.hidden = false;
+                    })
+                    .catch(() => { /* nessun installer o endpoint assente: niente card */ });
+            })();
 
             const certQrCode = document.getElementById('certQrCode');
             if (certQrCode) {

@@ -178,19 +178,28 @@ func checkSHA256File(path, shaFile string) error {
 	}
 	want := strings.ToLower(fields[0])
 
-	f, err := os.Open(path)
+	got, err := fileSHA256(path)
 	if err != nil {
 		return err
+	}
+	if got != want {
+		return fmt.Errorf("il pacchetto scaricato non corrisponde all'impronta pubblicata - aggiornamento non applicato")
+	}
+	return nil
+}
+
+// fileSHA256: impronta esadecimale minuscola di un file.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
 	}
 	defer f.Close()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return err
+		return "", err
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != want {
-		return fmt.Errorf("il pacchetto scaricato non corrisponde all'impronta pubblicata - aggiornamento non applicato")
-	}
-	return nil
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // extractTo: estrae lo zip in una cartella vuota (staging).

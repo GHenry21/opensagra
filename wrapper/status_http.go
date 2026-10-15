@@ -41,6 +41,11 @@ type statusServer struct {
 	winOpen     bool // finestra app-mode gia' aperta
 	updating    bool // ApplyUpdate() in corso (asincrono, vedi handleAction "apply-update")
 	updateErr   string
+
+	// Installer scaricato dalla centrale (6c C3, handleAction "get-installer").
+	installerBusy bool
+	installerMsg  string // esito da mostrare una volta (successo o errore)
+	installerErr  bool
 }
 
 func newStatusServer(ctx context.Context, cfg *Config, sup *Supervisor) *statusServer {
@@ -128,6 +133,11 @@ type statusJSON struct {
 	UpdateZipURL    string `json:"update_zip_url"`  // "" se da questa installazione serve una reinstallazione completa
 	UpdateFullWhy   string `json:"update_full_why"` // perche' serve la reinstallazione (se UpdateZipURL == "")
 	UpdateSource    string `json:"update_source"`   // "github" | "server" (cassa client: dal PC server in LAN)
+	// Serve reinstallare e la centrale ha l'installer per questa cassa (6c C3).
+	UpdateInstaller string `json:"update_installer"` // nome del file, "" se non c'e'
+	InstallerBusy   bool   `json:"installer_busy"`
+	InstallerMsg    string `json:"installer_msg"`
+	InstallerErr    bool   `json:"installer_err"`
 	UpdateNotes     string `json:"update_notes"`    // note della release, da mostrare prima di confermare
 	Updating        bool   `json:"updating"`        // true mentre ApplyUpdate() e' in corso
 	UpdateError     string `json:"update_error"`    // ultimo errore di ApplyUpdate(), se c'e'
@@ -204,6 +214,7 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	upd := checkForUpdate(h.cfg)
 	h.mu.Lock()
 	updating, updateErr := h.updating, h.updateErr
+	instBusy, instMsg, instErr := h.installerBusy, h.installerMsg, h.installerErr
 	h.mu.Unlock()
 	localVer := installedVersion(h.cfg)
 	serverVer, nodes := versionPeers()
@@ -227,6 +238,10 @@ func (h *statusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		UpdateZipURL:      upd.ZipURL,
 		UpdateFullWhy:     upd.FullReason,
 		UpdateSource:      upd.Source,
+		UpdateInstaller:   upd.InstallerName,
+		InstallerBusy:     instBusy,
+		InstallerMsg:      instMsg,
+		InstallerErr:      instErr,
 		UpdateNotes:       upd.Changelog,
 		Updating:          updating,
 		UpdateError:       updateErr,
@@ -376,6 +391,33 @@ func (h *statusServer) handleAction(w http.ResponseWriter, r *http.Request) {
 				go announceBackWhenUp(h.ctx, h.sup, h.cfg)
 			}
 		}()
+	case "get-installer":
+		h.mu.Lock()
+		busy := h.installerBusy
+		if !busy {
+			h.installerBusy, h.installerMsg, h.installerErr = true, "", false
+		}
+		h.mu.Unlock()
+		if busy {
+			writeJSON(w, map[string]any{"ok": false, "error": "download gia' in corso"})
+			return
+		}
+		info := checkForUpdate(h.cfg)
+		go func() {
+			msg, err := DownloadInstaller(info)
+			h.mu.Lock()
+			h.installerBusy = false
+			if err != nil {
+				h.installerMsg, h.installerErr = err.Error(), true
+			} else {
+				h.installerMsg, h.installerErr = msg, false
+			}
+			h.mu.Unlock()
+		}()
+	case "installer-msg-seen":
+		h.mu.Lock()
+		h.installerMsg, h.installerErr = "", false
+		h.mu.Unlock()
 	case "open-logs":
 		revealPath(h.cfg.LogDir)
 	case "autostart-on":
