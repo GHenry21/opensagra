@@ -43,9 +43,9 @@ jobs:
       # 2026-10-15: un a capo vero dentro una stringa, corretto in bab0631).
       - name: Sintassi JavaScript della finestra di stato
         shell: bash
+        # Solo Node (c'e' su tutti i runner): new Function() compila senza eseguire.
         run: |
-          python3 -c "import re,sys; s=open('status_page.html',encoding='utf-8').read(); open('status_page.check.js','w',encoding='utf-8').write('\n'.join(re.findall(r'<script>(.*?)</script>', s, re.S)))"
-          node --check status_page.check.js
+          node -e "const s=require('fs').readFileSync('status_page.html','utf8'); const js=[...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n'); new Function(js); console.log('sintassi ok, ' + js.length + ' caratteri')"
 
       - name: go build
         run: go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
