@@ -133,6 +133,11 @@ func main() {
 	// snapshot (il relay si autoregola gia' da solo con exit(0)).
 	go watchDbHost(ctx, cfg, sup)
 
+	// api/set_bridge_mode.php riscrive PRINT_BRIDGE_CASSE a caldo (checkbox
+	// "Ponte di stampa" in conf_rete.php): rileggilo e pausa/riprendi il
+	// figlio bridge di conseguenza, senza richiedere un riavvio del wrapper.
+	go watchBridgeEnabled(ctx, cfg, sup)
+
 	// Versione di questa macchina sul DB a cui punta + versione del server
 	// (piano, Fase 6c punto A) - vedi nodes.go.
 	go nodeHeartbeatLoop(ctx, cfg)

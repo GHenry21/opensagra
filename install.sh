@@ -228,6 +228,28 @@ grant_bind_service_capability() {
     ok "Permesso di legarsi alle porte 80/443 concesso a FrankenPHP (setcap)"
 }
 
+# grant_usb_printer_access: una stampante USB collegata a questo PC come
+# dispositivo (es. /dev/usb/lp0, modello LINUX_USB del bridge di stampa
+# nativo) e' del gruppo "lp" (owner root, mode 660) - l'utente normale con cui
+# gira OpenSagra (mai root, stesso principio di grant_bind_service_capability)
+# non ci sta per default, quindi scriverci darebbe "permission denied". Una
+# coda CUPS sulla stessa stampante funziona comunque (CUPS gira come
+# root/lp), ma non e' sempre quella scelta in conf_casse. Trovato testando
+# "Linux come centrale" (piano, 5e, 2026-10-16). Effetto dal prossimo
+# login/riavvio: i gruppi di un utente valgono per le nuove sessioni, non per
+# quella corrente - non blocca l'installazione, e' solo un avviso se serve.
+grant_usb_printer_access() {
+    if id -nG "$USER" | tr ' ' '\n' | grep -qx lp; then
+        ok "$USER e' gia' nel gruppo lp (stampanti USB come /dev/usb/lpN)"
+        return
+    fi
+    if sudo usermod -aG lp "$USER"; then
+        ok "$USER aggiunto al gruppo lp (effetto dal prossimo login - serve solo per una stampante USB come dispositivo, non per una coda CUPS)"
+    else
+        log "ATTENZIONE: aggiunta di $USER al gruppo lp fallita - una stampante USB configurata come dispositivo (non coda CUPS) potrebbe risultare non scrivibile."
+    fi
+}
+
 # set_php_ini: a differenza di Windows, la build statica ufficiale di
 # FrankenPHP per Linux ha GIA' incorporate tutte le estensioni che servono
 # (mysqli, mbstring, gd, zip, intl, curl, openssl, fileinfo, ...) - verificato
@@ -373,8 +395,12 @@ MERCURE_JWT_SECRET=$mercure_secret
 # Lo scrive la pagina Rete al passaggio a client (segreto dell'hub del
 # server). Vuoto su server / installazione indipendente.
 MERCURE_JWT_SECRET_REMOTE=
-# PC-ponte: id-topic di stampa serviti da questo PC, separati da virgola.
-PRINT_BRIDGE_CASSE=
+# Ponte di stampa nativo: acceso di default, nessuna configurazione richiesta
+# (sempre pronto in ascolto sull'hub locale). "0" = questo PC non fa da ponte
+# (vuoto conta come acceso, non come spento: compatibilita' con installazioni
+# precedenti che scrivevano qui una riga vuota) - si spegne dalla pagina Rete,
+# checkbox "Ponte di stampa".
+PRINT_BRIDGE_CASSE=1
 EOF
         ok "config/variabili.env creato"
         return
@@ -383,7 +409,7 @@ EOF
     local added=()
     grep -qP '^\s*MERCURE_JWT_SECRET\s*=\s*\S' "$env_path" || { sed -i '/^\s*MERCURE_JWT_SECRET\s*=/d' "$env_path"; echo "MERCURE_JWT_SECRET=$mercure_secret" >> "$env_path"; added+=(MERCURE_JWT_SECRET); }
     grep -qP '^\s*MERCURE_JWT_SECRET_REMOTE\s*=' "$env_path" || { echo "MERCURE_JWT_SECRET_REMOTE=" >> "$env_path"; added+=(MERCURE_JWT_SECRET_REMOTE); }
-    grep -qP '^\s*PRINT_BRIDGE_CASSE\s*=' "$env_path" || { echo "PRINT_BRIDGE_CASSE=" >> "$env_path"; added+=(PRINT_BRIDGE_CASSE); }
+    grep -qP '^\s*PRINT_BRIDGE_CASSE\s*=' "$env_path" || { echo "PRINT_BRIDGE_CASSE=1" >> "$env_path"; added+=(PRINT_BRIDGE_CASSE); }
 
     if [ ${#added[@]} -gt 0 ]; then
         ok "config/variabili.env aggiornato (${added[*]})"
@@ -812,6 +838,7 @@ log "avvio install.sh (PID $$) - sorgente: $SOURCE_DIR -> destinazione: $INSTALL
 test_prerequisites
 install_frankenphp
 grant_bind_service_capability
+grant_usb_printer_access
 set_php_ini
 install_mariadb
 

@@ -29,9 +29,15 @@
  *    processo resta vivo).
  *
  * Lanciato dal wrapper come processo figlio (vedi piano 3g), un solo processo
- * per PC. Abilitato da:  PRINT_BRIDGE_CASSE  non vuoto in variabili.env (il
- * valore stesso non conta piu', solo se e' vuoto o no - compatibilita' con
- * installazioni che avevano gia' un id li' scritto).
+ * per PC. ACCESO DI DEFAULT: PRINT_BRIDGE_CASSE spegne solo con "0" esplicito
+ * (bridgeFlagOn in wrapper/config.go, stessa regola qui) - un valore vuoto
+ * conta come acceso apposta, perche' ogni installazione precedente al
+ * 2026-10-16 ha la chiave gia' scritta vuota (piano 5e: prima restava spento
+ * su un PC-ponte appena installato, nessuna pagina lo accendeva; "vuoto =
+ * spento" avrebbe lasciato senza bridge anche le installazioni esistenti
+ * dopo un aggiornamento). Si spegne dalla pagina Rete, checkbox "Ponte di
+ * stampa" (api/set_bridge_mode.php, scrive "0"), se questo PC non deve mai
+ * farne le veci.
  *
  * Test senza stampante reale: PRINT_BRIDGE_SINK_FILE=<path> scrive i byte su
  * file invece che sulla stampante.
@@ -87,12 +93,19 @@ function bridgeAcquireLock()
 }
 
 // --- il bridge e' abilitato su questo PC? ---
+// ON di default, spento SOLO con "0" esplicito (stessa regola di bridgeFlagOn
+// in wrapper/config.go - deve restare identica). Ogni installer prima del
+// 2026-10-16 scriveva la chiave vuota: "vuoto = spento" lascerebbe senza
+// bridge ogni installazione esistente anche dopo un aggiornamento, proprio
+// dove l'utente si aspetta che sia gia' acceso. Il wrapper non lancia piu'
+// questo script quando e' spento (lo pausa, vedi syncBridgeChild), ma lo
+// stesso controllo qui protegge anche un avvio manuale da riga di comando.
 $fromEnv = getenv('PRINT_BRIDGE_CASSE');
 if ($fromEnv === false || trim((string) $fromEnv) === '') {
     $fromEnv = loadPosEnvVars()['print_bridge_casse'] ?? '';
 }
-if (trim((string) $fromEnv) === '') {
-    bridgeLog("print-bridge: PRINT_BRIDGE_CASSE non impostato in variabili.env. Esco.");
+if (trim((string) $fromEnv) === '0') {
+    bridgeLog("print-bridge: PRINT_BRIDGE_CASSE=0 (disattivato dalla pagina Rete). Esco.");
     exit(0);
 }
 

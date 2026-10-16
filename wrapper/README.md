@@ -38,7 +38,7 @@ stampa). Deciso nel piano di migrazione, **sezione 3g** (revisione 2026-09-08).
 | `frankenphp` | `frankenphp run --config <root>/Caddyfile` | il web server |
 | `relay` | `frankenphp php-cli bin/opensagra-realtime-relay.php` | inoltro Mercure server→client, solo in modalità rete |
 | `snapshot` | `frankenphp php-cli bin/opensagra-snapshot.php` | tiene aggiornato il DB locale del client per il fallback una-via (Fase 4 punto 4); in pausa se la macchina non è un client |
-| `bridge` | `frankenphp php-cli bin/opensagra-print-bridge.php` | uno solo, se `PRINT_BRIDGE_CASSE` non è vuoto |
+| `bridge` | `frankenphp php-cli bin/opensagra-print-bridge.php` | uno solo; **acceso di default**, in pausa solo se `PRINT_BRIDGE_CASSE=0` (vuoto conta come acceso, `bridgeFlagOn` in `config.go`), acceso/spento a caldo da `api/set_bridge_mode.php` (checkbox "Ponte di stampa" in `conf_rete.php`) senza riavviare il wrapper — vedi `watchBridgeEnabled`/`syncBridgeChild` in `cluster.go` |
 
 Il wrapper **non tocca JWT/segreti Mercure**: sono i processi PHP a leggersi
 `config/variabili.env`. Del `.env` al wrapper interessa solo `PRINT_BRIDGE_CASSE`
@@ -54,9 +54,12 @@ all'uscita).
   backoff `1s → 2s → … → 30s` (reset a 1s se era su da > 60s).
 - **`relay` / `bridge`** fanno `exit(0)` quando *non c'è niente da fare*:
   - relay: `DB_POS_HOST` è locale → non è un client;
-  - bridge: `PRINT_BRIDGE_CASSE` vuoto, **oppure `MERCURE_JWT_SECRET` locale
-    assente** in `variabili.env` (il bridge ascolta sempre sul proprio hub
-    locale, punto-punto - non dipende più da `DB_POS_HOST`/`conf_rete`).
+  - bridge: `PRINT_BRIDGE_CASSE=0` (acceso di default, vuoto conta come
+    acceso), **oppure `MERCURE_JWT_SECRET` locale assente** in
+    `variabili.env` (il bridge ascolta sempre sul proprio hub locale,
+    punto-punto - non dipende più da `DB_POS_HOST`/`conf_rete`). In pratica il
+    wrapper non arriva nemmeno a lanciarlo se è spento: lo pausa prima
+    (`syncBridgeChild`), questo è il caso di un avvio manuale dello script.
   `exit(0)` → **non martellare**: ricontrollo lento (`IdleRecheck`, 30–60 s).
   `exit != 0` → crash vero → backoff.
 

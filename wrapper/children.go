@@ -10,6 +10,11 @@ import (
 // macchina non e' un client.
 const snapshotChildName = "snapshot"
 
+// bridgeChildName: nome del figlio che esegue bin/opensagra-print-bridge.php.
+// Riferito anche da cluster.go per metterlo in pausa/ripresa quando
+// PRINT_BRIDGE_CASSE cambia mentre il wrapper gira (api/set_bridge_mode.php).
+const bridgeChildName = "bridge"
+
 // buildChildren: i processi che il wrapper supervisiona.
 //
 // Contratto exit-code (vedi README):
@@ -55,17 +60,20 @@ func buildChildren(cfg *Config) []*Child {
 		},
 	}
 
-	if cfg.BridgeEnabled {
-		// Punto-punto: un solo processo basta per PC, qualunque sia il numero di
-		// casse/stampanti servite - il topic Mercure e' fisso, la stampante fisica
-		// la sceglie il payload (vedi bin/opensagra-print-bridge.php).
-		children = append(children, &Child{
-			Name:        "bridge",
-			Dir:         cfg.AppRoot,
-			Bin:         cfg.Frankenphp,
-			Args:        phpCli("bin/opensagra-print-bridge.php"),
-			IdleRecheck: 30 * time.Second, // exit(0) = MERCURE_JWT_SECRET locale assente: riprova presto
-		})
-	}
+	// Punto-punto: un solo processo basta per PC, qualunque sia il numero di
+	// casse/stampanti servite - il topic Mercure e' fisso, la stampante fisica
+	// la sceglie il payload (vedi bin/opensagra-print-bridge.php). Sempre
+	// presente nell'elenco (non solo se cfg.BridgeEnabled all'avvio): lo stato
+	// iniziale e i cambi a caldo di PRINT_BRIDGE_CASSE li gestisce
+	// watchBridgeEnabled via pause/resume, non l'esclusione dalla lista -
+	// altrimenti accenderlo da conf_rete.php richiederebbe sempre un riavvio
+	// del wrapper.
+	children = append(children, &Child{
+		Name:        bridgeChildName,
+		Dir:         cfg.AppRoot,
+		Bin:         cfg.Frankenphp,
+		Args:        phpCli("bin/opensagra-print-bridge.php"),
+		IdleRecheck: 30 * time.Second, // exit(0) = MERCURE_JWT_SECRET locale assente: riprova presto
+	})
 	return children
 }
