@@ -166,9 +166,15 @@ Nell'uso di tutti i giorni conta solo questo:
   da solo ogni volta che accendi il PC — non devi ricordarti di avviare nulla
   a mano la mattina della sagra.
 - **Chiudere questa finestra non ferma il server**: è solo la finestra di
-  stato, il server continua a girare in background. La ritrovi cliccando
-  sull'icona nella system tray di Windows (vicino all'orologio, in basso a
-  destra).
+  stato, il server continua a girare in background.
+  - **Su Windows**: la ritrovi cliccando sull'icona nella system tray (vicino
+    all'orologio, in basso a destra) — da lì, col tasto destro, trovi anche
+    **"Esci"** per fermarlo del tutto.
+  - **Su Mac e Linux**: non c'è un'icona nella barra di sistema — riapri
+    l'app **OpenSagra** (cartella Applicazioni sul Mac, collegamento sul
+    desktop su Linux) per far ricomparire questa stessa finestra. Per
+    fermarlo del tutto c'è il pulsante **"Esci da OpenSagra"** in fondo al
+    pannello.
 
 Tutto il resto — **Ferma/Avvia server**, **Riavvia tutto**, **Apri cartella
 log** e **Dettagli avanzati** servono solo per la diagnosi tecnica o chi vuole vedere cosa succede "dietro le quinte"; **non ti servirà nell'uso quotidiano**.:
