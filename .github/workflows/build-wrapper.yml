@@ -37,6 +37,16 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # La finestra di stato e' una pagina HTML con il suo JavaScript, servita
+      # dal wrapper: un errore di sintassi la blocca del tutto su ogni OS e i
+      # test che usano le API del wrapper non se ne accorgono (successo il
+      # 2026-10-15: un a capo vero dentro una stringa, corretto in bab0631).
+      - name: Sintassi JavaScript della finestra di stato
+        shell: bash
+        # Solo Node (c'e' su tutti i runner): new Function() compila senza eseguire.
+        run: |
+          node -e "const s=require('fs').readFileSync('status_page.html','utf8'); const js=[...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n'); new Function(js); console.log('sintassi ok, ' + js.length + ' caratteri')"
+
       - name: go build
         run: go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe .
 

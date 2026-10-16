@@ -323,7 +323,7 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): int
     }
 
     $local->query('SET FOREIGN_KEY_CHECKS = 0');
-    $local->query("DROP TABLE IF EXISTS `$stage`");
+    $local->query("DROP TABLE IF EXISTS `$stage`"); // schema-compat: ok - tabelle di appoggio sul DB LOCALE della cassa (copia del catalogo), scambio atomico
     if (!$local->query($stageCreate)) {
         $local->query('SET FOREIGN_KEY_CHECKS = 1');
         throw new RuntimeException("CREATE `$stage` locale fallita: " . $local->error);
@@ -359,15 +359,15 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): int
         // Swap atomico. La tabella `$table` esiste prima e dopo (o e' la prima
         // copia in assoluto, e allora non c'e' nulla da rimpiazzare).
         $old = $table . '__snapold';
-        $local->query("DROP TABLE IF EXISTS `$old`");
+        $local->query("DROP TABLE IF EXISTS `$old`"); // schema-compat: ok - tabelle di appoggio sul DB LOCALE della cassa (copia del catalogo), scambio atomico
         $liveExists = ($lr = $local->query("SHOW TABLES LIKE '$table'")) && $lr->num_rows > 0;
         if ($liveExists) {
-            if (!$local->query("RENAME TABLE `$table` TO `$old`, `$stage` TO `$table`")) {
+            if (!$local->query("RENAME TABLE `$table` TO `$old`, `$stage` TO `$table`")) { // schema-compat: ok - tabelle di appoggio sul DB LOCALE della cassa (copia del catalogo), scambio atomico
                 throw new RuntimeException("RENAME swap `$table` fallita: " . $local->error);
             }
-            $local->query("DROP TABLE IF EXISTS `$old`");
+            $local->query("DROP TABLE IF EXISTS `$old`"); // schema-compat: ok - tabelle di appoggio sul DB LOCALE della cassa (copia del catalogo), scambio atomico
         } else {
-            if (!$local->query("RENAME TABLE `$stage` TO `$table`")) {
+            if (!$local->query("RENAME TABLE `$stage` TO `$table`")) { // schema-compat: ok - tabelle di appoggio sul DB LOCALE della cassa (copia del catalogo), scambio atomico
                 throw new RuntimeException("RENAME `$stage` -> `$table` fallita: " . $local->error);
             }
         }
@@ -375,7 +375,7 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): int
         if ($inTx) {
             try { $local->rollback(); } catch (Throwable $ignored) {}
         }
-        try { $local->query("DROP TABLE IF EXISTS `$stage`"); } catch (Throwable $ignored) {}
+        try { $local->query("DROP TABLE IF EXISTS `$stage`"); } catch (Throwable $ignored) {} // schema-compat: ok - tabelle di appoggio sul DB LOCALE della cassa (copia del catalogo), scambio atomico
         $local->query('SET FOREIGN_KEY_CHECKS = 1');
         throw $e;
     }

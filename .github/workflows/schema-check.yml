@@ -1,0 +1,41 @@
+name: Schema compatibile
+
+# Regola D del piano (Fase 6c): le modifiche allo schema del database devono
+# essere compatibili con la versione precedente - per qualche minuto (o una
+# serata, se una cassa non si aggiorna) la cassa centrale e' nuova e le casse
+# vecchie, sullo stesso database. Solo aggiunte: niente DROP, RENAME,
+# CHANGE/MODIFY, TRUNCATE, colonne NOT NULL senza DEFAULT, ne' nelle
+# migrazioni (config/migrations/) ne' negli ALTER a runtime. Il controllo e'
+# wrapper/cmd/schemacheck; un'eccezione va motivata nel codice con un
+# commento "schema-compat: ok - <motivo>".
+
+on:
+  push:
+    paths:
+      - "**.php"
+      - "**.go"
+      - ".github/workflows/schema-check.yml"
+  pull_request:
+    paths:
+      - "**.php"
+      - "**.go"
+      - ".github/workflows/schema-check.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wrapper/go.mod
+          cache-dependency-path: wrapper/go.sum
+
+      - name: Migrazioni e ALTER a runtime compatibili con la versione precedente
+        working-directory: wrapper
+        run: go run ./cmd/schemacheck -root ..

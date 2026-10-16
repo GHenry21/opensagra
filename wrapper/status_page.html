@@ -250,6 +250,7 @@ function dotClass(state, paused) {
 let lastProcs = "";
 let lastStatus = null;
 let lastUpdateError = "";
+let lastInstallerMsg = "";
 async function refresh() {
   let s;
   try { s = await (await fetch("/api/status")).json(); }
@@ -264,6 +265,11 @@ async function refresh() {
   $("#btnUpdate").hidden = !s.wrapper_version;
   if (s.updating) {
     $("#btnUpdate").title = "Aggiornamento in corso...";
+  } else if (s.installer_busy) {
+    $("#btnUpdate").title = "Download dell'installer dal PC centrale in corso...";
+  } else if (s.update_available && !s.update_zip_url && s.update_installer) {
+    $("#btnUpdate").title = `Nuova versione: v${s.latest_version} - richiede la reinstallazione, ` +
+      "l'installer è sul PC centrale: clic per scaricarlo";
   } else if (s.update_available) {
     const from = s.update_source === "server" ? " dal PC server" : "";
     $("#btnUpdate").title = s.update_zip_url
@@ -277,6 +283,14 @@ async function refresh() {
   if (s.update_error && s.update_error !== lastUpdateError) {
     lastUpdateError = s.update_error;
     confirmBox("Aggiornamento non riuscito", s.update_error);
+  }
+  // Esito del download dell'installer (6c C3): mostrato una volta. Il
+  // controllo sul testo evita doppioni se un polling arriva prima che il
+  // wrapper abbia cancellato il messaggio.
+  if (s.installer_msg && s.installer_msg !== lastInstallerMsg) {
+    lastInstallerMsg = s.installer_msg;
+    api("installer-msg-seen");
+    confirmBox(s.installer_err ? "Installer non scaricato" : "Installer pronto", esc(s.installer_msg));
   }
 
   const clientsLabel = n => n === 1 ? "1 cassa collegata" : n + " casse collegate";
@@ -403,8 +417,17 @@ $("#btnApp").onclick = () => api("open-app");
 $("#btnDb").onclick = () => api("open-db");
 $("#btnUpdate").onclick = async () => {
   const s = lastStatus;
-  if (!s || s.updating) return;
+  if (!s || s.updating || s.installer_busy) return;
   if (!s.update_available) return; // solo tooltip con la versione, nessuna azione
+  if (!s.update_zip_url && s.update_installer) {
+    // Reinstallazione con l'installer conservato dal PC centrale (6c C3).
+    const body = `Versione installata: v${esc(s.wrapper_version)}\nNuova versione: v${esc(s.latest_version)}` +
+      (s.update_full_why ? ` (${esc(s.update_full_why)})` : "") +
+      "\n\nQuesta versione va reinstallata. Il PC centrale ha l'installer per questa cassa: " +
+      "lo scarico nella cartella Download e te lo preparo. I dati (vendite, catalogo, impostazioni) restano.";
+    if (await confirmBox(`Reinstallare la v${esc(s.latest_version)}?`, body)) api("get-installer");
+    return;
+  }
   if (!s.update_zip_url) { api("open-update"); return; } // richiede reinstallazione completa
   const notes = (s.update_notes || "").trim();
   const body = `Versione installata: v${s.wrapper_version}\nNuova versione: v${s.latest_version}` +
@@ -422,8 +445,7 @@ $("#btnPause").onclick = async () => {
 };
 $("#btnQuit").onclick = async () => {
   if (!(await confirmBox("Vuoi davvero chiudere OpenSagra?",
-      "⚠️ Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra.
-Per riaprirlo usa l'icona OpenSagra (Applicazioni sul Mac, collegamento sul desktop su Linux).")))
+      "⚠️ Fermando questo PC le casse in rete non potranno più registrare vendite finché non riavvii OpenSagra.\nPer riaprirlo usa l'icona OpenSagra (Applicazioni sul Mac, collegamento sul desktop su Linux).")))
     return;
   try { await fetch("/api/action?op=quit", { method: "POST" }); } catch (e) {}
   document.body.innerHTML = '<main style="padding:2rem;font:15px system-ui,sans-serif">OpenSagra è stato chiuso. Puoi chiudere questa finestra.</main>';

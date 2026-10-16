@@ -12,7 +12,7 @@ function getPrinterSettings($connectionDB, $cassa_id)
     $hasOld = $connectionDB->query("SHOW COLUMNS FROM casse_stampanti LIKE 'qz_host'");
     $hasNew = $connectionDB->query("SHOW COLUMNS FROM casse_stampanti LIKE 'bridge_host'");
     if ($hasOld && $hasOld->num_rows > 0 && $hasNew && $hasNew->num_rows === 0) {
-        $connectionDB->query("ALTER TABLE casse_stampanti CHANGE COLUMN qz_host bridge_host VARCHAR(255) NULL");
+        $connectionDB->query("ALTER TABLE casse_stampanti CHANGE COLUMN qz_host bridge_host VARCHAR(255) NULL"); // schema-compat: ok - qz_host esiste solo su database precedenti alla v0.1.0, mai in una release
     } else {
         $connectionDB->query("ALTER TABLE casse_stampanti ADD COLUMN IF NOT EXISTS bridge_host VARCHAR(255) NULL AFTER porta");
     }

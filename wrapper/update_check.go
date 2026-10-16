@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +82,12 @@ type UpdateInfo struct {
 	// cassa si fida gia' del server per tutto (ne scrive il database); lo zip
 	// e' comunque verificato con l'impronta.
 	lan bool
+
+	// Installer completo per questa piattaforma, conservato dalla centrale
+	// (installers.go): "" se non c'e'. Solo quando serve reinstallare.
+	InstallerURL    string
+	InstallerName   string
+	InstallerSHA256 string
 }
 
 // Cache: per il server/indipendente la richiesta a GitHub parte al massimo
@@ -110,6 +117,8 @@ func invalidateUpdateCache() {
 type ghAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	Size               int64  `json:"size"`
+	Digest             string `json:"digest"` // "sha256:<hex>", calcolato da GitHub
 }
 
 type ghRelease struct {
@@ -209,6 +218,17 @@ func updateFromGitHubLatest(cfg *Config) UpdateInfo {
 // Solo se il server non ha il pacchetto si prova GitHub per quella stessa
 // versione (serve Internet su questa cassa).
 func updateFromServer(cfg *Config, serverVer string) UpdateInfo {
+	info := updateFromServerPlan(cfg, serverVer)
+	// Serve reinstallare (es. la versione cambia wrapper o FrankenPHP): se la
+	// centrale ha l'installer per questa piattaforma, la cassa lo prende da
+	// lei invece che da GitHub o da una chiavetta (6c punto C3).
+	if info.Available && info.ZipURL == "" {
+		attachServerInstaller(cfg, &info)
+	}
+	return info
+}
+
+func updateFromServerPlan(cfg *Config, serverVer string) UpdateInfo {
 	if serverVer == "" || !isNewerVersion(serverVer, installedVersion(cfg)) {
 		// "" = server con wrapper precedente, o non raggiungibile: niente.
 		return UpdateInfo{Latest: serverVer}
@@ -219,7 +239,7 @@ func updateFromServer(cfg *Config, serverVer string) UpdateInfo {
 		HTMLURL:   fmt.Sprintf("https://github.com/%s/releases/tag/v%s", UpdateRepo, serverVer),
 	}
 
-	base := "https://" + net.JoinHostPort(strings.TrimSpace(cfg.DbHost()), "443") + "/api/update_dist.php"
+	base := distBaseURL(cfg)
 	if raw, err := httpGet(lanHTTPClient(10*time.Second), base+"?f=manifest", 4<<20); err == nil {
 		if m, err := manifest.Parse(raw); err == nil && m.Version == serverVer {
 			info.Source, info.lan = "server", true
@@ -287,7 +307,7 @@ func fetchRelease(url string) (ghRelease, error) {
 	// User-Agent obbligatorio per l'API di GitHub, altrimenti risponde 403.
 	req.Header.Set("User-Agent", "opensagra-wrapper")
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return rel, err
 	}
@@ -360,4 +380,32 @@ func isPlainVersion(v string) bool {
 		}
 	}
 	return true
+}
+
+// distBaseURL: l'endpoint dei pacchetti sulla centrale (api/update_dist.php).
+func distBaseURL(cfg *Config) string {
+	return "https://" + net.JoinHostPort(strings.TrimSpace(cfg.DbHost()), "443") + "/api/update_dist.php"
+}
+
+// attachServerInstaller: chiede alla centrale l'elenco degli installer e
+// tiene quello per la piattaforma di questa cassa, se e' della versione
+// giusta. Best effort: senza, resta la pagina della release.
+func attachServerInstaller(cfg *Config, info *UpdateInfo) {
+	base := distBaseURL(cfg)
+	raw, err := httpGet(lanHTTPClient(10*time.Second), base+"?f=installers", 1<<20)
+	if err != nil {
+		return
+	}
+	var idx installersIndexFile
+	if json.Unmarshal(raw, &idx) != nil || idx.Version != info.Latest {
+		return
+	}
+	for _, e := range idx.Installers {
+		if e.OS == runtime.GOOS && e.Arch == runtime.GOARCH && len(e.SHA256) == 64 {
+			info.InstallerURL = base + "?f=installer&os=" + e.OS + "&arch=" + e.Arch
+			info.InstallerName = filepath.Base(e.Name)
+			info.InstallerSHA256 = strings.ToLower(e.SHA256)
+			return
+		}
+	}
 }
