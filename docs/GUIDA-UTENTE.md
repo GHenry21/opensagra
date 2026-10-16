@@ -151,6 +151,22 @@ può farlo).
 > Se non ce n'è nessuno, l'installazione si apre in una scheda del browser:
 > funziona lo stesso, aspetta che dica *"Fatto!"* prima di chiuderla.
 
+> **Stampanti: serve CUPS.** Su Linux OpenSagra stampa tramite **CUPS**, il
+> sistema di stampa di Linux: è quello che fa comparire la stampante in
+> **"Ricerca Stampanti"** (§6). L'installer di OpenSagra **non** lo installa:
+> va preparato su ogni PC Linux che ha una stampante collegata (casse, PC-ponte
+> in cucina). Sulle versioni con desktop di solito c'è già; sui sistemi senza
+> desktop (per esempio **Raspberry Pi OS Lite**) quasi sempre manca. Per
+> controllare, apri il Terminale e scrivi `lpstat -r`: se risponde *"scheduler
+> is running"* è a posto. Se non c'è, installalo:
+>
+> - Raspberry Pi OS, Debian, Ubuntu: `sudo apt install cups`
+> - Fedora: `sudo dnf install cups`, poi `sudo systemctl enable --now cups`
+>
+> Poi collega la stampante: di solito CUPS la riconosce da solo e la mostra
+> con un nome tipo `Printer_POS-80C`. Le stampanti in rete (con un loro IP) non
+> hanno bisogno di CUPS: si usano con il tipo **RETE**.
+
 ### Il pannello di controllo
 
 Da questo momento, ogni volta che il PC è acceso, trovi una piccola finestra
