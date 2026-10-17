@@ -253,3 +253,55 @@ func syncSnapshotChild(cfg *Config, sup *Supervisor) {
 	}
 	sup.resume(snapshotChildName)
 }
+
+// watchBridgeEnabled: api/set_bridge_mode.php (checkbox "Ponte di stampa" in
+// conf_rete.php) riscrive PRINT_BRIDGE_CASSE in config/variabili.env mentre il
+// wrapper gira. Senza ri-leggerlo, un PC acceso come ponte dall'app
+// resterebbe senza il processo bridge finche' qualcuno non riavvia il wrapper
+// a mano - la lacuna segnalata testando "Linux come centrale" (piano, 5e,
+// 2026-10-16: PRINT_BRIDGE_CASSE vuoto in ogni installer, nessuna pagina lo
+// impostava). Poll leggero come watchDbHost: un file di poche righe ogni 15s.
+func watchBridgeEnabled(ctx context.Context, cfg *Config, sup *Supervisor) {
+	syncBridgeChild(cfg, sup) // stato iniziale coerente col valore d'avvio
+
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if cfg.refreshBridgeEnabled() {
+				log.Printf("wrapper: PRINT_BRIDGE_CASSE cambiato -> ponte di stampa %s", onOff(cfg.BridgeOn()))
+				syncBridgeChild(cfg, sup)
+			}
+		}
+	}
+}
+
+// syncBridgeChild: riprende il figlio bridge se PRINT_BRIDGE_CASSE e' acceso
+// (bridgeFlagOn - ON di default, solo "0" lo spegne), lo pausa altrimenti.
+// Idempotente.
+func syncBridgeChild(cfg *Config, sup *Supervisor) {
+	if sup == nil {
+		return
+	}
+	if cfg.BridgeOn() {
+		if sup.isPaused(bridgeChildName) {
+			log.Printf("wrapper: riprendo il figlio %q (PRINT_BRIDGE_CASSE acceso)", bridgeChildName)
+		}
+		sup.resume(bridgeChildName)
+		return
+	}
+	if !sup.isPaused(bridgeChildName) {
+		log.Printf("wrapper: metto in pausa il figlio %q (PRINT_BRIDGE_CASSE=0)", bridgeChildName)
+	}
+	sup.pause(bridgeChildName)
+}
+
+func onOff(b bool) string {
+	if b {
+		return "acceso"
+	}
+	return "spento"
+}

@@ -24,11 +24,12 @@ type Config struct {
 	// subito, senza avviare nulla. Serve al lanciatore desktop "Ferma OpenSagra"
 	// su Linux/macOS (niente tray li' per fare da menu "Esci" come su Windows).
 	Quit bool
-	// BridgeEnabled: PRINT_BRIDGE_CASSE non vuoto -> questo PC fa da ponte di
-	// stampa. Un solo processo bridge (topic Mercure fisso, punto-punto): non
-	// serve piu' un id per cassa, il valore stesso non conta piu', solo se e'
-	// vuoto o no (compatibilita' con installazioni che avevano gia' un id li'
-	// scritto).
+	// BridgeEnabled: PRINT_BRIDGE_CASSE acceso all'avvio (vedi bridgeFlagOn:
+	// ON di default, spento solo con "0" esplicito) -> questo PC fa da ponte
+	// di stampa. Un solo processo bridge (topic Mercure fisso, punto-punto):
+	// non serve piu' un id per cassa. Solo per il log d'avvio - lo stato vivo
+	// usato per pausare/riprendere il figlio e' cfg.bridgeOn (BridgeOn()),
+	// perche' api/set_bridge_mode.php lo puo' cambiare mentre il wrapper gira.
 	BridgeEnabled bool
 
 	DBUser string
@@ -41,6 +42,12 @@ type Config struct {
 	// server" resta congelato al valore d'avvio. Accesso via DbHost().
 	mu     sync.RWMutex
 	dbHost string
+	// bridgeOn: PRINT_BRIDGE_CASSE corrente, vedi bridgeFlagOn. api/set_bridge_mode.php
+	// lo scrive MENTRE il wrapper gira (checkbox "Ponte di stampa" in
+	// conf_rete.php) - senza rilettura a caldo il figlio bridge resterebbe
+	// escluso per sempre da buildChildren se non era acceso all'avvio.
+	// Accesso via BridgeOn().
+	bridgeOn bool
 }
 
 // DbHost: DB_POS_HOST corrente (thread-safe).
@@ -66,6 +73,47 @@ func (c *Config) refreshDbHost() bool {
 		return false
 	}
 	c.dbHost = h
+	return true
+}
+
+// BridgeOn: PRINT_BRIDGE_CASSE corrente, acceso (thread-safe).
+func (c *Config) BridgeOn() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.bridgeOn
+}
+
+// bridgeFlagOn: ON di default, spento SOLO con "0" esplicito. Ogni
+// installer prima di questo (piano 5e, 2026-10-16) scriveva la chiave vuota -
+// e' lo stato di ogni installazione esistente oggi, Pi compreso - quindi
+// "vuoto = spento" lascerebbe tutte quelle installazioni senza bridge per
+// sempre anche dopo un aggiornamento (la migrazione degli installer aggiunge
+// la chiave solo se assente, non la tocca se c'e' gia', anche vuota). Un
+// valore vuoto non puo' quindi significare "l'utente l'ha spento di
+// proposito" - solo "0" (scritto da api/set_bridge_mode.php quando la
+// checkbox "Ponte di stampa" viene deselezionata) lo puo'. Qualsiasi altro
+// valore non vuoto (incluso un vecchio id-topic tipo "henry", da prima del
+// modello punto-punto) resta ON, compatibilita' invariata.
+func bridgeFlagOn(raw string) bool {
+	return strings.TrimSpace(raw) != "0"
+}
+
+// refreshBridgeEnabled: rilegge PRINT_BRIDGE_CASSE da config/variabili.env.
+// Ritorna true se e' cambiato. Best effort: file assente/illeggibile -> lascia
+// invariato il valore corrente.
+func (c *Config) refreshBridgeEnabled() bool {
+	env := readEnvFile(filepath.Join(c.AppRoot, "config", "variabili.env"))
+	raw, ok := env["PRINT_BRIDGE_CASSE"]
+	if !ok {
+		return false
+	}
+	on := bridgeFlagOn(raw)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if on == c.bridgeOn {
+		return false
+	}
+	c.bridgeOn = on
 	return true
 }
 
@@ -110,8 +158,9 @@ func loadConfig() (*Config, error) {
 		Autostarted:       *autoFlag,
 		RegisterAutostart: *regFlag,
 		Quit:              *quitFlag,
-		BridgeEnabled:     strings.TrimSpace(env["PRINT_BRIDGE_CASSE"]) != "",
+		BridgeEnabled:     bridgeFlagOn(env["PRINT_BRIDGE_CASSE"]),
 		dbHost:            valueOr(env["DB_POS_HOST"], "127.0.0.1"),
+		bridgeOn:          bridgeFlagOn(env["PRINT_BRIDGE_CASSE"]),
 		DBUser:            env["DB_POS_USER"],
 		DBPass:            env["DB_POS_PASS"],
 		DBName:            "opensagra_pos", // non ancora parametrizzato lato app, vedi env_reader.php

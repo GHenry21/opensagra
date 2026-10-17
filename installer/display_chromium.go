@@ -9,15 +9,19 @@ package main
 // si'. Senza nessun Chromium: scheda del browser predefinito.
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 func showWindow(s *server, quit <-chan struct{}) {
 	if bin := findChromium(); bin != "" {
 		profile := chromiumProfileDir()
+		disablePasswordManager(profile)
 		args := []string{"--app=" + s.url("app"), "--user-data-dir=" + profile,
 			"--window-size=476,420", "--no-first-run", "--no-default-browser-check",
 			"--disable-features=Translate"}
@@ -28,6 +32,11 @@ func showWindow(s *server, quit <-chan struct{}) {
 			args = append(args, "--ozone-platform=wayland")
 		}
 		cmd := exec.Command(bin, args...)
+		// stderr di Chromium tenuto da parte: se esce subito, il motivo
+		// (display, sandbox, profilo...) finisce sull'output dell'installer
+		// invece di sparire - senza, una finestra mancante non si spiegava.
+		var errOut bytes.Buffer
+		cmd.Stderr = &errOut
 		ownProcessGroup(cmd)
 		if cmd.Start() == nil {
 			started := time.Now()
@@ -46,11 +55,36 @@ func showWindow(s *server, quit <-chan struct{}) {
 				if time.Since(started) > 3*time.Second {
 					return
 				}
+				fmt.Fprintf(os.Stderr, "installer: %s non si e' aperto, ripiego sul browser predefinito. Ultime righe:\n%s\n",
+					filepath.Base(bin), lastLines(errOut.String(), 15))
 			}
 		}
 	}
 	openURL(s.url("browser"))
 	<-quit
+}
+
+// disablePasswordManager: dopo l'invio della password di sudo, Chromium
+// apriva "Salvare la password?" SOPRA la finestra dell'installer - copriva
+// l'avanzamento e invitava a salvare la password del computer nel gestore di
+// Google (visto in CI con un utente senza NOPASSWD, 2026-10-15). Il profilo e'
+// dedicato all'installer e nuovo a ogni avvio: gli si scrivono le preferenze
+// prima di aprirlo. Best-effort: se fallisce, la finestra si apre lo stesso.
+func disablePasswordManager(profile string) {
+	dir := filepath.Join(profile, "Default")
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	prefs := `{"credentials_enable_service":false,"profile":{"password_manager_enabled":false},"autofill":{"profile_enabled":false,"credit_card_enabled":false}}`
+	_ = os.WriteFile(filepath.Join(dir, "Preferences"), []byte(prefs), 0o600)
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // removeProfile: i processi figli di Chromium possono scrivere nel profilo

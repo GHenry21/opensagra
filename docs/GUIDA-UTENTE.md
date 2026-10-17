@@ -151,6 +151,22 @@ può farlo).
 > Se non ce n'è nessuno, l'installazione si apre in una scheda del browser:
 > funziona lo stesso, aspetta che dica *"Fatto!"* prima di chiuderla.
 
+> **Stampanti: serve CUPS.** Su Linux OpenSagra stampa tramite **CUPS**, il
+> sistema di stampa di Linux: è quello che fa comparire la stampante in
+> **"Ricerca Stampanti"** (§6). L'installer di OpenSagra **non** lo installa:
+> va preparato su ogni PC Linux che ha una stampante collegata (casse, PC-ponte
+> in cucina). Sulle versioni con desktop di solito c'è già; sui sistemi senza
+> desktop (per esempio **Raspberry Pi OS Lite**) quasi sempre manca. Per
+> controllare, apri il Terminale e scrivi `lpstat -r`: se risponde *"scheduler
+> is running"* è a posto. Se non c'è, installalo:
+>
+> - Raspberry Pi OS, Debian, Ubuntu: `sudo apt install cups`
+> - Fedora: `sudo dnf install cups`, poi `sudo systemctl enable --now cups`
+>
+> Poi collega la stampante: di solito CUPS la riconosce da solo e la mostra
+> con un nome tipo `Printer_POS-80C`. Le stampanti in rete (con un loro IP) non
+> hanno bisogno di CUPS: si usano con il tipo **RETE**.
+
 ### Il pannello di controllo
 
 Da questo momento, ogni volta che il PC è acceso, trovi una piccola finestra
@@ -166,9 +182,15 @@ Nell'uso di tutti i giorni conta solo questo:
   da solo ogni volta che accendi il PC — non devi ricordarti di avviare nulla
   a mano la mattina della sagra.
 - **Chiudere questa finestra non ferma il server**: è solo la finestra di
-  stato, il server continua a girare in background. La ritrovi cliccando
-  sull'icona nella system tray di Windows (vicino all'orologio, in basso a
-  destra).
+  stato, il server continua a girare in background.
+  - **Su Windows**: la ritrovi cliccando sull'icona nella system tray (vicino
+    all'orologio, in basso a destra) — da lì, col tasto destro, trovi anche
+    **"Esci"** per fermarlo del tutto.
+  - **Su Mac e Linux**: non c'è un'icona nella barra di sistema — riapri
+    l'app **OpenSagra** (cartella Applicazioni sul Mac, collegamento sul
+    desktop su Linux) per far ricomparire questa stessa finestra. Per
+    fermarlo del tutto c'è il pulsante **"Esci da OpenSagra"** in fondo al
+    pannello.
 
 Tutto il resto — **Ferma/Avvia server**, **Riavvia tutto**, **Apri cartella
 log** e **Dettagli avanzati** servono solo per la diagnosi tecnica o chi vuole vedere cosa succede "dietro le quinte"; **non ti servirà nell'uso quotidiano**.:
@@ -509,7 +531,10 @@ l'**indirizzo IP del PC-ponte**:
 
 Il pulsante **"Ricerca Stampanti"** interroga direttamente il PC-ponte e
 propone l'elenco delle stampanti che vede, così normalmente non serve
-scriverne il nome a mano — basta che OpenSagra sia avviato anche lì.
+scriverne il nome a mano — basta che OpenSagra sia avviato anche lì: ogni
+installazione è già pronta a fare da ponte, nessuna attivazione manuale (si
+disattiva dalla pagina "Rete" di quel PC solo se non deve mai servire da
+ponte).
 
 In pratica: si collega la stampante fisica al PC-ponte, e OpenSagra
 riceve le comande da tutte le casse che la usano.

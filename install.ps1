@@ -697,8 +697,12 @@ MERCURE_JWT_SECRET=$MercureSecret
 # Lo scrive la pagina Rete al passaggio a client (segreto dell'hub del
 # server). Vuoto su server / installazione indipendente.
 MERCURE_JWT_SECRET_REMOTE=
-# PC-ponte: id-topic di stampa serviti da questo PC, separati da virgola.
-PRINT_BRIDGE_CASSE=
+# Ponte di stampa nativo: acceso di default, nessuna configurazione richiesta
+# (sempre pronto in ascolto sull'hub locale). "0" = questo PC non fa da ponte
+# (vuoto conta come acceso, non come spento: compatibilita' con installazioni
+# precedenti che scrivevano qui una riga vuota) - si spegne dalla pagina Rete,
+# checkbox "Ponte di stampa".
+PRINT_BRIDGE_CASSE=1
 "@ | Out-File -FilePath $envPath -Encoding ascii -Force
         Add-InstallChecklistItem 'config/variabili.env creato'
         return
@@ -720,7 +724,7 @@ PRINT_BRIDGE_CASSE=
         $added += 'MERCURE_JWT_SECRET_REMOTE'
     }
     if ($joined -notmatch '(?m)^\s*PRINT_BRIDGE_CASSE\s*=') {
-        $lines += 'PRINT_BRIDGE_CASSE='
+        $lines += 'PRINT_BRIDGE_CASSE=1'
         $added += 'PRINT_BRIDGE_CASSE'
     }
 
