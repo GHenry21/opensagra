@@ -339,6 +339,27 @@ function Close-InstallWindow {
 # Passi dell'installazione
 # ============================================================================
 
+# Assert-OpenSagraClosed: PRIMA di toccare qualsiasi cosa, OpenSagra deve essere
+# chiuso. Bug reale (VM, 2026-10-17): reinstallando con OpenSagra aperto e la
+# stessa FrankenPHP gia' presente, il controllo dentro Install-FrankenPHP non
+# scattava; l'installer copiava l'app, riscriveva il Caddyfile, rifaceva
+# provisioning e migrazioni con l'app in funzione e si fermava solo alla copia
+# del wrapper (file in uso), con un errore tecnico. Su una cassa centrale il
+# provisioning aveva intanto richiuso l'accesso dalla rete al database: casse
+# fuori per qualche minuto. Il controllo guarda i processi, non la versione.
+function Assert-OpenSagraClosed {
+    $wrapperExe = Join-Path $Script:InstallPath $Script:WrapperExeName
+    $running = Get-Process -Name 'opensagra-wrapper', 'frankenphp' -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -and (
+            $_.Path.Equals($wrapperExe, [StringComparison]::OrdinalIgnoreCase) -or
+            $_.Path.StartsWith($Script:FrankenDir, [StringComparison]::OrdinalIgnoreCase) -or
+            $_.Path.StartsWith($Script:InstallPath, [StringComparison]::OrdinalIgnoreCase))
+    }
+    if ($running) {
+        throw "OpenSagra e' aperto su questo PC.`n`nChiudilo (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione. Vendite, catalogo e impostazioni restano come sono."
+    }
+}
+
 function Test-Prerequisites {
     if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'Questo script va eseguito come amministratore.'
@@ -1138,6 +1159,7 @@ function Set-FirewallRules {
 
 try {
     Test-Prerequisites
+    Assert-OpenSagraClosed
     Show-InstallWindow
 
     Set-InstallProgress -Percent 5 -Status 'Installazione di FrankenPHP...'
