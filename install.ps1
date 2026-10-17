@@ -174,7 +174,7 @@ $Script:ExcludeFromCopy = @(
 # include gia' lo zip (frankenphp\frankenphp-windows-x86_64.zip): nessun
 # download all'installazione. Il download diretto di QUESTA versione resta
 # solo come ripiego per chi lancia install.ps1 da una copia del repo.
-$Script:FrankenPhpVersion = '1.13.0'
+$Script:FrankenPhpVersion = '1.13.1'
 
 # Eseguibile del wrapper/tray-app: precompilato nel pacchetto di release
 # (`cd wrapper; go build -ldflags "-H=windowsgui" -o opensagra-wrapper.exe ./...`).

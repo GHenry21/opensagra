@@ -29,11 +29,23 @@
 # Mercure.
 set -euo pipefail
 
-usage() { echo "uso: bash $0 <versione, es. 1.13.1> [--no-check]" >&2; exit 2; }
+usage() { echo "uso: bash $0 <versione, es. 1.13.1> [--no-check | --mercure-patch-ok]" >&2; exit 2; }
 [ $# -ge 1 ] || usage
 version="${1#v}"
 check=1
-[ "${2:-}" = "--no-check" ] && check=0
+patch_ok=0
+case "${2:-}" in
+    "") ;;
+    --no-check) check=0 ;;
+    # Mercure diversa fra gli asset SOLO nella patch (es. 1.1.1 / 1.1.2): le
+    # build statiche prendono l'ultima Mercure a ogni ricompilazione notturna,
+    # quella Windows resta al go.mod del tag, quindi gli asset non tornano piu'
+    # uguali da soli. Ammesso solo dopo aver letto il changelog di Mercure
+    # (successo con la 1.13.1, 2026-10-17: la 1.1.2 cambia solo il caso dietro
+    # reverse proxy con trusted_proxies, che OpenSagra non usa).
+    --mercure-patch-ok) patch_ok=1 ;;
+    *) usage ;;
+esac
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || usage
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -88,15 +100,33 @@ if [ "$check" -eq 1 ]; then
     lin="$(get frankenphp-linux-x86_64)"
     mac="$(get frankenphp-mac-arm64)"
     winzip="$(get frankenphp-windows-x86_64.zip)"
-    rm -rf "$cache/win" && mkdir -p "$cache/win" && unzip -qo "$winzip" frankenphp.exe -d "$cache/win"
+    rm -rf "$cache/win" && mkdir -p "$cache/win" && unzip -qo "$winzip" -d "$cache/win" # intero: frankenphp.exe da solo non parte senza le DLL di PHP
     win="$cache/win/frankenphp.exe"
 
     if command -v go >/dev/null 2>&1; then
         mver() { go version -m "$1" | awk '$2=="github.com/dunglas/mercure" {print $3}'; }
-        ml="$(mver "$lin")"; mm="$(mver "$mac")"; mw="$(mver "$win")"
-        echo "Mercure: linux $ml - mac $mm - windows $mw"
-        { [ -n "$ml" ] && [ "$ml" = "$mm" ] && [ "$ml" = "$mw" ]; } \
-            || die "Mercure diversa tra gli OS (php/frankenphp#2685): non aggiorno"
+        # Tutti e cinque gli asset: ognuno puo' essere ricompilato in una notte
+        # diversa (2026-10-17: solo mac-arm64 aveva gia' una Mercure piu' nuova).
+        versions=""
+        for a in frankenphp-linux-x86_64 frankenphp-linux-aarch64 frankenphp-mac-arm64 frankenphp-mac-x86_64; do
+            f="$(get "$a")"; v="$(mver "$f")"
+            echo "  Mercure $v  $a"
+            versions="$versions $v"
+        done
+        v="$(mver "$win")"; echo "  Mercure $v  frankenphp-windows-x86_64.zip"; versions="$versions $v"
+        distinct="$(printf '%s\n' $versions | sort -u)"
+        minors="$(printf '%s\n' $versions | sed -E 's/^(v?[0-9]+\.[0-9]+)\..*/\1/' | sort -u)"
+        if printf '%s\n' $versions | grep -qvE '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
+            die "Mercure non leggibile in qualche asset: non aggiorno"
+        elif [ "$(printf '%s\n' "$distinct" | wc -l)" -gt 1 ]; then
+            if [ "$(printf '%s\n' "$minors" | wc -l)" -eq 1 ] && [ "$patch_ok" -eq 1 ]; then
+                echo "ATTENZIONE: Mercure diversa solo nella patch ($(echo $distinct)): accettata con --mercure-patch-ok"
+            elif [ "$(printf '%s\n' "$minors" | wc -l)" -eq 1 ]; then
+                die "Mercure diversa solo nella patch ($(echo $distinct)): leggi il changelog di dunglas/mercure e, se non tocca OpenSagra, rilancia con --mercure-patch-ok"
+            else
+                die "Mercure diversa tra gli OS ($(echo $distinct), php/frankenphp#2685): non aggiorno"
+            fi
+        fi
     else
         echo "ATTENZIONE: go non installato, controllo di Mercure saltato (fallo in CI o installa Go)"
     fi

@@ -146,7 +146,7 @@ install_homebrew() {
 # repo). Una versione diversa gia' presente viene sostituita (rm+mv, sicuro
 # anche col processo attivo). Il binario e' firmato ad-hoc ma non
 # notarizzato: si toglie l'eventuale attributo di quarantena.
-FRANKENPHP_VERSION="1.13.0"
+FRANKENPHP_VERSION="1.13.1"
 
 frankenphp_installed_version() {
     [ -x "$FRANKEN_DIR/frankenphp" ] || return 0

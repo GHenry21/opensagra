@@ -28,9 +28,9 @@
 # install.sh / install-macos.sh, $Script:FrankenPhpVersion in install.ps1 -
 # release.yml verifica che coincidano con questo file.
 #
-# version: 1.13.0
-505c6434af8afdb84b72d3884b49cce30310d80694cfe8e5f3b4d4b93b1f04bd  frankenphp-linux-aarch64
-54bb4990ab881d8ce3c34bfe9904d53da3b6aad4fbddaac6af9c90e2e5d125b5  frankenphp-linux-x86_64
-e20e054a5ce7d59584156b47f4eaa946bbb085bbc4edc21da56003dc1cdae808  frankenphp-mac-arm64
-36a8041b0e1956c9debce8741eca3c0f552ee61d962eba9a41062cf69eaa4473  frankenphp-mac-x86_64
-641cd13d3f887b5b98d90b2e0b7e14a2c163810a7abfb7da64a260ad1dfd8691  frankenphp-windows-x86_64.zip
+# version: 1.13.1
+52849d80dcb30fceaefbe140ee1c16ccebedd96a5719d932f9828e8da7688d02  frankenphp-linux-aarch64
+0b5c93c63f02f796716287790028171dbe3af4740d76e1706e20e731312c4086  frankenphp-linux-x86_64
+d6590d741952705fb8e4c57bd66f7ffc95f71f4e27fa8227034729d7ff433599  frankenphp-mac-arm64
+b9123b427cb357eac076b1f316f71589cfe5c3db4ad2449114e243563d794a89  frankenphp-mac-x86_64
+662c615f151ee8db62b055b3d0816a1c67ffb2deb787c36e2b57474d17792bd0  frankenphp-windows-x86_64.zip
