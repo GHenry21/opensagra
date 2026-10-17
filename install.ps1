@@ -281,9 +281,18 @@ function Show-InstallWindow {
     $Script:GuiPowerShell = $ps
     $Script:GuiRunspace = $runspace
 
-    $timeout = (Get-Date).AddSeconds(10)
+    # Bug reale (VM appena ripristinata, Defender al lavoro, 2026-10-17): con 10 s
+    # di attesa l'installer si arrendeva con un errore, ma il thread della
+    # finestra continuava e la finestra compariva subito dopo, ferma su
+    # "Avvio... 0%" per sempre, con il processo vivo. Ora si aspetta di piu' e,
+    # se non basta, si PROSEGUE: gli aggiornamenti della finestra controllano
+    # Ready, quindi si aggancia da sola appena e' pronta; Close-InstallWindow
+    # chiude comunque il suo thread.
+    $timeout = (Get-Date).AddSeconds(90)
     while (-not $Script:SyncHash.Ready -and (Get-Date) -lt $timeout) { Start-Sleep -Milliseconds 50 }
-    if (-not $Script:SyncHash.Ready) { throw 'La finestra di installazione non si e'' aperta in tempo.' }
+    if (-not $Script:SyncHash.Ready) {
+        try { "[$(Get-Date -Format o)] finestra non pronta dopo 90 s: proseguo, si aggancia appena pronta" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+    }
 }
 
 function Set-InstallProgress {
@@ -318,7 +327,17 @@ function Add-InstallChecklistItem {
 
 function Close-InstallWindow {
     param([switch]$Success, [string]$ErrorMessage)
-    if (-not $Script:SyncHash.Ready) { return }
+    if (-not $Script:GuiPowerShell) { return } # finestra mai avviata (errore prima)
+    if (-not $Script:SyncHash.Ready) {
+        $wait = (Get-Date).AddSeconds(5)
+        while (-not $Script:SyncHash.Ready -and (Get-Date) -lt $wait) { Start-Sleep -Milliseconds 50 }
+    }
+    if (-not $Script:SyncHash.Ready) {
+        # Il thread della finestra non e' mai arrivato a Ready: va fermato
+        # comunque, altrimenti una finestra tardiva terrebbe vivo il processo.
+        try { $Script:GuiPowerShell.Stop(); $Script:GuiPowerShell.Dispose(); $Script:GuiRunspace.Close() } catch {}
+        return
+    }
     if ($Success) {
         Set-InstallProgress -Percent 100 -Status 'Installazione completata'
         Start-Sleep -Seconds 2
