@@ -5,8 +5,11 @@
 # notte, e su richiesta su qualunque tag), la build del NOSTRO pacchetto
 # fallisce - mai l'installazione di un utente, che usa la copia inclusa.
 #
-# Perche' v1.13.0: e' la prima release i cui asset hanno la STESSA Mercure 1.0
-# (v1.0.3) su Linux, macOS e Windows, letta dai binari con `go version -m`.
+# Perche' v1.13.1: Mercure 1.1 su tutti gli OS (v1.1.1; mac-arm64 gia'
+# ricompilato di notte con la v1.1.2, differenza solo di patch accettata con
+# --mercure-patch-ok: la 1.1.2 cambia solo il caso dietro reverse proxy con
+# trusted_proxies, che OpenSagra non usa) e php-cli che passa di nuovo gli
+# argomenti a getopt() (la 1.13.0 no: php/frankenphp#2690).
 # Nella v1.12.7 le build statiche (Linux/macOS) avevano Mercure 1.0 e quella
 # Windows 0.24 (php/frankenphp#2685, vedi PIANO-MIGRAZIONE-FRANKENPHP.md,
 # Fase 4): per questo si era rimasti alla v1.12.6 con la sintassi Mercure 0.x.
