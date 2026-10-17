@@ -29,7 +29,7 @@ function Get-ReleaseVersion {
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $exactTag = git -C $RepoRoot describe --tags --exact-match HEAD 2>$null
+        $exactTag = git -C $RepoRoot describe --tags --exact-match --match 'v[0-9]*' HEAD 2>$null
         $gitExit = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $prevEap

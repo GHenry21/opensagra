@@ -46,7 +46,7 @@ sha256() {
 }
 
 # --- versione app: tag git esatto su HEAD, come Get-ReleaseVersion.ps1 ---
-tag="$(git -C "$REPO_ROOT" describe --tags --exact-match HEAD 2>/dev/null || true)"
+tag="$(git -C "$REPO_ROOT" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)"
 version="${tag#v}"; [ -n "$version" ] || version="0.0.0-dev"
 
 # --- FrankenPHP: versione fissata + impronta verificata (cache in .cache/) ---

@@ -93,7 +93,7 @@ app_version() {
         return
     fi
     local tag
-    tag="$(git -C "$SOURCE_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)"
+    tag="$(git -C "$SOURCE_DIR" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null || true)"
     if [ -n "$tag" ]; then echo "${tag#v}"; else echo "0.0.0-dev"; fi
 }
 
