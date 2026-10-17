@@ -327,7 +327,7 @@ function Close-InstallWindow {
             $Script:SyncHash.StatusText.Text = "Errore: $ErrorMessage"
             $Script:SyncHash.StatusText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#C73646')
         })
-        Start-Sleep -Seconds 6
+        Start-Sleep -Seconds 2 # poi il MessageBox con il testo completo (catch finale)
     }
     $Script:SyncHash.Window.Dispatcher.Invoke([action]{ $Script:SyncHash.Window.Close() })
     $Script:GuiPowerShell.EndInvoke($Script:GuiAsyncResult)
@@ -411,12 +411,28 @@ function Install-FrankenPHP {
         # vorrebbe dire niente sito. Se frankenphp.exe e' in uso (OpenSagra
         # aperto) ci si ferma con un messaggio chiaro - la copia del wrapper,
         # piu' avanti, fallirebbe comunque per lo stesso motivo.
+        # Bug reale (VM, 2026-10-17): un Remove-Item -Recurse diretto sulla
+        # cartella in uso cancellava in ordine alfabetico i file non bloccati
+        # (php8ts.lib, ext\php_bz2.dll, ...) e si fermava al primo bloccato,
+        # lasciando un FrankenPHP dimezzato. Ora: 1) se frankenphp.exe gira da
+        # questa cartella ci si ferma senza toccare nulla; 2) la cartella si
+        # RINOMINA (tutto o niente: con un file aperto dentro, Windows rifiuta
+        # la rinomina) e solo dopo si cancella la copia rinominata.
+        $inUse = "FrankenPHP $current e' in uso e va aggiornato alla $($Script:FrankenPhpVersion).`n`nChiudi OpenSagra (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione."
+        $running = Get-Process -Name frankenphp -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($Script:FrankenDir, [StringComparison]::OrdinalIgnoreCase) }
+        if ($running) { throw $inUse }
+        $oldDir = "$($Script:FrankenDir).old-$PID"
         try {
-            Remove-Item $Script:FrankenDir -Recurse -Force -ErrorAction Stop
+            Rename-Item -Path $Script:FrankenDir -NewName (Split-Path $oldDir -Leaf) -ErrorAction Stop
         } catch {
-            throw "FrankenPHP $current e' in uso e va aggiornato alla $($Script:FrankenPhpVersion). Chiudi OpenSagra (icona OpenSagra > Esci) e rilancia l'installazione."
+            throw $inUse
         }
+        Remove-Item $oldDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+    # Avanzi di una sostituzione precedente non cancellati del tutto
+    Get-ChildItem (Split-Path $Script:FrankenDir -Parent) -Directory -Filter "$(Split-Path $Script:FrankenDir -Leaf).old-*" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
     # Bug reale (2026-09-16, VM Windows con installazioni ripetute): lo
     # script ufficiale di frankenphp.dev (eseguito inline con
     # Invoke-Expression, comando verificato in Fase 2) usa Expand-Archive,
@@ -1176,21 +1192,21 @@ try {
     # exe -noConsole comunque non c'e' nessuna console a cui scrivere.
     try { ($_ | Out-String) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 
-    # Se la finestra WPF non e' mai arrivata a "Ready" (es. l'errore e'
-    # scattato prima che si apra, o nell'apertura stessa), Close-InstallWindow
-    # e' un no-op silenzioso - senza console (-noConsole) non resterebbe
-    # NESSUNA traccia visibile. Il MessageBox qui sotto e' il fallback che
-    # garantisce che l'errore si veda comunque, non solo nel log.
-    $wasReady = $Script:SyncHash -and $Script:SyncHash.Ready
-    Close-InstallWindow -ErrorMessage $_.Exception.Message
-    if (-not $wasReady) {
-        try {
-            Add-Type -AssemblyName PresentationFramework
-            [System.Windows.MessageBox]::Show(
-                "Installazione fallita:`n`n$($_.Exception.Message)`n`nDettagli completi in $Script:LogPath",
-                'Errore installazione OpenSagra',
-                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
-        } catch {}
-    }
+    # Il MessageBox compare SEMPRE, non solo se la finestra WPF non e' mai
+    # arrivata a "Ready" (in quel caso Close-InstallWindow e' un no-op e,
+    # senza console, non resterebbe nessuna traccia visibile). Visto sulla
+    # VM (2026-10-17): con la finestra aperta l'errore finiva nella riga di
+    # stato, una riga sola tagliata a meta' ("... Chiudi Op"), e la finestra
+    # si chiudeva da sola dopo 6 s: l'utente non leggeva mai cosa fare. Il
+    # MessageBox va a capo e resta finche' non si preme OK.
+    $errMessage = $_.Exception.Message
+    Close-InstallWindow -ErrorMessage $errMessage
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show(
+            "Installazione non completata:`n`n$errMessage`n`nDettagli completi in $Script:LogPath",
+            'Installazione OpenSagra',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+    } catch {}
     exit 1
 }
