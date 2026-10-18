@@ -749,6 +749,23 @@ function routingStampa($connectionDB, $cassa_id, $id_vendita, $items, $totale, $
    ========================================================================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
 
+    // Un'eccezione non gestita fuori dal try qui sotto (le ensure* con
+    // mysqli in modalita' eccezioni, la replay, ...) finiva in una pagina di
+    // errore PHP: con display_errors acceso status 200 e testo al posto del
+    // JSON, che billing.php mostrava come il generico "Errore durante la
+    // registrazione della vendita" senza nulla nei log (piano 5e). Ora resta
+    // nel log del server e la risposta e' un JSON 500 (ritentabile: nessuna
+    // vendita e' stata registrata prima del commit).
+    set_exception_handler(function (Throwable $e) {
+        error_log('print_receipt: errore non gestito nel checkout: ' . get_class($e) . ': ' . $e->getMessage()
+            . ' (' . $e->getFile() . ':' . $e->getLine() . ')');
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json');
+        }
+        echo json_encode(['error' => 'Errore interno del server: ' . $e->getMessage()]);
+    });
+
     $data = json_decode(file_get_contents("php://input"), true);
     $items = $data['items'] ?? [];
     $totale = $data['totale'] ?? 0;
@@ -903,6 +920,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !defined('RICEZIONE_INTERNA')) {
             exit;
         }
 
+        error_log('print_receipt: vendita non registrata (409, cassa ' . $cassa_id . '): ' . $e->getMessage());
         http_response_code(409);
         echo json_encode(['error' => $e->getMessage()]);
         $connectionDB->close();
