@@ -47,8 +47,10 @@
  *  - snapshotTable() e' stage-then-swap: costruisce `<t>__snapnew` e fa
  *    `RENAME TABLE` atomico solo a copia completa; su errore la live resta
  *    intatta.
- *  - guardia anti-collasso: non sostituisce una copia locale non vuota con una
- *    vuota (SNAPSHOT_ALLOW_EMPTY=1 per forzare).
+ *  - guardia anti-collasso: non sostituisce una copia locale non vuota di
+ *    `stock`/`casse_stampanti` con una vuota (SNAPSHOT_ALLOW_EMPTY=1 per
+ *    forzare); `receipt_config` vuota invece si copia (= default, vedi
+ *    SNAP_GUARDED_TABLES).
  *  - snapshot_last_ok si scrive solo se `stock` locale e' non vuota.
  */
 
@@ -73,6 +75,22 @@ const SNAP_TABLES = ['stock', 'casse_stampanti', 'receipt_config'];
 // sono cambiate sul server usiamo CHECKSUM TABLE - costo trascurabile, sono
 // tabelle da poche righe.
 const SNAP_REF_TABLES = ['casse_stampanti', 'receipt_config'];
+
+// Tabelle protette dalla guardia anti-collasso (vedi snapshotTable): una copia
+// locale non vuota non viene mai sostituita da una vuota del server.
+//  - `stock`: un catalogo vuoto rende la cassa inservibile in fallback, e un
+//    catalogo che passa da N a 0 in un colpo non e' mai legittimo in esercizio.
+//  - `casse_stampanti`: vuota = nessuna cassa sa dove stampare
+//    (config/get_printer.php lancia "Nessuna stampante trovata"). Non e' uno
+//    stato d'esercizio: tenere l'ultima configurazione nota fa stampare la
+//    cassa in fallback; appena il centrale ha righe si copiano quelle.
+// NON `receipt_config` (correzione 2026-10-17, giro Linux come centrale, piano
+// 5e): vuota e' lo stato NORMALE di un centrale dove nessuno ha mai salvato
+// "Configura Scontrino", e significa "valgono i default" di
+// print/print_receipt.php (cut_each_item = 1). Tenere la vecchia riga locale
+// faceva stampare in fallback con un'altra configurazione (es. senza i
+// tagliandini per la cucina): va copiata vuota come sul centrale.
+const SNAP_GUARDED_TABLES = ['stock', 'casse_stampanti'];
 
 function snapLog(string $msg): void
 {
@@ -263,9 +281,10 @@ function markSnapshotOk(mysqli $local, int $now): void
  * `casse_stampanti` senza `bridge_host`). Queste sono cache di sola lettura
  * lato client, nessuna FK entrante (solo dettagli_vendita->vendite, non toccate).
  *
- * Guardia anti-collasso: se il server ha 0 righe ma la copia locale ne ha,
- * NON sostituisce (sorgente verosimilmente rotta / puntata all'istanza
- * sbagliata). SNAPSHOT_ALLOW_EMPTY=1 per forzare un catalogo davvero vuoto.
+ * Guardia anti-collasso (solo SNAP_GUARDED_TABLES): se il server ha 0 righe ma
+ * la copia locale ne ha, NON sostituisce (sorgente verosimilmente rotta /
+ * puntata all'istanza sbagliata). SNAPSHOT_ALLOW_EMPTY=1 per forzare un
+ * catalogo davvero vuoto.
  *
  * @return int righe copiate
  */
@@ -298,10 +317,12 @@ function snapshotTable(mysqli $server, mysqli $local, string $table): int
     }
 
     // Guardia anti-collasso: mai rimpiazzare una copia locale non vuota con una
-    // vuota. Un catalogo che passa da N a 0 in un colpo non e' mai legittimo in
-    // esercizio.
+    // vuota, per le tabelle in SNAP_GUARDED_TABLES (vedi li' perche' non
+    // `receipt_config`). Un catalogo che passa da N a 0 in un colpo non e' mai
+    // legittimo in esercizio.
     $localBefore = localRowCount($local, $table);
-    if (count($rows) === 0 && $localBefore > 0 && getenv('SNAPSHOT_ALLOW_EMPTY') !== '1') {
+    if (count($rows) === 0 && $localBefore > 0 && in_array($table, SNAP_GUARDED_TABLES, true)
+        && getenv('SNAPSHOT_ALLOW_EMPTY') !== '1') {
         throw new RuntimeException(
             "RIFIUTO lo snapshot di `$table`: il server ne ha 0 righe ma la copia locale ne ha "
             . "$localBefore - sorgente inaffidabile, tengo la copia locale "
@@ -400,6 +421,12 @@ function connectDb(string $host, array $env, int $timeout = 3): ?mysqli
     } catch (mysqli_sql_exception $e) {
         return null;
     }
+}
+
+// Usato come libreria dai test (e2e/local-fallback.manual.php definisce la
+// costante e poi lo include): solo le funzioni, niente ciclo.
+if (defined('OPENSAGRA_SNAPSHOT_LIBRARY')) {
+    return;
 }
 
 snapLog('avviato.');
