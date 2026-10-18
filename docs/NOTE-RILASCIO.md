@@ -1,8 +1,13 @@
 # Note di rilascio
 
-## Prossima versione (bozza, numero da decidere)
+## v1.1.0 (18 ottobre 2026)
 
 Prima versione dopo la v1.0.0 (29 settembre 2026, solo Windows).
+
+> **Se hai scaricato la v1.0.0 dopo il 3 ottobre e non funziona** (la pagina
+> non si apre): la v1.0.0 scaricava l'ultima versione di FrankenPHP, che da
+> ottobre non è più compatibile. Installa questa versione sopra: ora FrankenPHP
+> è incluso nell'installer e non cambia più da solo.
 
 ### ⚠️ Prima di aggiornare
 
@@ -59,6 +64,17 @@ Prima versione dopo la v1.0.0 (29 settembre 2026, solo Windows).
 - Windows: la disinstallazione da *Impostazioni → App* funziona, anche con il
   pannello di controllo aperto.
 - Copie di sicurezza del database con nomi sempre diversi.
+- Installer Windows:
+  - FrankenPHP è incluso e fissato: l'installer non scarica più "l'ultima
+    versione", che dal 4 ottobre rendeva inutilizzabili le nuove installazioni
+    della v1.0.0;
+  - si ferma subito, con un messaggio chiaro, se OpenSagra è aperto, invece di
+    fallire a metà (su una cassa centrale poteva chiudere il database alle
+    altre casse per qualche minuto);
+  - una finestrella compare appena lo lanci, invece di quasi un minuto senza
+    niente a video;
+  - non resta più bloccato su "Avvio... 0%" su un PC lento all'accensione;
+  - gli errori si leggono per intero.
 
 ### Componenti
 

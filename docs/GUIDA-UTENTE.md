@@ -31,10 +31,6 @@ la parte del tuo sistema, poi il resto della guida vale per tutti.
 - [Mac](#su-mac)
 - [Linux e Raspberry Pi](#su-linux-e-raspberry-pi)
 
-> **Mac e Linux arrivano con la prossima versione di OpenSagra.** La 1.0.0
-> contiene solo l'installer per Windows: i file descritti qui sotto per Mac e
-> Linux saranno tra i download della versione successiva.
-
 ### Su Windows
 
 1. Scarica **`opensagra-installer.exe`** (un unico file — dentro c'è già tutto il
