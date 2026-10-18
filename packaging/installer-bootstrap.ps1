@@ -41,7 +41,7 @@ function Test-OpenSagraRunning {
 # all'altra sembra la stessa finestra che si allunga. WPF come install.ps1:
 # bordi arrotondati e ombra disegnati da WPF, uguali su ogni PC (con WinForms
 # gli angoli li arrotondava Windows 11, e su una VM senza scheda video no).
-# Gira su un thread suo (runspace STA con ShowDialog), cosi' resta viva
+# Gira su un thread suo (STA, di sottofondo, con ShowDialog), cosi' resta viva
 # mentre questo thread scompatta e poi esegue install.ps1; si chiude da sola
 # appena il processo mostra un'altra finestra (quella di install.ps1 o un
 # messaggio di errore), quando questo script lo chiede, o dopo 3 minuti.
@@ -169,16 +169,43 @@ $splashScript = {
     $sync.Done = $true
 }
 
+# La finestrella gira su un thread di SOTTOFONDO (IsBackground): quando il
+# processo finisce - anche con l'"exit" di install.ps1, che non torna mai qui -
+# Windows lo chiude con lui. Bug reale (VM, 2026-10-18): con un runspace
+# PowerShell normale (thread non di sottofondo, ReuseThread) l'exe ps2exe
+# restava vivo, invisibile, dopo la fine dell'installazione.
+Add-Type -ReferencedAssemblies ([psobject].Assembly.Location) -TypeDefinition @'
+using System.Management.Automation;
+using System.Management.Automation.Runspaces;
+using System.Threading;
+namespace OpenSagraSplash {
+    public static class Runner {
+        public static void StartBackground(string script, object arg) {
+            var t = new Thread(() => {
+                try {
+                    var rs = RunspaceFactory.CreateRunspace();
+                    rs.ApartmentState = ApartmentState.STA;
+                    rs.ThreadOptions = PSThreadOptions.UseCurrentThread;
+                    rs.Open();
+                    using (var ps = PowerShell.Create()) {
+                        ps.Runspace = rs;
+                        ps.AddScript(script).AddArgument(arg);
+                        ps.Invoke();
+                    }
+                    rs.Close();
+                } catch { }
+            });
+            t.IsBackground = true;
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
+        }
+    }
+}
+'@
+
 function Start-StartupSplash([string]$PayloadZip) {
     $sync = [hashtable]::Synchronized(@{ Zip = $PayloadZip; Close = $false; Shown = $false; Done = $false })
-    $rs = [runspacefactory]::CreateRunspace()
-    $rs.ApartmentState = 'STA'
-    $rs.ThreadOptions = 'ReuseThread'
-    $rs.Open()
-    $ps = [PowerShell]::Create()
-    $ps.Runspace = $rs
-    [void]$ps.AddScript($splashScript).AddArgument($sync)
-    [void]$ps.BeginInvoke()
+    [OpenSagraSplash.Runner]::StartBackground($splashScript.ToString(), $sync)
     # Si aspetta che sia a video (al massimo 3 s), poi si scompatta.
     $t = (Get-Date).AddSeconds(3)
     while (-not $sync.Shown -and (Get-Date) -lt $t) { Start-Sleep -Milliseconds 30 }
