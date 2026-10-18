@@ -24,10 +24,7 @@ import (
 // Se il wrapper muore di colpo (crash, PC spento) il blocco d'uscita non
 // avviene: con OpenSagra spento la 443 non risponde comunque, e al riavvio
 // il wrapper rimette lo stato giusto.
-const (
-	remoteAccessEvery   = 15 * time.Second
-	remoteAccessRefresh = 5 * time.Minute // riapplica comunque, nel caso qualcuno l'abbia cambiato
-)
+const remoteAccessEvery = 15 * time.Second
 
 func wantRemoteAccess(cfg *Config) bool {
 	return isThisMachineServer(cfg) && !inLocalFallback(cfg) && isCentral(cfg)
@@ -73,32 +70,35 @@ func setRemoteAccess(cfg *Config, open bool) error {
 	return rows.Close()
 }
 
-// watchRemoteAccess: applica lo stato voluto all'avvio, poi a ogni cambio
-// (ruolo, fallback) e ogni remoteAccessRefresh. MariaDB puo' partire dopo il
-// wrapper al boot: un errore si ritenta al giro dopo.
+// watchRemoteAccess: applica lo stato voluto a ogni giro (non solo ai cambi di
+// ruolo/fallback) - cosi' se l'account pos_own@'%' viene toccato alle spalle
+// del wrapper (es. un installer rilanciato ad app aperta) il riallineamento
+// avviene entro remoteAccessEvery, non entro i minuti che ci metterebbe a
+// notare un cambio di "want". Visto dal vivo (installer rilanciato con
+// l'account gia' sbloccato): le casse restavano fuori per diversi minuti
+// nonostante il wrapper pensasse di aver gia' aperto l'accesso. MariaDB puo'
+// partire dopo il wrapper al boot: un errore si ritenta al giro dopo.
 func watchRemoteAccess(ctx context.Context, cfg *Config) {
-	applied, lastOK, lastErr := false, time.Time{}, ""
-	var appliedOpen bool
+	logged, lastErr := false, ""
+	var loggedOpen bool
 	t := time.NewTicker(remoteAccessEvery)
 	defer t.Stop()
 	for {
 		want := wantRemoteAccess(cfg)
-		if !applied || want != appliedOpen || time.Since(lastOK) > remoteAccessRefresh {
-			if err := setRemoteAccess(cfg, want); err != nil {
-				if msg := err.Error(); msg != lastErr {
-					if strings.Contains(msg, "1305") {
-						log.Print("accesso dalla rete: procedura assente (installazione precedente) - reinstalla per attivarlo")
-					} else {
-						log.Printf("accesso dalla rete: impossibile applicarlo (%v), riprovo", err)
-					}
-					lastErr = msg
+		if err := setRemoteAccess(cfg, want); err != nil {
+			if msg := err.Error(); msg != lastErr {
+				if strings.Contains(msg, "1305") {
+					log.Print("accesso dalla rete: procedura assente (installazione precedente) - reinstalla per attivarlo")
+				} else {
+					log.Printf("accesso dalla rete: impossibile applicarlo (%v), riprovo", err)
 				}
-			} else {
-				if !applied || want != appliedOpen {
-					log.Printf("accesso dalla rete al database: %s", map[bool]string{true: "aperto", false: "chiuso"}[want])
-				}
-				applied, appliedOpen, lastOK, lastErr = true, want, time.Now(), ""
+				lastErr = msg
 			}
+		} else {
+			if !logged || want != loggedOpen {
+				log.Printf("accesso dalla rete al database: %s", map[bool]string{true: "aperto", false: "chiuso"}[want])
+			}
+			logged, loggedOpen, lastErr = true, want, ""
 		}
 		select {
 		case <-ctx.Done():
