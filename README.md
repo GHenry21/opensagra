@@ -75,4 +75,6 @@ L'app supporta più modalità di stampa (`config/get_printer.php`): stampante di
 
 ## Licenza
 
-Vedi il file di licenza del progetto.
+OpenSagra è software libero, rilasciato sotto licenza **GNU Affero General Public License v3.0** — testo completo nel file [`LICENSE`](LICENSE).
+
+In breve: puoi usarlo, modificarlo e ridistribuirlo liberamente, anche per uso commerciale. Se lo modifichi e lo ridistribuisci, o lo metti a disposizione di altri come servizio via rete, devi rendere disponibile il codice sorgente delle tue modifiche con la stessa licenza.
