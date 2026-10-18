@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Disinstaller OpenSagra per Windows.
@@ -160,17 +160,17 @@ function Show-InstallWindow {
                     <Image x:Name="Logo" Width="42" Height="42"/>
                     <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="Sto smontando OpenSagra" FontSize="15" FontWeight="Bold" Foreground="#111827"/>
-                        <TextBlock Text="Questa finestra si chiudera' da sola a fine disinstallazione" FontSize="11" Foreground="#5F6773"/>
+                        <TextBlock Text="Questa finestra si chiuderà da sola a fine disinstallazione" FontSize="11" Foreground="#5F6773"/>
                     </StackPanel>
                 </StackPanel>
-                <Border Height="10" CornerRadius="5" Background="#F3F4F6">
+                <Border x:Name="ProgressTrack" Height="10" CornerRadius="5" Background="#F3F4F6">
                     <Border x:Name="ProgressFill" HorizontalAlignment="Left" Width="0" Height="10" CornerRadius="5" Background="#E0B020"/>
                 </Border>
                 <Grid Margin="0,10,0,0">
                     <TextBlock x:Name="StatusText" Text="Avvio..." FontSize="12" Foreground="#5F6773" HorizontalAlignment="Left"/>
                     <TextBlock x:Name="PctText" Text="0%" FontSize="12" FontWeight="Bold" Foreground="#33260A" HorizontalAlignment="Right"/>
                 </Grid>
-                <ScrollViewer Margin="0,18,0,0" MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="ChecklistScroll" Margin="0,14,0,0" MaxHeight="140" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="ChecklistPanel"/>
                 </ScrollViewer>
             </StackPanel>
@@ -199,10 +199,21 @@ function Show-InstallWindow {
         $syncHash.StatusText = $window.FindName('StatusText')
         $syncHash.PctText = $window.FindName('PctText')
         $syncHash.ChecklistPanel = $window.FindName('ChecklistPanel')
+        $syncHash.ChecklistScroll = $window.FindName('ChecklistScroll')
+        $syncHash.ProgressTrack = $window.FindName('ProgressTrack')
         $window.FindName('MinimizeButton').Add_Click({ $window.WindowState = 'Minimized' }.GetNewClosure())
         $logoCtrl = $window.FindName('Logo')
         if ($logoPath -and (Test-Path $logoPath)) {
-            $logoCtrl.Source = [System.Windows.Media.Imaging.BitmapImage]::new((New-Object System.Uri($logoPath)))
+            # OnLoad: l'immagine viene letta subito e il file non resta aperto.
+            # Il logo sta dentro C:\opensagra\assets, cioe' nella cartella che la
+            # disinstallazione deve cancellare: con il BitmapImage(Uri) di prima
+            # restava bloccato fino alla fine del processo.
+            $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+            $bmp.BeginInit()
+            $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+            $bmp.UriSource = New-Object System.Uri($logoPath)
+            $bmp.EndInit()
+            $logoCtrl.Source = $bmp
         }
         $syncHash.Ready = $true
         [void]$window.ShowDialog()
@@ -211,16 +222,26 @@ function Show-InstallWindow {
     $Script:GuiPowerShell = $ps
     $Script:GuiRunspace = $runspace
 
-    $timeout = (Get-Date).AddSeconds(10)
+    $timeout = (Get-Date).AddSeconds(90)
     while (-not $Script:SyncHash.Ready -and (Get-Date) -lt $timeout) { Start-Sleep -Milliseconds 50 }
-    if (-not $Script:SyncHash.Ready) { throw 'La finestra di disinstallazione non si e'' aperta in tempo.' }
+    if (-not $Script:SyncHash.Ready) {
+        # Stesso bug corretto in install.ps1 (VM appena ripristinata, 2026-10-17):
+        # arrendersi dopo 10 s lasciava la finestra ferma su "Avvio... 0%" e il
+        # processo vivo. Si prosegue: gli aggiornamenti della finestra controllano
+        # Ready, e Close-InstallWindow ferma comunque il suo thread.
+        try { "[$(Get-Date -Format o)] finestra non pronta dopo 90 s: proseguo" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+    }
 }
 
 function Set-InstallProgress {
     param([int]$Percent, [string]$Status)
     if (-not $Script:SyncHash.Ready) { return }
     $Script:SyncHash.Window.Dispatcher.Invoke([action]{
-        $Script:SyncHash.ProgressFill.Width = 384 * ([Math]::Min([Math]::Max($Percent, 0), 100) / 100)
+        # Larghezza reale della traccia (404 px): con il 384 fisso di prima la
+        # barra al 100% si fermava prima della fine.
+        $track = $Script:SyncHash.ProgressTrack.ActualWidth
+        if ($track -le 0) { $track = 404 }
+        $Script:SyncHash.ProgressFill.Width = $track * ([Math]::Min([Math]::Max($Percent, 0), 100) / 100)
         $Script:SyncHash.StatusText.Text = $Status
         $Script:SyncHash.PctText.Text = "$Percent%"
     })
@@ -233,7 +254,10 @@ function Add-InstallChecklistItem {
     $Script:SyncHash.Window.Dispatcher.Invoke([action]{
         $row = New-Object System.Windows.Controls.StackPanel
         $row.Orientation = 'Horizontal'
-        $row.Margin = '0,4,0,0'
+        # Righe alte 20 px, elenco alto 140 (7 righe) sempre scorso in fondo: si
+        # vedono solo righe intere (prima l'ultima restava tagliata dal bordo).
+        $row.Height = 20
+        $row.VerticalAlignment = 'Center'
         $dot = New-Object System.Windows.Shapes.Ellipse
         $dot.Width = 8; $dot.Height = 8; $dot.Margin = '0,0,8,0'
         $dot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFrom($color)
@@ -243,12 +267,24 @@ function Add-InstallChecklistItem {
         [void]$row.Children.Add($dot)
         [void]$row.Children.Add($label)
         [void]$Script:SyncHash.ChecklistPanel.Children.Add($row)
+        $Script:SyncHash.ChecklistScroll.UpdateLayout()
+        $Script:SyncHash.ChecklistScroll.ScrollToEnd()
     })
 }
 
 function Close-InstallWindow {
     param([switch]$Success, [string]$ErrorMessage)
-    if (-not $Script:SyncHash.Ready) { return }
+    if (-not $Script:GuiPowerShell) { return } # finestra mai avviata (errore prima)
+    if (-not $Script:SyncHash.Ready) {
+        $wait = (Get-Date).AddSeconds(5)
+        while (-not $Script:SyncHash.Ready -and (Get-Date) -lt $wait) { Start-Sleep -Milliseconds 50 }
+    }
+    if (-not $Script:SyncHash.Ready) {
+        # Il thread della finestra non e' mai arrivato a Ready: va fermato
+        # comunque, altrimenti una finestra tardiva terrebbe vivo il processo.
+        try { $Script:GuiPowerShell.Stop(); $Script:GuiPowerShell.Dispose(); $Script:GuiRunspace.Close() } catch {}
+        return
+    }
     if ($Success) {
         Set-InstallProgress -Percent 100 -Status 'Disinstallazione completata'
         Start-Sleep -Seconds 2
@@ -257,7 +293,7 @@ function Close-InstallWindow {
             $Script:SyncHash.StatusText.Text = "Errore: $ErrorMessage"
             $Script:SyncHash.StatusText.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#C73646')
         })
-        Start-Sleep -Seconds 6
+        Start-Sleep -Seconds 2 # poi il MessageBox con il testo completo (catch finale)
     }
     $Script:SyncHash.Window.Dispatcher.Invoke([action]{ $Script:SyncHash.Window.Close() })
     $Script:GuiPowerShell.EndInvoke($Script:GuiAsyncResult)
@@ -286,7 +322,7 @@ function Confirm-Uninstall {
         "- FrankenPHP`n" +
         "- Tutti i file dell'app in $Script:InstallPath`n" +
         "- Le regole firewall e l'avvio automatico di OpenSagra`n`n" +
-        "Questa operazione non si puo' annullare. Continuare?"
+        "Questa operazione non si può annullare. Continuare?"
     $result = [System.Windows.MessageBox]::Show(
         $msg, 'Disinstallare OpenSagra?',
         [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Warning)
@@ -558,16 +594,17 @@ try {
     # il resto di questo catch, incluso il fallback che mostra l'errore).
     try { ($_ | Out-String) | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
 
-    $wasReady = $Script:SyncHash -and $Script:SyncHash.Ready
-    Close-InstallWindow -ErrorMessage $_.Exception.Message
-    if (-not $wasReady) {
-        try {
-            Add-Type -AssemblyName PresentationFramework
-            [System.Windows.MessageBox]::Show(
-                "Disinstallazione fallita:`n`n$($_.Exception.Message)`n`nDettagli completi in $Script:LogPath",
-                'Errore disinstallazione OpenSagra',
-                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
-        } catch {}
-    }
+    # Il MessageBox compare SEMPRE, come in install.ps1: con la finestra aperta
+    # l'errore finiva solo nella riga di stato (una riga, tagliata) e la
+    # finestra si chiudeva da sola dopo 6 s senza che si leggesse cosa fare.
+    $errMessage = $_.Exception.Message
+    Close-InstallWindow -ErrorMessage $errMessage
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show(
+            "Disinstallazione fallita:`n`n$errMessage`n`nDettagli completi in $Script:LogPath",
+            'Errore disinstallazione OpenSagra',
+            [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+    } catch {}
     exit 1
 }

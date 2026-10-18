@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Installer OpenSagra per Windows - Fase 3.
@@ -205,9 +205,9 @@ function Show-InstallWindow {
     $xamlString = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OpenSagra" Width="460" Height="360"
+        Title="OpenSagra" Width="460" SizeToContent="Height"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        WindowStartupLocation="CenterScreen" Topmost="True" ResizeMode="NoResize">
+        WindowStartupLocation="Manual" Topmost="True" ResizeMode="NoResize">
     <Border CornerRadius="16" Background="#FEFEFE" BorderBrush="#33222E2E" BorderThickness="1">
         <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.25" Color="Black"/></Border.Effect>
         <Grid>
@@ -229,18 +229,18 @@ function Show-InstallWindow {
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                     <Image x:Name="Logo" Width="42" Height="42"/>
                     <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="Sto preparando la tua sagra" FontSize="15" FontWeight="Bold" Foreground="#111827"/>
-                        <TextBlock Text="Questa finestra si chiudera' da sola a fine installazione" FontSize="11" Foreground="#5F6773"/>
+                        <TextBlock x:Name="TitleText" Text="Sto preparando la tua sagra" FontSize="15" FontWeight="Bold" Foreground="#111827"/>
+                        <TextBlock x:Name="SubtitleText" Text="Questa finestra si chiuderà da sola a fine installazione" FontSize="11" Foreground="#5F6773"/>
                     </StackPanel>
                 </StackPanel>
-                <Border Height="10" CornerRadius="5" Background="#F3F4F6">
+                <Border x:Name="ProgressTrack" Height="10" CornerRadius="5" Background="#F3F4F6">
                     <Border x:Name="ProgressFill" HorizontalAlignment="Left" Width="0" Height="10" CornerRadius="5" Background="#E0B020"/>
                 </Border>
                 <Grid Margin="0,10,0,0">
                     <TextBlock x:Name="StatusText" Text="Avvio..." FontSize="12" Foreground="#5F6773" HorizontalAlignment="Left"/>
                     <TextBlock x:Name="PctText" Text="0%" FontSize="12" FontWeight="Bold" Foreground="#33260A" HorizontalAlignment="Right"/>
                 </Grid>
-                <ScrollViewer Margin="0,18,0,0" MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="ChecklistScroll" Margin="0,14,0,0" MaxHeight="140" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="ChecklistPanel"/>
                 </ScrollViewer>
             </StackPanel>
@@ -269,10 +269,29 @@ function Show-InstallWindow {
         $syncHash.StatusText = $window.FindName('StatusText')
         $syncHash.PctText = $window.FindName('PctText')
         $syncHash.ChecklistPanel = $window.FindName('ChecklistPanel')
+        $syncHash.ChecklistScroll = $window.FindName('ChecklistScroll')
+        $syncHash.ProgressTrack = $window.FindName('ProgressTrack')
+        $syncHash.TitleText = $window.FindName('TitleText')
+        $syncHash.SubtitleText = $window.FindName('SubtitleText')
         $window.FindName('MinimizeButton').Add_Click({ $window.WindowState = 'Minimized' }.GetNewClosure())
+        # Stessa posizione della finestrella di avvio del bootstrap (in alto come
+        # una finestra 460x360 al centro dell'area di lavoro): la barra gialla
+        # resta ferma e la finestra si allunga man mano che arrivano i passi.
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        $window.Left = $wa.Left + ($wa.Width - 460) / 2
+        $window.Top = $wa.Top + ($wa.Height - 360) / 2
         $logoCtrl = $window.FindName('Logo')
         if ($logoPath -and (Test-Path $logoPath)) {
-            $logoCtrl.Source = [System.Windows.Media.Imaging.BitmapImage]::new((New-Object System.Uri($logoPath)))
+            # OnLoad: l'immagine viene letta subito e il file non resta aperto.
+            # Con il BitmapImage(Uri) di prima logo.png restava bloccato fino alla
+            # fine del processo e il bootstrap non riusciva a cancellare la
+            # cartella temporanea (rimaneva %TEMP%\opensagra-install-*\assets).
+            $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+            $bmp.BeginInit()
+            $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+            $bmp.UriSource = New-Object System.Uri($logoPath)
+            $bmp.EndInit()
+            $logoCtrl.Source = $bmp
         }
         $syncHash.Ready = $true
         [void]$window.ShowDialog()
@@ -299,7 +318,11 @@ function Set-InstallProgress {
     param([int]$Percent, [string]$Status)
     if (-not $Script:SyncHash.Ready) { return }
     $Script:SyncHash.Window.Dispatcher.Invoke([action]{
-        $Script:SyncHash.ProgressFill.Width = 384 * ([Math]::Min([Math]::Max($Percent, 0), 100) / 100)
+        # Larghezza reale della traccia (404 px): con il 384 fisso di prima la
+        # barra al 100% si fermava prima della fine.
+        $track = $Script:SyncHash.ProgressTrack.ActualWidth
+        if ($track -le 0) { $track = 404 }
+        $Script:SyncHash.ProgressFill.Width = $track * ([Math]::Min([Math]::Max($Percent, 0), 100) / 100)
         $Script:SyncHash.StatusText.Text = $Status
         $Script:SyncHash.PctText.Text = "$Percent%"
     })
@@ -312,7 +335,11 @@ function Add-InstallChecklistItem {
     $Script:SyncHash.Window.Dispatcher.Invoke([action]{
         $row = New-Object System.Windows.Controls.StackPanel
         $row.Orientation = 'Horizontal'
-        $row.Margin = '0,4,0,0'
+        # Righe alte 20 px e elenco alto 140 (7 righe), sempre scorso in fondo:
+        # si vedono solo righe intere, l'ultima in basso (prima l'ultima riga
+        # visibile restava tagliata a meta' dal bordo della finestra).
+        $row.Height = 20
+        $row.VerticalAlignment = 'Center'
         $dot = New-Object System.Windows.Shapes.Ellipse
         $dot.Width = 8; $dot.Height = 8; $dot.Margin = '0,0,8,0'
         $dot.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFrom($color)
@@ -322,6 +349,8 @@ function Add-InstallChecklistItem {
         [void]$row.Children.Add($dot)
         [void]$row.Children.Add($label)
         [void]$Script:SyncHash.ChecklistPanel.Children.Add($row)
+        $Script:SyncHash.ChecklistScroll.UpdateLayout()
+        $Script:SyncHash.ChecklistScroll.ScrollToEnd()
     })
 }
 
@@ -340,7 +369,11 @@ function Close-InstallWindow {
     }
     if ($Success) {
         Set-InstallProgress -Percent 100 -Status 'Installazione completata'
-        Start-Sleep -Seconds 2
+        $Script:SyncHash.Window.Dispatcher.Invoke([action]{
+            $Script:SyncHash.TitleText.Text = 'OpenSagra è pronta'
+            $Script:SyncHash.SubtitleText.Text = 'Tra un attimo si apre il pannello di OpenSagra'
+        })
+        Start-Sleep -Seconds 3
     } else {
         $Script:SyncHash.Window.Dispatcher.Invoke([action]{
             $Script:SyncHash.StatusText.Text = "Errore: $ErrorMessage"
@@ -375,7 +408,7 @@ function Assert-OpenSagraClosed {
             $_.Path.StartsWith($Script:InstallPath, [StringComparison]::OrdinalIgnoreCase))
     }
     if ($running) {
-        throw "OpenSagra e' aperto su questo PC.`n`nChiudilo (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione. Vendite, catalogo e impostazioni restano come sono."
+        throw "OpenSagra è aperto su questo PC.`n`nChiudilo (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione. Vendite, catalogo e impostazioni restano come sono."
     }
 }
 
@@ -411,7 +444,7 @@ function Install-VCRedist {
         return ($v.FileMajorPart -gt 14) -or ($v.FileMajorPart -eq 14 -and $v.FileMinorPart -ge 44)
     }
     if (Test-VCRedistVersion) {
-        Add-InstallChecklistItem 'Visual C++ Redistributable gia'' presente'
+        Add-InstallChecklistItem 'Visual C++ Redistributable già presente'
         return
     }
     $installerPath = "$env:TEMP\vc_redist.x64.exe"
@@ -440,7 +473,7 @@ function Get-FrankenPhpInstalledVersion {
 function Install-FrankenPHP {
     $current = Get-FrankenPhpInstalledVersion
     if ($current -eq $Script:FrankenPhpVersion) {
-        Add-InstallChecklistItem "FrankenPHP $current gia' presente"
+        Add-InstallChecklistItem "FrankenPHP $current già presente"
         return
     }
     if ($current) {
@@ -458,7 +491,7 @@ function Install-FrankenPHP {
         # questa cartella ci si ferma senza toccare nulla; 2) la cartella si
         # RINOMINA (tutto o niente: con un file aperto dentro, Windows rifiuta
         # la rinomina) e solo dopo si cancella la copia rinominata.
-        $inUse = "FrankenPHP $current e' in uso e va aggiornato alla $($Script:FrankenPhpVersion).`n`nChiudi OpenSagra (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione."
+        $inUse = "FrankenPHP $current è in uso e va aggiornato alla $($Script:FrankenPhpVersion).`n`nChiudi OpenSagra (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione."
         $running = Get-Process -Name frankenphp -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -and $_.Path.StartsWith($Script:FrankenDir, [StringComparison]::OrdinalIgnoreCase) }
         if ($running) { throw $inUse }
@@ -575,7 +608,7 @@ log_errors = On
 
 function Install-MariaDBEngine {
     if (Test-Path "$Script:MariaDbDir\bin\mariadbd.exe") {
-        Add-InstallChecklistItem 'MariaDB gia'' presente'
+        Add-InstallChecklistItem 'MariaDB già presente'
         return
     }
     # winget ha dato, in test successivi e indipendenti, quattro problemi
@@ -632,7 +665,7 @@ function Register-MariaDBService {
     $existing = Get-Service -Name 'MariaDB' -ErrorAction SilentlyContinue
     if ($existing) {
         if ($existing.Status -ne 'Running') { Start-Service MariaDB }
-        Add-InstallChecklistItem 'Servizio MariaDB gia'' registrato'
+        Add-InstallChecklistItem 'Servizio MariaDB già registrato'
         return
     }
     # Bug reale (2026-09-14, mai emerso prima - vedi .NOTES in testa al file:
@@ -788,7 +821,7 @@ PRINT_BRIDGE_CASSE=1
         $lines | Out-File -FilePath $envPath -Encoding ascii -Force
         Add-InstallChecklistItem ('config/variabili.env aggiornato (' + ($added -join ', ') + ')')
     } else {
-        Add-InstallChecklistItem 'config/variabili.env gia'' completo, non toccato'
+        Add-InstallChecklistItem 'config/variabili.env già completo, non toccato'
     }
 }
 
@@ -855,7 +888,7 @@ function New-CaddyConfig {
 		php_server
 	}
 	handle @dbpath {
-		respond "Il gestore DB e' raggiungibile solo dal PC server." 403
+		respond "Il gestore DB si apre solo dal PC server." 403
 	}
 "@
 
@@ -1105,6 +1138,28 @@ function Start-Wrapper {
     }
 }
 
+function Open-StatusWindow {
+    # A fine installazione apre il pannello di OpenSagra (la finestra di stato,
+    # con "Apri OpenSagra"): prima la finestra dell'installer si chiudeva e non
+    # compariva nulla, e l'utente non sapeva che OpenSagra era gia' in funzione.
+    # Il wrapper e' gia' avviato da Start-Wrapper: lanciato di nuovo senza
+    # argomenti apre la finestra di stato dell'istanza viva ed esce. Va lanciato
+    # NON elevato, come in Start-Wrapper (stesso task una-tantum INTERACTIVE).
+    $exe = Join-Path $Script:InstallPath $Script:WrapperExeName
+    $task = 'OpenSagra-OpenPanel'
+    try {
+        $action = New-ScheduledTaskAction -Execute $exe
+        $principal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-4' -RunLevel Limited
+        Register-ScheduledTask -TaskName $task -Action $action -Principal $principal -Force | Out-Null
+        Start-ScheduledTask -TaskName $task
+        Start-Sleep -Seconds 2
+    } catch {
+        try { "[$(Get-Date -Format o)] Open-StatusWindow: $($_.Exception.Message)" | Out-File $Script:LogPath -Append -Encoding utf8 } catch {}
+    } finally {
+        Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    }
+}
+
 function Find-LocalCaRootFile {
     # La CA la genera FrankenPHP al primo avvio (tls internal) nel profilo
     # dell'utente con cui gira - il wrapper, de-elevato, nella sessione
@@ -1222,6 +1277,7 @@ try {
     Register-LocalCaTrust
 
     Close-InstallWindow -Success
+    Open-StatusWindow
 } catch {
     # NIENTE Write-Error qui: sotto $ErrorActionPreference='Stop' (globale,
     # in vigore anche dentro un catch) Write-Error diventa esso stesso un

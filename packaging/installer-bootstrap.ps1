@@ -1,4 +1,4 @@
-# Bootstrap dell'installer a-un-file (opensagra-installer.exe, compilato da
+﻿# Bootstrap dell'installer a-un-file (opensagra-installer.exe, compilato da
 # make-installer.ps1 con ps2exe). Il payload (snapshot dei file tracciati +
 # vendor/ + wrapper\opensagra-wrapper.exe, zippati) e' incorporato nell'exe
 # via -embedFiles e ps2exe lo estrae da solo in %TEMP% prima che questo script
@@ -224,7 +224,7 @@ try {
     if (Test-OpenSagraRunning) {
         Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
         [System.Windows.Forms.MessageBox]::Show(
-            "OpenSagra e' aperto su questo PC.`n`nChiudilo (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione. Vendite, catalogo e impostazioni restano come sono.",
+            "OpenSagra è aperto su questo PC.`n`nChiudilo (icona OpenSagra vicino all'orologio > Esci) e rilancia l'installazione. Vendite, catalogo e impostazioni restano come sono.",
             'Installazione OpenSagra',
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
