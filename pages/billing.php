@@ -1883,19 +1883,37 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                         }).fail((xhr) => {
                             // status 0 = server/rete irraggiungibile (il "DB down" tipico a una
                             // sagra LAN: blip WiFi o MariaDB che riparte); 502/503/504 = hub/DB
-                            // k.o.; 500 = spesso "new mysqli() fallita" prima di toccare i dati;
+                            // k.o. (503 anche da config/get_db_connection.php quando
+                            // la connessione al DB fallisce); 500 = eccezione PHP
+                            // prima di toccare i dati;
                             // timeout = idem. Tutti retriabili. 403/409 = regola di business
                             // (metodo pagamento, carrello vuoto, scorta esaurita): non si ritenta.
                             const s = xhr.status;
                             const retriable = s === 0 || s === 500 || s === 502 || s === 503 || s === 504
                                 || xhr.statusText === 'timeout';
-                            let message = 'Errore durante la registrazione della vendita.';
+                            let message = null;
                             try {
                                 const err = JSON.parse(xhr.responseText);
                                 if (err && (err.message || err.error)) {
                                     message = err.message || err.error;
                                 }
                             } catch (e) {}
+                            if (message === null) {
+                                // Risposta senza un errore JSON (es. 200 con testo
+                                // o un warning PHP al posto del JSON -> jQuery
+                                // "parsererror"): il messaggio generico da solo non
+                                // dice nulla (piano 5e, prima vendita fallita
+                                // senza causa). Si aggiunge stato HTTP e inizio
+                                // della risposta, e la risposta intera in console.
+                                const body = String(xhr.responseText || '')
+                                    .replace(/<[^>]*>/g, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
+                                const detail = 'HTTP ' + s + (xhr.statusText ? ' ' + xhr.statusText : '')
+                                    + (body ? ': ' + (body.length > 120 ? body.slice(0, 120) + '…' : body) : '');
+                                message = 'Errore durante la registrazione della vendita (' + detail + ').';
+                                console.error('Checkout: risposta inattesa dal server', s, xhr.statusText, xhr.responseText);
+                            }
                             reject({ retriable, message });
                         });
                     });
@@ -2052,8 +2070,9 @@ $__opensagraBootDbHost = loadPosEnvVars()['host'];
                         // gia' registrata, ha solo ristampato. Nessuna seconda vendita.
                         this.showToast('Vendita già registrata: scontrino ristampato.', 'info');
                     } else if (printIssue) {
-                        // Vendita OK, scontrino no: un solo avviso, tono neutro.
-                        this.showToast('Vendita registrata. Scontrino NON stampato (' + printIssue + '): ristampalo dallo storico.', 'info', 8000);
+                        // Vendita OK, scontrino no: un solo avviso, non rosso (la
+                        // vendita c'e') ma arancione: l'operatore deve ristampare.
+                        this.showToast('Vendita registrata. Scontrino NON stampato (' + printIssue + '): ristampalo dallo storico.', 'warning', 8000);
                     } else {
                         this.showToast('Vendita registrata e inviata alla stampa!', 'success');
                     }

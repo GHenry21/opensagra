@@ -127,8 +127,13 @@ try {
 // in rete, ma non deve sparire senza lasciare traccia. Si salva QUI, prima
 // dello switch, non dentro lo snapshot: se il locale e' vuoto non crea nulla.
 // Un errore qui non deve MAI impedire lo switch (try/catch dedicato).
+// Solo se il locale contiene davvero il catalogo DEL NODO (correzione
+// 2026-10-17, vedi localCatalogIsOwn): ricollegandosi dopo un fallback, o
+// passando da un centrale a un altro, nel locale c'e' la copia del centrale e
+// salvarla coprirebbe il salvataggio buono preso dal vero stato Indipendente.
+$localCatalogIsOwn = localCatalogIsOwn($env);
 $catalogBackupId = null;
-if ($mode === 'client') {
+if ($mode === 'client' && $localCatalogIsOwn) {
     try {
         $localForBackup = mysqli_init();
         $localForBackup->options(MYSQLI_OPT_CONNECT_TIMEOUT, 2);
@@ -137,7 +142,7 @@ if ($mode === 'client') {
             $catalogBackupId = backupCatalogTables(
                 $localForBackup,
                 CATALOG_BACKUP_TABLES,
-                'passaggio a modalità client (verso ' . $targetHost . ')'
+                CATALOG_BACKUP_REASON_SWITCH . ' (verso ' . $targetHost . ')'
             );
             $localForBackup->close();
         }
@@ -161,14 +166,19 @@ if (!setEnvValue($env['env_file'], 'DB_POS_HOST', $targetHost)) {
 // da ripristinare: resta cosi', deciso esplicitamente (meglio un catalogo
 // pieno che uno svuotato di sorpresa - pulizia manuale da Gestione Prodotti
 // se serve). Anche qui: un errore non deve mai impedire lo switch.
+// Correzione 2026-10-17: si ripristina solo il salvataggio di un passaggio a
+// Client (mai un "prima di un ripristino", che contiene il catalogo del
+// centrale), e solo se il locale non e' gia' il catalogo del nodo: ripremere
+// "Indipendente" da Indipendente non deve riportare indietro le modifiche
+// fatte nel frattempo.
 $catalogRestored = null;
-if ($mode === 'indipendente') {
+if ($mode === 'indipendente' && !$localCatalogIsOwn) {
     try {
         $localForRestore = mysqli_init();
         $localForRestore->options(MYSQLI_OPT_CONNECT_TIMEOUT, 2);
         if (@$localForRestore->real_connect('127.0.0.1', $env['user'], $env['pass'], $env['db'])) {
             $localForRestore->set_charset('utf8mb4');
-            $lastBatch = mostRecentBackupBatch($localForRestore);
+            $lastBatch = mostRecentBackupBatch($localForRestore, CATALOG_BACKUP_REASON_SWITCH);
             if ($lastBatch !== null) {
                 $result = restoreCatalogBackupBatch($localForRestore, $lastBatch['id']);
                 if ($result['restored']) {

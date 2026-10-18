@@ -24,5 +24,16 @@ try {
     $ok = false;
 }
 if (!$ok) {
-    die("Connection failed: " . mysqli_connect_error());
+    // 503, non il 200 implicito di die(): per il checkout (pages/billing.php,
+    // _postCheckoutOnce) un 200 con testo al posto del JSON era un errore
+    // "non ritentabile" con il messaggio generico "Errore durante la
+    // registrazione della vendita", proprio nel caso tipico da ritentare (DB
+    // irraggiungibile per qualche secondo, niente scritto). Probabile causa
+    // della prima vendita fallita del giro Linux come centrale (piano 5e).
+    $connectError = mysqli_connect_error();
+    error_log('get_db_connection: connessione a ' . $servername . ' fallita: ' . $connectError);
+    if (!headers_sent()) {
+        http_response_code(503);
+    }
+    die("Connection failed: " . $connectError);
 }

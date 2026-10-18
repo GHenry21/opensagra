@@ -993,6 +993,26 @@ body.sidebar-page {
   background-color: #ffffff;
 }
 
+/* Avvertimento (arancione): l'operazione e' riuscita ma serve un'azione
+   dell'operatore, es. "Vendita registrata. Scontrino NON stampato". */
+:root:not(.dark-mode) #message .toast.warning,
+:root.dark-mode #message .toast.warning {
+  background-color: rgba(253, 126, 20, 0.15);
+  color: var(--mc-text);
+  border-color: #fd7e14;
+  border-width: 2px;
+  backdrop-filter: blur(10px);
+  --_toast-icon-url: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>');
+}
+
+:root:not(.dark-mode) #message .toast.warning .toast-icon {
+  background-color: #fd7e14;
+}
+
+:root.dark-mode #message .toast.warning .toast-icon {
+  background-color: #ffffff;
+}
+
 #message .toast-icon {
   width: 40px;
   height: 40px;

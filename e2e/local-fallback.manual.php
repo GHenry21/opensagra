@@ -29,6 +29,9 @@
  *      $daSincronizzare) dipendono da FALLBACK_SESSION_ACTIVE, non piu' da
  *      FALLBACK_ORIGIN_HOST - copie fedeli delle due espressioni, da tenere
  *      in sync se cambiano.
+ *   6. Snapshot (funzioni vere di bin/opensagra-snapshot.php): receipt_config
+ *      vuota sul centrale copiata vuota (= default), guardia anti-collasso
+ *      ancora attiva per stock e casse_stampanti, guardia "stessa istanza".
  * (Lo scenario 2 - lo swap che riscrive variabili.env - e' coperto lato
  * browser da e2e/local-fallback.spec.js con la POST stubbata.)
  */
@@ -292,6 +295,58 @@ if ($pushSucceeded) {
     $origin = ''; // api/push_local_sales.php: FALLBACK_ORIGIN_HOST azzerato SOLO qui
 }
 check($origin === '', 'il debito si azzera SOLO quando il push lo salda per davvero, mai prima');
+
+echo PHP_EOL . "== Scenario 6 - snapshot: tabelle vuote sul centrale (2026-10-17) ==" . PHP_EOL;
+// Funzioni vere di bin/opensagra-snapshot.php (la costante salta il ciclo).
+define('OPENSAGRA_SNAPSHOT_LIBRARY', true);
+require_once __DIR__ . '/../bin/opensagra-snapshot.php';
+
+// receipt_config vuota sul centrale (nessuno ha mai salvato "Configura
+// Scontrino" = default, cut_each_item 1) e una vecchia riga in locale con
+// cut_each_item 0: va copiata VUOTA, altrimenti in fallback la cucina non
+// riceve i tagliandini.
+$central->query('DELETE FROM receipt_config');
+$local->query("INSERT INTO receipt_config (cassa_id, custom_header_text, cut_each_item) VALUES ('GLOBAL', 'VECCHIA', 0)");
+$copied = snapshotTable($central, $local, 'receipt_config');
+check($copied === 0, 'receipt_config: copiate 0 righe, nessun rifiuto');
+check((int) $local->query('SELECT COUNT(*) n FROM receipt_config')->fetch_assoc()['n'] === 0,
+    'receipt_config locale ora vuota come sul centrale (= default di print_receipt.php)');
+
+// Una riga sul centrale si copia come prima.
+$central->query("INSERT INTO receipt_config (cassa_id, custom_header_text, cut_each_item) VALUES ('GLOBAL', 'PI', 1)");
+snapshotTable($central, $local, 'receipt_config');
+$rc = $local->query('SELECT custom_header_text, cut_each_item FROM receipt_config')->fetch_all(MYSQLI_ASSOC);
+check(count($rc) === 1 && $rc[0]['custom_header_text'] === 'PI' && (int) $rc[0]['cut_each_item'] === 1,
+    'receipt_config non vuota sul centrale: copiata la sua riga');
+
+// La guardia anti-collasso resta per stock e casse_stampanti.
+$localStockBefore = (int) $local->query('SELECT COUNT(*) n FROM stock')->fetch_assoc()['n'];
+$central->query('DELETE FROM stock');
+$refused = false;
+try {
+    snapshotTable($central, $local, 'stock');
+} catch (RuntimeException $e) {
+    $refused = str_contains($e->getMessage(), 'RIFIUTO');
+}
+check($refused, 'stock vuota sul centrale: snapshot RIFIUTATO (guardia anti-collasso)');
+check((int) $local->query('SELECT COUNT(*) n FROM stock')->fetch_assoc()['n'] === $localStockBefore && $localStockBefore > 0,
+    "stock locale intatta ($localStockBefore righe)");
+
+$local->query("INSERT INTO casse_stampanti (cassa_id, tipo_stampante, nome_indirizzo) VALUES ('cassa_test', 'RETE', '192.0.2.10')");
+$central->query('DELETE FROM casse_stampanti');
+$refused = false;
+try {
+    snapshotTable($central, $local, 'casse_stampanti');
+} catch (RuntimeException $e) {
+    $refused = str_contains($e->getMessage(), 'RIFIUTO');
+}
+check($refused, 'casse_stampanti vuota sul centrale: snapshot RIFIUTATO (la cassa continua a sapere dove stampare)');
+check((int) $local->query('SELECT COUNT(*) n FROM casse_stampanti')->fetch_assoc()['n'] === 1, 'casse_stampanti locale intatta');
+
+// Guardia "stessa istanza" (incidente 2026-09-10): i due schemi di test stanno
+// sullo stesso MariaDB, l'impronta deve coincidere -> il ciclo non copia nulla.
+check(mariadbInstanceFingerprint($central) !== '' && mariadbInstanceFingerprint($central) === mariadbInstanceFingerprint($local),
+    'stessa istanza MariaDB riconosciuta (il ciclo resterebbe idle)');
 
 // --- Cleanup ---
 $central->close();

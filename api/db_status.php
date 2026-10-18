@@ -29,7 +29,9 @@ $result = [
     // loopback non dice nulla di utile a chi deve collegare un'altra
     // cassa a questa macchina come server.
     'display_host' => $isSelf ? (detectLocalLanIp() ?? $env['host']) : $env['host'],
-    // Nome host di questo PC, solo informativo (vedi local_ip.php).
+    // Nome host del PC del database, solo informativo: questo PC (vedi
+    // local_ip.php) o, su un client, il centrale (letto sotto, a connessione
+    // riuscita).
     'hostname' => $isSelf ? detectLocalHostname() : null,
     'is_self' => $isSelf,
     'db' => $env['db'],
@@ -56,6 +58,19 @@ try {
                 }
             } catch (mysqli_sql_exception $e) {
                 // ignorato: e' solo un avviso informativo
+            }
+            // Nome del PC centrale (piano 5e: su un client era sempre null,
+            // si conosceva solo il proprio). @@hostname e' il nome della
+            // macchina su cui gira il MariaDB del centrale: non dipende dalla
+            // versione del suo wrapper (come invece app_nodi) e costa una
+            // SELECT di una variabile.
+            try {
+                $res = $conn->query('SELECT @@hostname AS h');
+                if ($res && ($row = $res->fetch_assoc()) && trim((string) $row['h']) !== '') {
+                    $result['hostname'] = trim((string) $row['h']);
+                }
+            } catch (mysqli_sql_exception $e) {
+                // ignorato: e' solo un'informazione in piu' accanto all'IP
             }
         }
         $conn->close();
