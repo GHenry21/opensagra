@@ -1,5 +1,5 @@
 /*
-  Toast condiviso (design "glass" rosso/verde/blu definito in pos-redesign.css).
+  Toast condiviso (design "glass" rosso/verde/blu/arancione definito in pos-redesign.css).
   Espone window.showToast(message, type, options) per tutte le pagine POS:
   crea/riusa il contenitore #message e non richiede jQuery o Vue.
 */
@@ -9,7 +9,8 @@
     var DEFAULT_TITLES = {
         error: 'Errore',
         success: 'Successo',
-        info: 'Informazione'
+        info: 'Informazione',
+        warning: 'Attenzione'
     };
 
     var DEFAULT_DURATION = 3200;
@@ -26,7 +27,7 @@
     }
 
     function showToast(message, type, options) {
-        type = (type === 'error' || type === 'success' || type === 'info') ? type : 'info';
+        type = (type === 'error' || type === 'success' || type === 'info' || type === 'warning') ? type : 'info';
         options = options || {};
 
         var duration = options.duration != null ? options.duration : DEFAULT_DURATION;
