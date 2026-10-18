@@ -78,7 +78,11 @@ function runMercureSubscriber(array $opts): void
             }
         };
 
-        $onData = static function ($ch, string $chunk) use (&$buffer, &$curEvent, $dispatch) {
+        $lastByteAt = time();
+        $stale = false;
+
+        $onData = static function ($ch, string $chunk) use (&$buffer, &$curEvent, &$lastByteAt, $dispatch) {
+            $lastByteAt = time();
             $buffer .= $chunk;
             while (($nl = strpos($buffer, "\n")) !== false) {
                 $line = rtrim(substr($buffer, 0, $nl), "\r");
@@ -119,22 +123,36 @@ function runMercureSubscriber(array $opts): void
             $headers[] = 'Last-Event-ID: ' . $lastEventId;
         }
 
+        // Stream morto = nessun byte da MERCURE_SUB_STALE_SECONDS. Non con
+        // CURLOPT_LOW_SPEED_LIMIT/TIME: quello chiede in MEDIA 1 byte/s, cioe'
+        // 45 byte in 45 s, e l'heartbeat dell'hub (":" ogni 20 s) e' di pochi
+        // byte - lo stream veniva chiuso ogni ~45 s anche con l'hub vivo (visto
+        // nel relay di una cassa client, 2026-10-19). Il callback di avanzamento
+        // gira anche a stream fermo e chiude solo se non arriva proprio nulla.
+        $onProgress = static function ($ch, $dlTotal, $dlNow, $ulTotal, $ulNow) use (&$lastByteAt, &$stale): int {
+            if (time() - $lastByteAt >= MERCURE_SUB_STALE_SECONDS) {
+                $stale = true;
+                return 1; // interrompe il trasferimento
+            }
+            return 0;
+        };
+
         $ch = curl_init($streamUrl);
         curl_setopt_array($ch, [
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_WRITEFUNCTION => $onData,
+            CURLOPT_NOPROGRESS => false,
+            CURLOPT_XFERINFOFUNCTION => $onProgress,
             CURLOPT_TIMEOUT => 0,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_TCP_KEEPALIVE => 1,
-            CURLOPT_LOW_SPEED_LIMIT => 1,
-            CURLOPT_LOW_SPEED_TIME => MERCURE_SUB_STALE_SECONDS,
             CURLOPT_SSL_VERIFYPEER => false,   // cert self-signed (tls internal)
             CURLOPT_SSL_VERIFYHOST => false,
         ]);
 
         curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err = curl_error($ch);
+        $err = $stale ? 'nessun byte (nemmeno un heartbeat) da ' . MERCURE_SUB_STALE_SECONDS . 's' : curl_error($ch);
         // curl_close() e' no-op dal PHP 8.0 e deprecata dall'8.5: l'handle si
         // libera quando $ch esce di scope (fine iterazione del while).
         unset($ch);
