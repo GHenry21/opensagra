@@ -152,6 +152,103 @@ sort($actualKept);
 check($expectedKept === $actualKept, 'sono rimasti proprio gli ultimi ' . CATALOG_BACKUP_KEEP . ' creati, non una selezione arbitraria');
 check(!in_array($ids[0], $remaining, true), 'il primo batch creato (il piu vecchio) e stato tolto in silenzio');
 
+echo "== 9. Ritorno a Indipendente dopo un fallback: torna il catalogo DEL NODO (2026-10-17) ==" . PHP_EOL;
+// Difetto visto nel giro "Linux come centrale" (piano 5e): ricollegandosi a
+// Client dopo un fallback si salvava la copia del catalogo del centrale, e
+// tornando a Indipendente si ripristinava quella.
+
+/**
+ * Copia fedele delle due decisioni di api/set_network_config.php sul catalogo
+ * (backup al passaggio a Client, ripristino al passaggio a Indipendente): se
+ * cambiano li', aggiorna anche qui.
+ */
+function simulateSwitch(mysqli $db, array $env, string $mode, string $targetHost = '10.0.0.1'): array
+{
+    $own = localCatalogIsOwn($env);
+    $out = ['backup_id' => null, 'restored_batch' => null];
+    if ($mode === 'client' && $own) {
+        $out['backup_id'] = backupCatalogTables($db, CATALOG_BACKUP_TABLES, CATALOG_BACKUP_REASON_SWITCH . " (verso $targetHost)");
+    }
+    if ($mode === 'indipendente' && !$own) {
+        $last = mostRecentBackupBatch($db, CATALOG_BACKUP_REASON_SWITCH);
+        if ($last !== null) {
+            restoreCatalogBackupBatch($db, $last['id']);
+            $out['restored_batch'] = $last['id'];
+        }
+    }
+    return $out;
+}
+
+/** Copia del catalogo del centrale fatta dallo snapshot nel DB locale. */
+function simulateSnapshotOfCentral(mysqli $db): void
+{
+    $db->query('DELETE FROM stock');
+    $db->query("INSERT INTO stock (name, quantity_available) VALUES ('PANINO DEL PI', 3)");
+    $db->query('DELETE FROM casse_stampanti');
+    $db->query("INSERT INTO casse_stampanti (cassa_id) VALUES ('cassa_pi')");
+}
+
+function stockNames(mysqli $db): array
+{
+    return array_column(rowsOf($db, 'stock'), 'name');
+}
+
+$envIndipendente = ['host' => '127.0.0.1', 'fallback_session_active' => false];
+$envClientA      = ['host' => '10.0.0.1', 'fallback_session_active' => false];
+$envFallback     = ['host' => '127.0.0.1', 'fallback_session_active' => true];
+
+$root->query('DELETE FROM catalog_backup_batches');
+$root->query('DELETE FROM stock');
+$root->query('DELETE FROM casse_stampanti');
+$root->query("INSERT INTO stock (name, quantity_available) VALUES ('SALAMELLA', 40), ('BIRRA', 90)");
+$root->query("INSERT INTO casse_stampanti (cassa_id) VALUES ('cassa_henry'), ('cassa_bar')");
+
+check(localCatalogIsOwn($envIndipendente), 'Indipendente: il catalogo locale e quello del nodo');
+check(!localCatalogIsOwn($envClientA), 'Client: il locale e la copia del centrale');
+check(!localCatalogIsOwn($envFallback), 'fallback automatico (sessione attiva): il locale e la copia del centrale');
+check(localCatalogIsOwn(['host' => 'localhost', 'fallback_session_active' => false]), "'localhost' vale come locale");
+
+// Indipendente -> Client A: salva il catalogo buono.
+$s1 = simulateSwitch($root, $envIndipendente, 'client');
+check($s1['backup_id'] !== null, 'Indipendente -> Client: catalogo del nodo salvato (batch ' . var_export($s1['backup_id'], true) . ')');
+simulateSnapshotOfCentral($root);
+
+// Il centrale cade: fallback automatico. Poi l'operatore si ricollega a Client.
+$s2 = simulateSwitch($root, $envFallback, 'client');
+check($s2['backup_id'] === null, 'fallback -> Client: NESSUN salvataggio (nel locale c\'e la copia del centrale)');
+
+// Client A -> Client B senza passare da Indipendente.
+$s3 = simulateSwitch($root, $envClientA, 'client', '10.0.0.2');
+check($s3['backup_id'] === null, 'Client A -> Client B: NESSUN salvataggio, il backup buono non viene coperto');
+
+// Torna Indipendente.
+$s4 = simulateSwitch($root, $envClientA, 'indipendente');
+check($s4['restored_batch'] === $s1['backup_id'], 'Client -> Indipendente: ripristinato il batch del vero stato Indipendente (' . var_export($s4['restored_batch'], true) . ')');
+$names = stockNames($root);
+sort($names);
+check($names === ['BIRRA', 'SALAMELLA'], 'stock di nuovo quello del nodo (' . implode(',', $names) . ')');
+check(count(rowsOf($root, 'casse_stampanti')) === 2, 'casse_stampanti di nuovo quelle del nodo (2)');
+
+// Il ripristino ha creato un batch di sicurezza con il catalogo del centrale:
+// e' il piu recente in assoluto, ma non deve mai essere offerto in automatico.
+$unfiltered = mostRecentBackupBatch($root);
+$switchOnly = mostRecentBackupBatch($root, CATALOG_BACKUP_REASON_SWITCH);
+check($unfiltered !== null && str_starts_with($unfiltered['reason'], 'prima di un ripristino'), 'il piu recente in assoluto e il batch di sicurezza (catalogo del centrale)');
+check($switchOnly !== null && $switchOnly['id'] === $s1['backup_id'], 'filtrando per passaggio a Client resta il batch buono');
+
+// Indipendente -> Indipendente (bottone Applica ripremuto): niente ripristino,
+// le modifiche fatte nel frattempo restano.
+$root->query("INSERT INTO stock (name, quantity_available) VALUES ('NUOVO PRODOTTO', 5)");
+$s5 = simulateSwitch($root, $envIndipendente, 'indipendente');
+check($s5['restored_batch'] === null, 'Indipendente -> Indipendente: nessun ripristino');
+check(in_array('NUOVO PRODOTTO', stockNames($root), true), 'il prodotto aggiunto da Indipendente resta');
+
+// Fallback -> Indipendente diretto: ripristina il catalogo del nodo.
+simulateSwitch($root, $envIndipendente, 'client'); // nuovo backup buono (3 prodotti)
+simulateSnapshotOfCentral($root);
+$s6 = simulateSwitch($root, $envFallback, 'indipendente');
+check($s6['restored_batch'] !== null && in_array('NUOVO PRODOTTO', stockNames($root), true), 'fallback -> Indipendente: torna il catalogo del nodo (con il prodotto nuovo)');
+
 echo PHP_EOL;
 $root->query('DROP DATABASE IF EXISTS ' . TEST_DB);
 $root->close();

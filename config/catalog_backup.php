@@ -44,6 +44,32 @@ const CATALOG_BACKUP_TABLES = ['stock', 'casse_stampanti', 'receipt_config'];
 // prima di un ripristino).
 const CATALOG_BACKUP_KEEP = 3;
 
+// Motivo dei batch presi da api/set_network_config.php al passaggio a Client:
+// sono gli UNICI candidati al ripristino automatico tornando a Indipendente.
+// Gli altri batch ("prima di un ripristino ...") contengono per costruzione il
+// catalogo del centrale appena sostituito: servono solo all'"Annulla".
+const CATALOG_BACKUP_REASON_SWITCH = 'passaggio a modalità client';
+
+/**
+ * Il catalogo nel DB locale e' quello DEL NODO (vero stato Indipendente)?
+ * Correzione 2026-10-17 (giro Linux come centrale, piano 5e): prima si salvava
+ * il catalogo a ogni passaggio a Client, anche quando nel DB locale c'era la
+ * copia del catalogo del centrale, e tornando a Indipendente si ripristinava
+ * quella invece del catalogo vero della cassa. Il locale NON e' del nodo quando:
+ *  - DB_POS_HOST e' remoto: il locale e' la copia dello snapshot del centrale
+ *    (anche nel passaggio diretto Client A -> Client B);
+ *  - FALLBACK_SESSION_ACTIVE: il sistema e' passato al DB locale da solo per la
+ *    caduta del centrale, e il locale e' ancora la copia dello snapshot.
+ * Un FALLBACK_ORIGIN_HOST rimasto valorizzato con sessione spenta NON conta: e'
+ * solo un debito di vendite, e lo switch manuale a Indipendente che ha spento
+ * la sessione ha gia' rimesso a posto il catalogo del nodo.
+ */
+function localCatalogIsOwn(array $env): bool
+{
+    return in_array($env['host'], ['', '127.0.0.1', 'localhost', '::1'], true)
+        && !$env['fallback_session_active'];
+}
+
 function ensureCatalogBackupSchema(mysqli $db): bool
 {
     try {
@@ -164,17 +190,30 @@ function pruneCatalogBackups(mysqli $local, int $keep = CATALOG_BACKUP_KEEP): vo
 
 /**
  * L'unico batch che viene mai offerto in automatico (nessuna pagina per
- * sceglierne uno diverso): il piu' recente in assoluto, o null se non esiste
- * ancora nessun salvataggio.
+ * sceglierne uno diverso): il piu' recente, o null se non esiste ancora nessun
+ * salvataggio. Con $reasonPrefix solo tra i batch il cui motivo comincia cosi'
+ * (api/set_network_config.php passa CATALOG_BACKUP_REASON_SWITCH).
  */
-function mostRecentBackupBatch(mysqli $local): ?array
+function mostRecentBackupBatch(mysqli $local, ?string $reasonPrefix = null): ?array
 {
     try {
         if (!ensureCatalogBackupSchema($local)) {
             return null;
         }
-        $res = $local->query('SELECT id, created_at, reason FROM catalog_backup_batches ORDER BY id DESC LIMIT 1');
-        $row = $res ? $res->fetch_assoc() : null;
+        if ($reasonPrefix === null) {
+            $res = $local->query('SELECT id, created_at, reason FROM catalog_backup_batches ORDER BY id DESC LIMIT 1');
+            $row = $res ? $res->fetch_assoc() : null;
+        } else {
+            $stmt = $local->prepare(
+                "SELECT id, created_at, reason FROM catalog_backup_batches WHERE reason LIKE CONCAT(?, '%') ORDER BY id DESC LIMIT 1"
+            );
+            $like = addcslashes($reasonPrefix, '%_\\');
+            $stmt->bind_param('s', $like);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $row = $res ? $res->fetch_assoc() : null;
+            $stmt->close();
+        }
         return $row ? [
             'id' => (int) $row['id'],
             'created_at' => $row['created_at'],
