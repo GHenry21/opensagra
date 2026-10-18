@@ -1359,6 +1359,27 @@ VM Hyper-V `opensagra-clean` (Windows 11), pilotata da HENRY con PowerShell Dire
 
 **Note minori:** con build senza tag (`0.0.0-dev`) la finestra di stato propone di "aggiornare" alla v1.0.0; ~50 s fra doppio clic sull'exe da 80 MB e qualunque cosa a video (ps2exe scompatta prima); su un'installazione da zero il figlio `snapshot` è risultato attivo sul server benché il wrapper abbia scritto "metto in pausa" nello stesso secondo dell'avvio (innocuo grazie alla guardia "stessa istanza", da guardare in `children.go`); la v1.0.0 riavviata con Caddy 1.12.7 apre l'"Avviso di sicurezza" della CA (già corretto da `c069952`). Sulla VM Windows Update ha forzato un riavvio a metà test: va disattivato (`UsoSvc`/`wuauserv`) dopo ogni ripristino.
 
+### v1.1.1 — tutti i difetti noti della v1.1.0 corretti e verificati (2026-10-19)
+
+Decisione utente (2026-10-18): niente più release con difetti noti; tutto corretto e verificato prima di pubblicare. Branch di integrazione `release-v111` = `main` (v1.1.0) + `fix-wrapper-v111` (sessione f1) + `fix-fallback-v111` + `fix-installer-v111` + una correzione a Mercure. La v1.1.0 resta pubblicata (meglio della v1.0.0, che oggi si installa rotta).
+
+**Corretti:**
+1. Catalogo sbagliato tornando a Indipendente dopo un fallback (`fe8c78c`): il catalogo si salva solo se è davvero della cassa (`localCatalogIsOwn`), il ripristino pesca solo i salvataggi "passaggio a client".
+2. In fallback niente tagliandini (`98615ca`): lo snapshot copia `receipt_config` vuota del centrale (= predefiniti); guardia anti-collasso solo su `stock` e `casse_stampanti`.
+3. Prima vendita fallita con messaggio generico (`91d9efb`): DB irraggiungibile ora 503 ritentabile invece di 200 + testo; errori del checkout nel log con il motivo; il messaggio all'operatore riporta stato HTTP e inizio della risposta. Causa del caso del 16/10 probabile, non dimostrata.
+4. "Scontrino NON stampato" come avvertimento arancione (`fa0f757`, nuovo tipo di toast `warning`, tema chiaro e scuro).
+5. `db_status` su una cassa client riporta il nome del centrale (`11dde6c`, `SELECT @@hostname` sul suo MariaDB).
+6. Wrapper: snapshot acceso sul server per una corsa all'avvio; 7. accesso dalla rete al DB riallineato solo ogni 5 min (`88947c4`, sessione f1).
+8. Installer Windows (`045e613`): accenti veri (script in UTF-8 con BOM, perché Windows PowerShell 5.1 legge senza BOM come ANSI), finestra che si allunga dalla posizione della finestrella, barra piena al 100%, righe intere nell'elenco, "OpenSagra è pronta" e apertura del pannello a fine installazione, cartella temporanea cancellata (il logo restava aperto da `BitmapImage`); disinstallatore allineato (attesa finestra 90 s, MessageBox d'errore sempre, logo che non blocca la cancellazione). Il MessageBox d'errore resta in stile Windows (decisione utente).
+9. **Trovato verificando** — `install.sh`/`install-macos.sh` (`84bbd72`): due parole tra backtick nel commento del Caddyfile dentro un here-document non quotato venivano eseguite da bash (`encode: command not found`; `*` lanciava il primo file della cartella corrente). Presente anche nella v1.1.0.
+10. **Trovato verificando** — Mercure (`2e32826`): il relay delle casse client e il ponte di stampa chiudevano lo stream ogni ~45 s con l'hub vivo (`CURLOPT_LOW_SPEED_LIMIT` chiede una media di 1 byte/s, l'heartbeat ne manda pochi ogni 20 s); ora si chiude solo dopo 45 s senza alcun byte. Presente anche nella v1.1.0.
+
+**Verificato (2026-10-19), con gli exe e i pacchetti costruiti dalla CI del branch:**
+- **Windows, aggiornamento dalla v1.1.0 pubblicata** (VM `opensagra-clean`, checkpoint "v1.1.0 usata"): la v1.1.0 da zero funziona; con OpenSagra aperto il nuovo installer si ferma con "OpenSagra **è** aperto" (accenti a video ok); aggiornamento: dati identici, FrankenPHP 1.13.1, Mercure (`?topic=` 400, `match=` riceve), snapshot fermo sul server, finestra dell'installer e pannello finale come da schermate, nessuna cartella temporanea rimasta, processo che termina da solo.
+- **Windows da zero** (installer di `2e32826`): installazione completa, vendita con tagliandini, 4151 → `accept_client` → login, `skip_name_resolve=ON`, Mercure, pannello di stato.
+- **Linux come centrale** (Pi, pacchetto linux-aarch64 del branch, prima da zero poi aggiornato sopra con i dati: nessun errore nel log, dati conservati) **con la VM Windows come cassa client vera**: vendite dalla cassa nel DB del Pi; `db_status` con il nome del Pi; uscita del centrale (wrapper + MariaDB fermati) → fallback → vendita in locale **con i tagliandini** (4 tagli come online; prima ne usciva 1) → Pi riacceso → "Sincronizza ora" (`pushed: 1`, ritorno in rete automatico, scorte giuste sul Pi) → di nuovo Client → Indipendente: torna **il catalogo della cassa** (2 prodotti, la sua cassa con fondo 50, il suo scontrino), non quello del Pi. Realtime nei due sensi in ~0,5 s. **Stampa via ponte** dalla cassa Windows sulla POS-80C USB del Pi (`bridge_native`, scontrino stampato).
+- **CI completa verde sul commit finale `2e32826`**: Ubuntu, Fedora, macOS Apple Silicon e Intel, installer grafico macOS, password dell'installer grafico Linux, schema, wrapper, release.
+
 ---
 
 ## Appendice A — Estensioni PHP: lista e abilitazione
