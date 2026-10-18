@@ -58,6 +58,8 @@ la parte del tuo sistema, poi il resto della guida vale per tutti.
    ![Finestra di avanzamento dell'installazione, con la lista dei passaggi completati](img/guida/03-installer-avanzamento.png)
 4. A fine installazione l'app è già pronta e raggiungibile su questo PC.
 
+⏭️ **Fatto con Windows?** [Continua: il pannello di controllo →](#il-pannello-di-controllo)
+
 ### Su Mac
 
 Serve un Mac con macOS 13 (Ventura) o successivo, e un utente
@@ -123,6 +125,8 @@ Serve un Mac con macOS 13 (Ventura) o successivo, e un utente
 > d'errore in rosso e due pulsanti: **Apri il log** (il resoconto dettagliato,
 > utile a chi ti aiuta) e **Chiudi**. Puoi rilanciare l'installer quando vuoi:
 > ripete solo i passaggi che mancano.
+
+⏭️ **Fatto con Mac?** [Continua: il pannello di controllo →](#il-pannello-di-controllo)
 
 ### Su Linux e Raspberry Pi
 
@@ -498,6 +502,8 @@ contanti presente all'apertura, usato per il riepilogo di fine turno, §7.9).
 | Stampante **USB collegata a un PC, ma un'altra postazione deve stamparci sopra** (es. più tablet che condividono un'unica stampante in cucina) | **BRIDGE NATIVO** | Vedi il paragrafo dedicato subito sotto — è il caso più utile da capire bene. |
 | Stampante **Bluetooth** (appaiata al tablet Android) | **BLUETOOTH** | Vedi il paragrafo dedicato più sotto. |
 
+⏭️ **Usi USB o una stampante di rete, niente ponte o Bluetooth?** [Continua: la pagina di vendita →](#7-la-pagina-di-vendita-vendite)
+
 ### 6.1 Il "Bridge nativo": stampare da lontano, su una stampante che da sola non è raggiungibile in rete
 
 Molte stampanti termiche da banco **hanno solo la porta USB**: nessun WiFi,
@@ -555,6 +561,7 @@ andata": la cucina non ha modo di segnalare ritardi o esauriti al cameriere se
 non a voce — per una sagra va bene, per un servizio più complesso servirebbe
 altro.
 
+⏭️ **Non usi una stampante Bluetooth?** [Continua: la pagina di vendita →](#7-la-pagina-di-vendita-vendite)
 
 ### 6.2 Bluetooth (tablet e telefoni)
 
