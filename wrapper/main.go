@@ -105,9 +105,21 @@ func main() {
 		_ = os.Setenv(distEnvVar, d)
 	}
 	sup := newSupervisor(cfg.LogDir, job)
+	// Pausa PRIMA di avviare i figli (non dopo): pause() su un nome non ancora
+	// registrato in sup e' comunque sicuro (si limita a segnare lo stato),
+	// cosi' il loop del supervisor lo trova gia' in pausa al primo giro e non
+	// arriva mai a spawn(). Farlo DOPO sup.Start() (com'era) lascia una
+	// finestra in cui il figlio parte per davvero prima che la pausa lo
+	// raggiunga - visto dal vivo il 2026-10-17 (installazione da zero: lo
+	// snapshot risultava "attivo" in /api/status nello stesso secondo in cui
+	// il log diceva "lo metto in pausa").
+	syncSnapshotChild(cfg, sup)
+	syncBridgeChild(cfg, sup)
 	sup.Start(ctx, buildChildren(cfg))
-	// Lo stato iniziale del figlio snapshot (pausa se server/indipendente) e la
-	// sua regolazione al cambio ruolo li gestisce watchDbHost, piu' sotto.
+	// La regolazione al cambio ruolo (dopo l'avvio) la gestiscono watchDbHost
+	// e watchBridgeEnabled, piu' sotto - i loro richiami a syncSnapshotChild/
+	// syncBridgeChild all'avvio sono ridondanti con quanto appena fatto sopra,
+	// ma restano (idempotenti) per coerenza col resto del ciclo di vita.
 
 	// Finestra di stato: server HTTP locale + pagina aperta in browser app-mode.
 	status := newStatusServer(ctx, cfg, sup)
