@@ -1,5 +1,57 @@
 # Note di rilascio
 
+## v1.1.1 (19 ottobre 2026)
+
+Versione di correzioni: risolve tutti i difetti noti della v1.1.0, compresi
+due trovati durante le verifiche di questa versione.
+
+### ⚠️ Prima di aggiornare
+
+- **Serve reinstallare, su tutte le casse**, come per la v1.1.0: scarica
+  l'installer e lancialo sopra l'installazione esistente. **Vendite, catalogo,
+  casse, stampanti e impostazioni restano.**
+- **Ordine: prima il PC centrale, poi le casse**, e non durante il servizio.
+- **Chiudi OpenSagra prima di reinstallare su Windows** (icona vicino
+  all'orologio → Esci): l'installer si ferma se lo trova aperto.
+
+### Correzioni
+
+- **Cassa che torna Indipendente dopo un'uscita della centrale**: ritrova il
+  proprio catalogo. Prima poteva ritrovarsi con i prodotti e le casse della
+  centrale, e il catalogo giusto non si recuperava dalle pagine.
+- **Tagliandini per la cucina durante un'uscita della centrale**: la cassa
+  stampa con la configurazione dello scontrino della centrale. Prima, se sulla
+  centrale nessuno aveva mai salvato *Configura Scontrino*, la cassa usava la
+  sua vecchia configurazione e poteva stampare senza tagliandini.
+- **Tempo reale e stampa tramite ponte** non si scollegano più ogni 45 secondi
+  con la centrale accesa (le casse si ricollegavano di continuo).
+- **Vendita non registrata per un problema momentaneo del database**: ora la
+  cassa ritenta da sola invece di mostrare subito "Errore durante la
+  registrazione della vendita"; se l'errore resta, il messaggio dice il motivo,
+  che finisce anche nel registro di OpenSagra.
+- **"Scontrino NON stampato"** compare come avviso arancione, non come semplice
+  informazione azzurra.
+- La cassa collegata a una centrale ne mostra il nome.
+- Pannello di OpenSagra: sulla centrale non resta acceso un processo che serve
+  solo alle casse; l'accesso delle casse al database della centrale si
+  riallinea entro 15 secondi.
+- **Linux e Mac**: l'installazione mostrava `encode: command not found` e
+  poteva eseguire per errore un file della cartella da cui si lanciava
+  l'installer.
+- **Installer Windows**:
+  - lettere accentate al posto degli apostrofi;
+  - la finestra si allunga man mano che procede, la barra arriva in fondo e
+    l'elenco dei passi non è più tagliato;
+  - alla fine dice "OpenSagra è pronta" e apre il pannello di OpenSagra;
+  - non lascia più file nella cartella temporanea;
+  - disinstallazione: stessi miglioramenti, e gli errori si leggono per intero.
+
+### Problemi noti
+
+- **Firefox su Mac**: non ancora verificato se riconosce da solo il
+  certificato locale; se mostra l'avviso, va accettato una volta.
+- Su Mac il primo avvio richiede *Apri comunque* (app non firmata da Apple).
+
 ## v1.1.0 (18 ottobre 2026)
 
 Prima versione dopo la v1.0.0 (29 settembre 2026, solo Windows).
