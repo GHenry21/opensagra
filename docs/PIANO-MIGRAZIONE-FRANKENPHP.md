@@ -1120,7 +1120,7 @@ Il maintainer `henderkes` l'aveva notato nella PR #2611 senza risposta. Segnalat
 
 ## Fase 5 — Rilascio (pulizia, GitHub, guida, multi-piattaforma, demo, sito)
 
-> **Stato (2026-10-19):** release pubblicate (v1.1.1 è la "Latest"), guida aggiornata, Linux verificato anche come centrale, installer grafico nelle release. **Aperti:** Mac su un computer vero (5e), annuncio pubblico (5b, decisione dell'utente), cookie e dominio del sito (5g, sessione del sito), installer Windows in HTML (5h, facoltativo). Vedi anche "Prossima versione" in fondo al piano.
+> **Stato (2026-10-19):** release pubblicate (v1.1.1 è la "Latest"), guida aggiornata, Linux verificato anche come centrale, installer grafico nelle release. **Aperti:** Mac su un computer vero (5e), annuncio pubblico (5b, decisione dell'utente), cookie e dominio del sito (5g, sessione del sito), installer Windows in HTML (5h, facoltativo). I lavori successivi sono in [PIANO-PROSSIME-VERSIONI.md](PIANO-PROSSIME-VERSIONI.md).
 
 Aperta il 2026-09-14. A differenza delle fasi precedenti (infrastruttura/funzionalità), questa è tutta orientata a portare il progetto da "funziona, testato dallo sviluppatore" a "qualcun altro lo può installare/vedere/trovare da solo".
 
@@ -1386,19 +1386,9 @@ Decisione utente (2026-10-18): niente più release con difetti noti; tutto corre
 
 ---
 
-## Prossima versione (dopo la v1.1.1)
+## Dopo la migrazione
 
-Regola dell'utente (2026-10-18): **nessuna release con difetti noti**; prima del tag, verifica completa dal vivo (Windows da zero e in aggiornamento sulla VM, Linux come centrale con una cassa client vera, CI completa) — vedi "v1.1.1" sopra.
-
-- [ ] **Interfaccia in inglese** (proposta 2026-10-19, da decidere). Testi da tradurre, conteggio approssimativo: pagine dell'app ~250 righe (8 file), messaggi delle API ~170 (31 file), testi stampati ~90 (scontrino, tagliandini, statistiche), JS e parti comuni ~25, finestra di stato ~45, installer grafico Linux/Mac ~150 (più installer e disinstallatore Windows), guida 840 righe.
-  - Approccio proposto, senza librerie (come il resto del progetto): `lang/it.php` + `lang/en.php` e una funzione `t('chiave')`; le pagine Vue ricevono lo stesso dizionario; le API restituiscono i messaggi già tradotti.
-  - Lingua dell'interfaccia in Configurazione; **lingua degli scontrini separata** (volontari stranieri, clienti italiani).
-  - Ordine: app → pannello e installer → guida. Verifica: giro completo in inglese con schermate di ogni pagina + controllo automatico delle chiavi mancanti.
-  - **Da decidere dall'utente:** lingua per installazione o per dispositivo; guida subito o dopo.
-  - Stima: ~2-3 giorni app, ~1 pannello/installer, ~1 guida, più le verifiche.
-- [ ] **Aggiornamento leggero vero** (6b): provarlo end-to-end con la prima release che cambia solo l'app, o con una release di prova non pubblica.
-- [ ] **Mac su un computer vero** (5e): centrale con una cassa client vera, cassa client, stampa, telefoni e tablet in LAN, avvio all'accensione, Firefox e il certificato. Serve un Mac in rete raggiungibile via SSH.
-- [ ] **Annuncio pubblico** (5b): decisione dell'utente.
+I lavori successivi alla v1.1.1 (interfaccia in inglese, prova vera dell'aggiornamento leggero, Mac su un computer vero, annuncio pubblico, facoltativi) e la regola per ogni release sono in [PIANO-PROSSIME-VERSIONI.md](PIANO-PROSSIME-VERSIONI.md).
 
 ## Appendice A — Estensioni PHP: lista e abilitazione
 
