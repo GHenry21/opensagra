@@ -422,7 +422,9 @@ Obiettivo raggiunto: FrankenPHP gira in background come servizio, non serve più
 
 ---
 
-## Fase 3 — Script d'installazione per-OS
+## Fase 3 — Script d'installazione per-OS ✅ COMPLETATA (uscita con le release v1.1.0/v1.1.1)
+
+> **Stato (2026-10-19):** installer Windows (`install.ps1` in un exe, con disinstallatore), Linux (`install.sh`, Debian/Ubuntu/Raspberry Pi OS/Fedora) e macOS (`install-macos.sh`, Apple Silicon e Intel), più l'installer grafico di Linux/macOS (5h), tutti nelle release e verificati (VM Windows, Pi, CI). Le sottosezioni 3b-3j qui sotto sono la storia di come ci si è arrivati: alcune descrivono scelte poi superate (es. 3i, QZ Tray rimosso in Fase 4; 3g, servizi sostituiti dal wrapper).
 
 Un solo entry point (`install.ps1` su Windows, `install.sh` su macOS/Linux, o un unico script che rileva l'OS) che porta una macchina pulita ad app funzionante in HTTPS.
 
@@ -1118,6 +1120,8 @@ Il maintainer `henderkes` l'aveva notato nella PR #2611 senza risposta. Segnalat
 
 ## Fase 5 — Rilascio (pulizia, GitHub, guida, multi-piattaforma, demo, sito)
 
+> **Stato (2026-10-19):** release pubblicate (v1.1.1 è la "Latest"), guida aggiornata, Linux verificato anche come centrale, installer grafico nelle release. **Aperti:** Mac su un computer vero (5e), annuncio pubblico (5b, decisione dell'utente), cookie e dominio del sito (5g, sessione del sito), installer Windows in HTML (5h, facoltativo). Vedi anche "Prossima versione" in fondo al piano.
+
 Aperta il 2026-09-14. A differenza delle fasi precedenti (infrastruttura/funzionalità), questa è tutta orientata a portare il progetto da "funziona, testato dallo sviluppatore" a "qualcun altro lo può installare/vedere/trovare da solo".
 
 ### 5a. Pulizia file e cartelle — primo passo, prima di tutto il resto ✅ COMPLETATA (2026-09-15)
@@ -1253,7 +1257,7 @@ Aperta il 2026-10-07, dopo un'analisi di come funzionano oggi aggiornamento legg
 - [x] migrazioni sul DB locale (6c punto B).
 - Verificato con un test temporaneo su un'installazione finta (rimosso dopo): aggiornamento riuscito (file sostituiti, obsoleto cancellato, `variabili.env` intatto, versione scritta, FrankenPHP rimesso in moto); impronta sbagliata → nulla toccato; migrazione che fallisce → tutto rimesso com'era; dump reale del DB di sviluppo creato (poi cancellato). Wrapper compilato per Windows, Linux amd64/arm64, macOS arm64/amd64.
 - ✅ **Linux verificato sul Pi (2026-10-07)**: `ApplyUpdate` eseguito sul Pi (test temporaneo cross-compilato, su una copia dell'installazione): `mariadb-dump` trovato in `/usr/bin`, dump reale in `~/.config/opensagra/backups/` (cartella `0700`), file sostituiti/obsoleto cancellato/`variabili.env` intatto, migrazione fallita → tutto rimesso com'era. **Bug trovato e corretto**: due aggiornamenti nello stesso secondo davano lo stesso nome di dump (il secondo sovrascriveva il primo) → millisecondi nel nome.
-- **Da verificare** con la prossima release (serve uno zip vero pubblicato): aggiornamento leggero reale end-to-end dal pulsante della finestra di stato (con la pausa del FrankenPHP vero); macOS.
+- **Storia delle prove reali**: il **primo** meccanismo (zip allegato dalla CI solo se la release non toccava gli installer) è stato provato end-to-end **dal vivo il 2026-09-16** sulla VM Windows, v1.0.0 → v1.0.1 con release di prova pubblicate e poi cancellate; ha trovato il bug della cache non invalidata (`4c4d9d5`). Il meccanismo **attuale** (manifesto, staging, backup e ripristino, asset `opensagra-app-update.zip`, download dalla centrale in LAN) è stato verificato solo con pacchetti simulati (sopra; 6c C) e non ancora con una release vera: v1.1.0 e v1.1.1 hanno cambiato gli installer, quindi hanno richiesto la reinstallazione. **Da verificare** con la prima release che cambi solo l'app (o con una release di prova non pubblica): pulsante della finestra di stato → aggiornamento applicato, con la pausa del FrankenPHP vero; anche su macOS.
 - Nota: il disinstallatore non tocca `%APPDATA%\opensagra\backups` — i dump restano all'utente, voluto.
 
 ### 6b-bis. Sicurezza: file interni serviti via HTTP — ✅ corretto nel codice (2026-10-07, non committato)
@@ -1322,7 +1326,7 @@ Aperta il 2026-10-07, dopo un'analisi di come funzionano oggi aggiornamento legg
   - **Controllo** `wrapper/cmd/schemacheck` (Go, come `mkmanifest`), in CI con `.github/workflows/schema-check.yml` a ogni push/PR che tocca PHP o Go, annotazioni con file e riga. Scansiona `api config print bin pages includes wrapper` (esclusi `vendor/`, `e2e/`, `docs/`, `config/pos.sql` che è lo schema di un'installazione nuova) e i commenti. Vietati: `DROP TABLE/COLUMN/INDEX/KEY/DATABASE`, `TRUNCATE TABLE`, `RENAME TABLE/COLUMN/TO`, `CHANGE`/`MODIFY` di una colonna (rinomina o restringe: staticamente non si distingue, si giustifica uno per uno), `ADD COLUMN … NOT NULL` senza `DEFAULT` (anche su istruzioni spezzate su più righe). Eccezione solo esplicita: commento `schema-compat: ok - <motivo>` sulla stessa riga o su una riga di solo commento sopra. Regola scritta anche in `config/migrations/README.md`.
   - **Correzione del piano**: le migrazioni esistenti **non** la rispettavano tutte — la `002` rinomina `qz_host` → `bridge_host` (`CHANGE COLUMN`) e poi fa `DROP COLUMN qz_host`, e la stessa rinomina c'è a runtime in `api/stampanti.php` e `config/get_printer.php`. Verificato con `git show v0.1.0/v0.1.1/v1.0.0:config/pos.sql`: ogni release ha già `bridge_host` e mai `qz_host` (rinomina del 2026-09-09, prima release il 16), quindi agiscono solo su database di sviluppo precedenti — marcate come eccezioni motivate. Eccezioni motivate anche i `DROP`/`RENAME` di `config/catalog_backup.php` e `bin/opensagra-snapshot.php`: tabelle di appoggio sul DB **locale**, scambio atomico.
   - **Verificato**: sul codice attuale trova esattamente quei 15 casi e nessun falso positivo (i `change` di JavaScript, gli `ADD COLUMN … NOT NULL DEFAULT`); su un file di prova segnala `NOT NULL` senza default (anche spezzato su più righe), `MODIFY`, `TRUNCATE`, ignora i commenti, e un marcatore in coda a una riga non copre la riga dopo (difetto trovato e corretto nella prima versione). Con le 15 eccezioni marcate: esito pulito; i file PHP toccati passano il parser di PHP.
-- [ ] **E. Blocco solo se serve davvero.** `app_config.SCHEMA_MIN_APP_VERSION`: un client sotto quella soglia non vende e chiede di aggiornarsi. Solo per le rare release che violano D; di norma basta l'avviso di A.
+- [ ] **E. Blocco solo se serve davvero** *(2026-10-19: non servito finora, nessuna release ha violato D)*. `app_config.SCHEMA_MIN_APP_VERSION`: un client sotto quella soglia non vende e chiede di aggiornarsi. Solo per le rare release che violano D; di norma basta l'avviso di A.
 
 
 ## Lavori in parallelo mentre si aspetta FrankenPHP 1.13.1 (assegnati 2026-10-15)
@@ -1334,9 +1338,9 @@ La 1.13.1 è taggata ma la sua release su GitHub è ferma in bozza (un job di bu
 | 1 | **Consolidare i branch**: pubblicare `main` (commit locali di più sessioni), unire `macos-server` (Mac come server, "Esci", Mac Intel), tenere `frankenphp-1.13` aggiornato con `main` | "FrankenPHP 1.13 / macOS" (`f7b1feba`) | ✅ 2026-10-15: `main` pubblicato, `macos-server` unito in `main` (CI macOS Apple Silicon + Intel), `main` riportato in `frankenphp-1.13` |
 | 2 | **Aggiornamento reale su VM Windows**: v1.0.0 (release pubblicata) installata → reinstallazione con la build di `main` (poi di nuovo con la 1.13); `skip-name-resolve` di `install.ps1` (`Set-MariaDBNameResolution`) su un'installazione vera | nuova sessione **avviata come amministratore** (Hyper-V) | ✅ **fatto** (2026-10-17, VM `opensagra-clean`, dettagli sotto la tabella). **v1.0.0 → `frankenphp-1.13`** (installer `b9d9d7b`): verde — dati identici, HTTPS da LAN, Mercure modern (`?topic=` 400, `match=` riceve), finestra di stato, `skip_name_resolve` OFF→ON (prima prova vera di `Set-MariaDBNameResolution`), regola della cassa centrale (4151 → `accept_client` → login ok). **Da zero** (`b9d9d7b` e `275a836`): verde. **Con OpenSagra aperto**: 3 difetti trovati e corretti da `f7b1feba` (`69e3721`, `b9d9d7b`, `275a836`), riverificati. **v1.0.0 → `main`** (`d14ed6f`): verde, ma versione installata `frankenphp-v1.13.1` (tag spurio) e nessun controllo "OpenSagra aperto". ⚠️ La v1.0.0 pubblicata, installata **oggi**, non parte (vedi sotto) |
 | 3 | **Linux come centrale, giro completo**: Pi centrale + cassa client vera (HENRY o VM): vendite, realtime, stampa (anche via ponte), uscita del centrale, fallback e ritorno | fatto da "Installer grafico" (`ed7cce75`), in parallelo al 2 usando HENRY come client | ✅ **fatto** (2026-10-16): giro completo verde (dettagli in §5e, voce "Linux come centrale"). Trovati 2 difetti (catalogo sbagliato al ritorno a Indipendente dopo un fallback; in fallback niente tagliandini singoli) e 2 lacune (ponte di stampa senza comando per accenderlo; utente non nel gruppo `lp`), da correggere |
-| 4 | **6c C3**: la centrale conserva anche gli installer per gli OS delle casse (visti nel battito), così una reinstallazione senza Internet non richiede la chiavetta. Diventa concreto con la prossima release, che richiede la reinstallazione su tutte le casse | "Aggiornamenti e reinstallazioni di OpenSagra" (`d9d269e5`) | **fatto** sul branch `c3-installer-centrale` (verificato su Pi + HENRY; resta l'avvio vero su Windows/Mac), in attesa dell'ok per l'unione |
-| 5 | **6c D**: controllo automatico in CI sulle migrazioni (vietati `DROP`, `RENAME`, `CHANGE`/`MODIFY` che restringono, colonne `NOT NULL` senza default) e sugli `ALTER` a runtime. E resta "solo se serve" | stessa sessione del punto 4 | **fatto** sul branch `c3-installer-centrale` (CI `schema-check.yml`); in attesa dell'ok per l'unione |
-| 6 | **5h**: schermata della password dell'installer grafico con un utente **senza** `NOPASSWD`, fino a installazione completata (CI Ubuntu con utente creato apposta) | "Installer grafico per linux e mac" (`ed7cce75`) | ✅ **fatto** (2026-10-16, branch `gui-password`, non ancora in `main`): test CI `test-gui-password.yml` verde — password sbagliata rifiutata, giusta accettata, installazione completa come utente senza `NOPASSWD`. Corretti nell'installer il popup "Salvare la password?" di Chromium sopra la finestra e lo stderr di Chromium scartato. Dettagli in 5h |
+| 4 | **6c C3**: la centrale conserva anche gli installer per gli OS delle casse (visti nel battito), così una reinstallazione senza Internet non richiede la chiavetta. Diventa concreto con la prossima release, che richiede la reinstallazione su tutte le casse | "Aggiornamenti e reinstallazioni di OpenSagra" (`d9d269e5`) | ✅ **fatto e in `main`** (branch `c3-installer-centrale` unito; uscito con la v1.1.0). Verificato su Pi + HENRY; resta da vedere dal vivo su una centrale Windows/Mac con una cassa senza Internet |
+| 5 | **6c D**: controllo automatico in CI sulle migrazioni (vietati `DROP`, `RENAME`, `CHANGE`/`MODIFY` che restringono, colonne `NOT NULL` senza default) e sugli `ALTER` a runtime. E resta "solo se serve" | stessa sessione del punto 4 | ✅ **fatto e in `main`** (CI `schema-check.yml`, verde anche sulla v1.1.1) |
+| 6 | **5h**: schermata della password dell'installer grafico con un utente **senza** `NOPASSWD`, fino a installazione completata (CI Ubuntu con utente creato apposta) | "Installer grafico per linux e mac" (`ed7cce75`) | ✅ **fatto** (2026-10-16, branch `gui-password`, ora in `main`; test di nuovo verde sulla v1.1.1): test CI `test-gui-password.yml` verde — password sbagliata rifiutata, giusta accettata, installazione completa come utente senza `NOPASSWD`. Corretti nell'installer il popup "Salvare la password?" di Chromium sopra la finestra e lo stderr di Chromium scartato. Dettagli in 5h |
 
 ### Punto 2 — aggiornamento reale su VM Windows (2026-10-17)
 
@@ -1381,6 +1385,20 @@ Decisione utente (2026-10-18): niente più release con difetti noti; tutto corre
 - **CI completa verde sul commit finale `2e32826`**: Ubuntu, Fedora, macOS Apple Silicon e Intel, installer grafico macOS, password dell'installer grafico Linux, schema, wrapper, release.
 
 ---
+
+## Prossima versione (dopo la v1.1.1)
+
+Regola dell'utente (2026-10-18): **nessuna release con difetti noti**; prima del tag, verifica completa dal vivo (Windows da zero e in aggiornamento sulla VM, Linux come centrale con una cassa client vera, CI completa) — vedi "v1.1.1" sopra.
+
+- [ ] **Interfaccia in inglese** (proposta 2026-10-19, da decidere). Testi da tradurre, conteggio approssimativo: pagine dell'app ~250 righe (8 file), messaggi delle API ~170 (31 file), testi stampati ~90 (scontrino, tagliandini, statistiche), JS e parti comuni ~25, finestra di stato ~45, installer grafico Linux/Mac ~150 (più installer e disinstallatore Windows), guida 840 righe.
+  - Approccio proposto, senza librerie (come il resto del progetto): `lang/it.php` + `lang/en.php` e una funzione `t('chiave')`; le pagine Vue ricevono lo stesso dizionario; le API restituiscono i messaggi già tradotti.
+  - Lingua dell'interfaccia in Configurazione; **lingua degli scontrini separata** (volontari stranieri, clienti italiani).
+  - Ordine: app → pannello e installer → guida. Verifica: giro completo in inglese con schermate di ogni pagina + controllo automatico delle chiavi mancanti.
+  - **Da decidere dall'utente:** lingua per installazione o per dispositivo; guida subito o dopo.
+  - Stima: ~2-3 giorni app, ~1 pannello/installer, ~1 guida, più le verifiche.
+- [ ] **Aggiornamento leggero vero** (6b): provarlo end-to-end con la prima release che cambia solo l'app, o con una release di prova non pubblica.
+- [ ] **Mac su un computer vero** (5e): centrale con una cassa client vera, cassa client, stampa, telefoni e tablet in LAN, avvio all'accensione, Firefox e il certificato. Serve un Mac in rete raggiungibile via SSH.
+- [ ] **Annuncio pubblico** (5b): decisione dell'utente.
 
 ## Appendice A — Estensioni PHP: lista e abilitazione
 
