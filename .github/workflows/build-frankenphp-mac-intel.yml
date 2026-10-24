@@ -56,6 +56,20 @@ jobs:
           check-latest: true
           cache: false
 
+      # static-php-cli v3 crea l'elenco dei simboli esportati (libphp.a.dynsym)
+      # da `nm -g --defined-only -P libphp.a` con stdout e stderr mescolati.
+      # Su Intel nm stampa anche "...libphp.a[gdxpm.o]: no symbols" su stderr,
+      # che finisce in mezzo a un nome ("_file_b" + "adseek") e il link fallisce
+      # con "Undefined symbols: adseek, nterface, ..." (run 40089419977). Su
+      # arm64 l'avviso non c'e'. Un nm davanti nel PATH che scarta lo stderr
+      # lascia l'elenco pulito; il resto della build non cambia.
+      - name: nm senza avvisi su stderr
+        run: |
+          mkdir -p "$RUNNER_TEMP/nm-shim"
+          printf '%s\n' '#!/bin/bash' 'exec /usr/bin/nm "$@" 2>/dev/null' > "$RUNNER_TEMP/nm-shim/nm"
+          chmod +x "$RUNNER_TEMP/nm-shim/nm"
+          echo "$RUNNER_TEMP/nm-shim" >> "$GITHUB_PATH"
+
       - name: Build FrankenPHP (build-static.sh ufficiale)
         working-directory: frankenphp
         env:
