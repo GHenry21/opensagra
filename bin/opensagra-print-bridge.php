@@ -35,9 +35,9 @@
  * 2026-10-16 ha la chiave gia' scritta vuota (piano 5e: prima restava spento
  * su un PC-ponte appena installato, nessuna pagina lo accendeva; "vuoto =
  * spento" avrebbe lasciato senza bridge anche le installazioni esistenti
- * dopo un aggiornamento). Si spegne dalla pagina Rete, checkbox "Ponte di
- * stampa" (api/set_bridge_mode.php, scrive "0"), se questo PC non deve mai
- * farne le veci.
+ * dopo un aggiornamento). Si spegne solo scrivendo a mano PRINT_BRIDGE_CASSE=0 in
+ * config/variabili.env (lo switch "Ponte di stampa" della pagina Rete e' stato
+ * tolto il 2026-10-19, su richiesta dell'utente).
  *
  * Test senza stampante reale: PRINT_BRIDGE_SINK_FILE=<path> scrive i byte su
  * file invece che sulla stampante.

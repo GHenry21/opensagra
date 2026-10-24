@@ -254,8 +254,8 @@ func syncSnapshotChild(cfg *Config, sup *Supervisor) {
 	sup.resume(snapshotChildName)
 }
 
-// watchBridgeEnabled: api/set_bridge_mode.php (checkbox "Ponte di stampa" in
-// conf_rete.php) riscrive PRINT_BRIDGE_CASSE in config/variabili.env mentre il
+// watchBridgeEnabled: chi modifica a mano PRINT_BRIDGE_CASSE (lo switch "Ponte
+// di stampa" in conf_rete.php e' stato tolto il 2026-10-19) riscrive PRINT_BRIDGE_CASSE in config/variabili.env mentre il
 // wrapper gira. Senza ri-leggerlo, un PC acceso come ponte dall'app
 // resterebbe senza il processo bridge finche' qualcuno non riavvia il wrapper
 // a mano - la lacuna segnalata testando "Linux come centrale" (piano, 5e,

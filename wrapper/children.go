@@ -12,7 +12,7 @@ const snapshotChildName = "snapshot"
 
 // bridgeChildName: nome del figlio che esegue bin/opensagra-print-bridge.php.
 // Riferito anche da cluster.go per metterlo in pausa/ripresa quando
-// PRINT_BRIDGE_CASSE cambia mentre il wrapper gira (api/set_bridge_mode.php).
+// PRINT_BRIDGE_CASSE cambia mentre il wrapper gira (modifica a mano di variabili.env).
 const bridgeChildName = "bridge"
 
 // buildChildren: i processi che il wrapper supervisiona.

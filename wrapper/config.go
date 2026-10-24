@@ -29,7 +29,7 @@ type Config struct {
 	// di stampa. Un solo processo bridge (topic Mercure fisso, punto-punto):
 	// non serve piu' un id per cassa. Solo per il log d'avvio - lo stato vivo
 	// usato per pausare/riprendere il figlio e' cfg.bridgeOn (BridgeOn()),
-	// perche' api/set_bridge_mode.php lo puo' cambiare mentre il wrapper gira.
+	// perche' una modifica a mano di variabili.env lo puo' cambiare mentre il wrapper gira.
 	BridgeEnabled bool
 
 	DBUser string
@@ -42,9 +42,8 @@ type Config struct {
 	// server" resta congelato al valore d'avvio. Accesso via DbHost().
 	mu     sync.RWMutex
 	dbHost string
-	// bridgeOn: PRINT_BRIDGE_CASSE corrente, vedi bridgeFlagOn. api/set_bridge_mode.php
-	// lo scrive MENTRE il wrapper gira (checkbox "Ponte di stampa" in
-	// conf_rete.php) - senza rilettura a caldo il figlio bridge resterebbe
+	// bridgeOn: PRINT_BRIDGE_CASSE corrente, vedi bridgeFlagOn. Una modifica a mano
+	// lo puo' cambiare MENTRE il wrapper gira - senza rilettura a caldo il figlio bridge resterebbe
 	// escluso per sempre da buildChildren se non era acceso all'avvio.
 	// Accesso via BridgeOn().
 	bridgeOn bool
@@ -90,8 +89,8 @@ func (c *Config) BridgeOn() bool {
 // sempre anche dopo un aggiornamento (la migrazione degli installer aggiunge
 // la chiave solo se assente, non la tocca se c'e' gia', anche vuota). Un
 // valore vuoto non puo' quindi significare "l'utente l'ha spento di
-// proposito" - solo "0" (scritto da api/set_bridge_mode.php quando la
-// checkbox "Ponte di stampa" viene deselezionata) lo puo'. Qualsiasi altro
+// proposito" - solo "0" (scritto a mano in variabili.env: lo switch "Ponte di stampa"
+// della pagina Rete e' stato tolto il 2026-10-19) lo puo'. Qualsiasi altro
 // valore non vuoto (incluso un vecchio id-topic tipo "henry", da prima del
 // modello punto-punto) resta ON, compatibilita' invariata.
 func bridgeFlagOn(raw string) bool {

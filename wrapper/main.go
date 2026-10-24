@@ -145,8 +145,8 @@ func main() {
 	// snapshot (il relay si autoregola gia' da solo con exit(0)).
 	go watchDbHost(ctx, cfg, sup)
 
-	// api/set_bridge_mode.php riscrive PRINT_BRIDGE_CASSE a caldo (checkbox
-	// "Ponte di stampa" in conf_rete.php): rileggilo e pausa/riprendi il
+	// PRINT_BRIDGE_CASSE si puo' cambiare a mano in variabili.env mentre gira
+	// (lo switch "Ponte di stampa" in conf_rete.php e' stato tolto il 2026-10-19): rileggilo e pausa/riprendi il
 	// figlio bridge di conseguenza, senza richiedere un riavvio del wrapper.
 	go watchBridgeEnabled(ctx, cfg, sup)
 

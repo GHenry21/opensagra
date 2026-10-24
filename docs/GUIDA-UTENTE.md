@@ -534,9 +534,7 @@ l'**indirizzo IP del PC-ponte**:
 Il pulsante **"Ricerca Stampanti"** interroga direttamente il PC-ponte e
 propone l'elenco delle stampanti che vede, così normalmente non serve
 scriverne il nome a mano — basta che OpenSagra sia avviato anche lì: ogni
-installazione è già pronta a fare da ponte, nessuna attivazione manuale (si
-disattiva dalla pagina "Rete" di quel PC solo se non deve mai servire da
-ponte).
+installazione è già pronta a fare da ponte, nessuna attivazione manuale.
 
 In pratica: si collega la stampante fisica al PC-ponte, e OpenSagra
 riceve le comande da tutte le casse che la usano.

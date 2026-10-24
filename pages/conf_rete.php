@@ -144,42 +144,6 @@
                 </p>
             </section>
 
-            <!-- Piano 5e (2026-10-16): il ponte di stampa (bin/opensagra-print-bridge.php,
-                 vedi "Bridge nativo" in Configura Casse) partiva solo se PRINT_BRIDGE_CASSE
-                 era già impostato a mano nel file - nessun installer lo scrive, nessun'altra
-                 pagina lo imposta: su un PC-ponte appena installato il ponte restava spento
-                 e nessuna cassa riusciva a stampare lì, pur con la discovery che funzionava
-                 (va all'app via HTTP, non al ponte). Corretto acceso di default da ogni
-                 installer (sempre pronto, nessuna attivazione manuale): qui si spegne solo
-                 per chi non lo vuole mai su questo PC. -->
-            <section class="rete-card">
-                <div class="panel-title-row panel-title-bordered">
-                    <?= pos_icon('printer', ['class' => 'panel-title-icon']) ?>
-                    <h3>Ponte di stampa</h3>
-                </div>
-                <p class="inline-muted">
-                    Ogni installazione OpenSagra è già pronta, di default, a fare da ponte per la
-                    stampante eventualmente collegata a questo PC (vedi "Bridge nativo" in
-                    Configura Casse) — non serve attivare nulla a mano. Disattivalo solo se questo
-                    PC non deve mai stampare per conto di un'altra cassa. Il cambio ha effetto
-                    entro una quindicina di secondi, senza riavviare nulla.
-                </p>
-                <label class="bridge-toggle-row" for="bridgeModeCheckbox">
-                    <?php // Acceso di default: solo "0" esplicito (scritto da api/set_bridge_mode.php
-                    // quando si deseleziona) significa spento - vedi bridgeFlagOn in wrapper/config.go,
-                    // stessa regola. Una chiave vuota (ogni installazione precedente al 2026-10-16) conta come acceso. ?>
-                    <input type="checkbox" id="bridgeModeCheckbox"
-                        <?= trim((string) ($env['print_bridge_casse'] ?? '')) !== '0' ? 'checked' : '' ?>>
-                    <span>Usa questo PC come ponte di stampa</span>
-                </label>
-                <div class="actions-row">
-                    <button class="btn-add" id="btnSaveBridge">
-                        <?= pos_icon('printer') ?>
-                        Salva
-                    </button>
-                </div>
-            </section>
-
             <!-- Piano 6c C3: installer completi conservati da questo PC (solo se
                  e' una cassa centrale e ne ha scaricati). Servono alle casse che
                  devono reinstallare OpenSagra senza Internet: si apre questa
@@ -503,32 +467,6 @@
                     .finally(() => { btnSave.disabled = false; });
             });
 
-            const bridgeModeCheckbox = document.getElementById('bridgeModeCheckbox');
-            const btnSaveBridge = document.getElementById('btnSaveBridge');
-            btnSaveBridge.addEventListener('click', function() {
-                const enabled = bridgeModeCheckbox.checked;
-                btnSaveBridge.disabled = true;
-                fetch('../api/set_bridge_mode.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ enabled })
-                    })
-                    .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
-                    .then(({ ok, data }) => {
-                        if (!ok || !data.success) {
-                            showToast((data && data.error) || 'Errore durante il salvataggio.', 'error');
-                            return;
-                        }
-                        showToast(
-                            enabled
-                                ? 'Ponte di stampa attivo su questo PC (entro una quindicina di secondi).'
-                                : 'Ponte di stampa spento su questo PC.',
-                            'success'
-                        );
-                    })
-                    .catch(() => showToast('Errore di rete durante il salvataggio.', 'error'))
-                    .finally(() => { btnSaveBridge.disabled = false; });
-            });
         })();
     </script>
 </body>
