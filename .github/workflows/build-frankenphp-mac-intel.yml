@@ -84,6 +84,13 @@ jobs:
           name: static-php-cli-log-x86_64
           path: frankenphp/dist/log
 
+      # Prima dei controlli: se uno fallisce il binario resta scaricabile.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frankenphp-mac-x86_64
+          path: frankenphp/dist/frankenphp-mac-x86_64
+          compression-level: 0
+
       - name: Controlli
         run: |
           set -euo pipefail
@@ -96,30 +103,22 @@ jobs:
           modules="$("$bin" list-modules)"
           grep -qx frankenphp <<< "$modules"
           grep -q http.handlers.mercure <<< "$modules"
+          # php-cli di FrankenPHP non ha -r ne' -m prima di PHP 8.6: file.
           # PHP2Shell corretta da 8.5.12 in su
-          php_ver="$("$bin" php-cli -r 'echo PHP_VERSION;')"
-          echo "PHP $php_ver"
-          "$bin" php-cli -r 'exit(version_compare(PHP_VERSION, "8.5.12", ">=") ? 0 : 1);'
+          printf '%s\n' '<?php echo PHP_VERSION, "\n"; exit(version_compare(PHP_VERSION, "8.5.12", ">=") ? 0 : 1);' > /tmp/ver.php
+          "$bin" php-cli /tmp/ver.php
           # Estensioni che OpenSagra usa
-          mods="$("$bin" php-cli -m)"
-          for m in mysqli pdo_mysql mbstring gd intl openssl curl zip; do
-            grep -qix "$m" <<< "$mods" || { echo "manca l'estensione $m"; exit 1; }
-          done
+          printf '%s\n' '<?php $miss = array_diff(["mysqli","pdo_mysql","mbstring","gd","intl","openssl","curl","zip"], array_map("strtolower", get_loaded_extensions())); echo $miss ? "mancano: ".implode(",", $miss)."\n" : "estensioni ok\n"; exit($miss ? 1 : 0);' > /tmp/ext.php
+          "$bin" php-cli /tmp/ext.php
           # php-cli passa gli argomenti a getopt() (php/frankenphp#2690)
           printf '%s\n' '<?php echo json_encode(getopt("", ["a:"])), "\n";' > /tmp/argv.php
           [ "$("$bin" php-cli /tmp/argv.php --a=1)" = '{"a":"1"}' ]
           # macOS minimo
           loads="$(otool -l "$bin")"
-          grep -A3 LC_BUILD_VERSION <<< "$loads" | grep minos
+          grep -A4 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' <<< "$loads" || echo "versione minima di macOS non trovata nel binario"
           gomod="$(go version -m "$bin")"
           grep -E 'dunglas/mercure\s' <<< "$gomod"
           shasum -a 256 "$bin"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: frankenphp-mac-x86_64
-          path: frankenphp/dist/frankenphp-mac-x86_64
-          compression-level: 0
 
       - name: Pubblica nella pre-release frankenphp-v${{ env.VERSION }}
         run: |
