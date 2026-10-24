@@ -1,0 +1,123 @@
+# FrankenPHP per i Mac Intel, costruito da noi.
+#
+# Dalla v1.13.2 (2026-10-21, quella che corregge PHP2Shell: CVE-2026-109618 e
+# CVE-2026-109619, PHP 8.5.12) FrankenPHP non pubblica piu' il binario
+# frankenphp-mac-x86_64: le sue note dicono di costruirlo dai sorgenti con
+# build-static.sh. Questo workflow fa esattamente quello, sullo stesso tag
+# ufficiale e con lo stesso build-static.sh/craft.yml del loro job build-mac
+# (che gira su macos-15 arm64), ma su un runner Intel.
+#
+# Il binario finisce come asset frankenphp-mac-x86_64 nella pre-release
+# frankenphp-v<versione> di questo repo, la stessa di
+# packaging/mirror-frankenphp.sh: installer e pacchetti la scaricano gia' da li'
+# per primi. Un asset gia' presente non viene mai sovrascritto (stessa regola
+# del mirror): per rifarlo va cancellato a mano dalla release.
+#
+# Dopo: bash packaging/set-frankenphp-version.sh <versione> (prende l'impronta
+# di questo asset dalla nostra release) e bash packaging/mirror-frankenphp.sh.
+name: FrankenPHP per Mac Intel (build nostra)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Versione di FrankenPHP (tag ufficiale, senza la v)
+        required: true
+        default: "1.13.3"
+  # Prima esecuzione da un branch di release, senza passare da main.
+  push:
+    branches: ["release-v*"]
+    paths: [".github/workflows/build-frankenphp-mac-intel.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 180
+    env:
+      VERSION: ${{ inputs.version || '1.13.3' }}
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      # OpenSagra supporta macOS 13 (Ventura) in su
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: php/frankenphp
+          ref: refs/tags/v${{ env.VERSION }}
+          path: frankenphp
+          persist-credentials: false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: frankenphp/go.mod
+          check-latest: true
+          cache: false
+
+      - name: Build FrankenPHP (build-static.sh ufficiale)
+        working-directory: frankenphp
+        env:
+          FRANKENPHP_VERSION: ${{ env.VERSION }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./build-static.sh
+
+      - name: Log in caso di errore
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-php-cli-log-x86_64
+          path: frankenphp/dist/log
+
+      - name: Controlli
+        run: |
+          set -euo pipefail
+          bin=frankenphp/dist/frankenphp-mac-x86_64
+          file "$bin" | tee /dev/stderr | grep -q x86_64
+          "$bin" version
+          "$bin" list-modules | grep -q '^frankenphp$'
+          "$bin" list-modules | grep -q http.handlers.mercure
+          # PHP2Shell corretta da 8.5.12 in su
+          php_ver="$("$bin" php-cli -r 'echo PHP_VERSION;')"
+          echo "PHP $php_ver"
+          "$bin" php-cli -r 'exit(version_compare(PHP_VERSION, "8.5.12", ">=") ? 0 : 1);'
+          # Estensioni che OpenSagra usa
+          mods="$("$bin" php-cli -m)"
+          for m in mysqli pdo_mysql mbstring gd intl openssl curl zip; do
+            printf '%s\n' "$mods" | grep -qix "$m" || { echo "manca l'estensione $m"; exit 1; }
+          done
+          # php-cli passa gli argomenti a getopt() (php/frankenphp#2690)
+          printf '%s\n' '<?php echo json_encode(getopt("", ["a:"])), "\n";' > /tmp/argv.php
+          [ "$("$bin" php-cli /tmp/argv.php --a=1)" = '{"a":"1"}' ]
+          # macOS minimo
+          otool -l "$bin" | grep -A3 LC_BUILD_VERSION | grep minos
+          go version -m "$bin" | grep -E 'dunglas/mercure\s'
+          shasum -a 256 "$bin"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frankenphp-mac-x86_64
+          path: frankenphp/dist/frankenphp-mac-x86_64
+          compression-level: 0
+
+      - name: Pubblica nella pre-release frankenphp-v${{ env.VERSION }}
+        run: |
+          set -euo pipefail
+          tag="frankenphp-v$VERSION"
+          bin=frankenphp/dist/frankenphp-mac-x86_64
+          sum="$(shasum -a 256 "$bin" | cut -d' ' -f1)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            have="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name=="frankenphp-mac-x86_64") | .digest')"
+            if [ -n "$have" ]; then
+              echo "frankenphp-mac-x86_64 gia' nella release ($have): non lo sovrascrivo"
+              exit 0
+            fi
+            gh release upload "$tag" "$bin" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "$bin" --repo "$GITHUB_REPOSITORY" \
+              --prerelease --latest=false \
+              --title "FrankenPHP $VERSION (copia per i pacchetti di OpenSagra)" \
+              --notes "Copia degli asset di FrankenPHP $VERSION usati nei pacchetti di OpenSagra. Non e' una versione di OpenSagra. frankenphp-mac-x86_64 e' costruito da noi (FrankenPHP non lo pubblica piu' dalla 1.13.2) con il build-static.sh ufficiale del tag v$VERSION, dal workflow build-frankenphp-mac-intel.yml; gli altri sono gli originali di https://github.com/php/frankenphp/releases/tag/v$VERSION (licenza MIT)."
+          fi
+          echo "frankenphp-mac-x86_64 sha256 $sum"

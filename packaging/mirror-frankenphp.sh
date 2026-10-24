@@ -48,7 +48,12 @@ for a in "${assets[@]}"; do
     [ -n "$want" ] || die "impronta di $a mancante in $lock"
     f="$cache/$a"
     if [ ! -f "$f" ] || [ "$(sha256_of "$f")" != "$want" ]; then
-        curl -fsL --retry 3 -o "$f" "https://github.com/php/frankenphp/releases/download/v$version/$a" || die "download di $a fallito"
+        # frankenphp-mac-x86_64: dalla 1.13.2 FrankenPHP non lo pubblica, lo
+        # costruisce build-frankenphp-mac-intel.yml direttamente nella nostra
+        # release (qui poi risulta "gia' presente").
+        curl -fsL --retry 3 -o "$f" "https://github.com/php/frankenphp/releases/download/v$version/$a" \
+            || { [ "$a" = frankenphp-mac-x86_64 ] && curl -fsL --retry 3 -o "$f" "https://github.com/$REPO/releases/download/$tag/$a"; } \
+            || die "download di $a fallito"
     fi
     [ "$(sha256_of "$f")" = "$want" ] \
         || die "$a ufficiale e' gia' cambiato rispetto a frankenphp.sha256 (ricompilato?): rilancia set-frankenphp-version.sh e i test prima di copiarlo"

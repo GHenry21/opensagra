@@ -60,29 +60,52 @@ echo "FrankenPHP v$version: leggo la release..."
 # Righe "<nome asset> sha256:<impronta>", lette con uno strumento JSON vero
 # (gh --jq, jq o python3): nel JSON di GitHub fra name e digest c'e' l'oggetto
 # uploader, un grep non basta.
-api="repos/php/frankenphp/releases/tags/v$version"
-jq_expr='.assets[] | .name + " " + (.digest // "")'
-if command -v gh >/dev/null 2>&1; then
-    lines="$(gh api "$api" --jq "$jq_expr" 2>/dev/null)" || lines=""
-else
-    json="$(curl -fsSL "https://api.github.com/$api" 2>/dev/null)" || json=""
-    if [ -z "$json" ]; then lines=""
-    elif command -v jq >/dev/null 2>&1; then lines="$(printf '%s' "$json" | jq -r "$jq_expr")"
-    elif command -v python3 >/dev/null 2>&1; then
-        lines="$(printf '%s' "$json" | python3 -c 'import json,sys; [print(a["name"], a.get("digest") or "") for a in json.load(sys.stdin)["assets"]]')"
-    else die "serve gh, jq o python3 per leggere la release"; fi
-fi
+release_lines() { # "owner/repo" tag -> righe "<asset> sha256:<impronta>" (vuoto se non c'e')
+    local api="repos/$1/releases/tags/$2" jq_expr='.assets[] | .name + " " + (.digest // "")' json
+    if command -v gh >/dev/null 2>&1; then
+        gh api "$api" --jq "$jq_expr" 2>/dev/null || true
+    else
+        json="$(curl -fsSL "https://api.github.com/$api" 2>/dev/null)" || json=""
+        if [ -z "$json" ]; then :
+        elif command -v jq >/dev/null 2>&1; then printf '%s' "$json" | jq -r "$jq_expr"
+        elif command -v python3 >/dev/null 2>&1; then
+            printf '%s' "$json" | python3 -c 'import json,sys; [print(a["name"], a.get("digest") or "") for a in json.load(sys.stdin)["assets"]]'
+        else die "serve gh, jq o python3 per leggere la release"; fi
+    fi
+}
+lines="$(release_lines php/frankenphp "v$version")"
 [ -n "$lines" ] || die "release v$version non trovata (non ancora pubblicata, o ancora in bozza)"
+# Asset che FrankenPHP non pubblica piu' e che costruiamo noi: dalla 1.13.2
+# frankenphp-mac-x86_64 (Mac Intel), fatto da build-frankenphp-mac-intel.yml
+# con il build-static.sh ufficiale e caricato nella NOSTRA pre-release
+# frankenphp-v<versione>. Si usa solo se manca in quella ufficiale.
+SELF_BUILT_REPO="GHenry21/opensagra"
+self_built=" frankenphp-mac-x86_64 "
+own_lines=""
 
 # Niente array associativi: la bash di macOS e' la 3.2.
 digests=()
+urls=()
 digest_of() { local i; for i in "${!assets[@]}"; do [ "${assets[$i]}" = "$1" ] && { echo "${digests[$i]}"; return; }; done; }
+url_of() { local i; for i in "${!assets[@]}"; do [ "${assets[$i]}" = "$1" ] && { echo "${urls[$i]}"; return; }; done; }
+pick() { printf '%s\n' "$1" | awk -v n="$2" '$1 == n { sub(/^sha256:/, "", $2); print $2 }' | head -1; }
 for a in "${assets[@]}"; do
-    d="$(printf '%s\n' "$lines" | awk -v n="$a" '$1 == n { sub(/^sha256:/, "", $2); print $2 }' | head -1)"
+    d="$(pick "$lines" "$a")"
     [[ "$d" =~ ^[0-9a-f]{64}$ ]] || d=""
+    url="https://github.com/php/frankenphp/releases/download/v$version/$a"
+    note=""
+    if [ -z "$d" ] && [ "${self_built#* $a }" != "$self_built" ]; then
+        [ -n "$own_lines" ] || own_lines="$(release_lines "$SELF_BUILT_REPO" "frankenphp-v$version")"
+        d="$(pick "$own_lines" "$a")"
+        [[ "$d" =~ ^[0-9a-f]{64}$ ]] || d=""
+        [ -n "$d" ] || die "asset $a assente nella release ufficiale v$version e nella nostra frankenphp-v$version: lancia prima il workflow build-frankenphp-mac-intel.yml"
+        url="https://github.com/$SELF_BUILT_REPO/releases/download/frankenphp-v$version/$a"
+        note="  (build nostra)"
+    fi
     [ -n "$d" ] || die "asset $a assente nella release v$version (o senza impronta): build ancora in corso?"
     digests+=("$d")
-    echo "  $d  $a"
+    urls+=("$url")
+    echo "  $d  $a$note"
 done
 
 # --- 2. controlli ------------------------------------------------------------
@@ -92,7 +115,7 @@ if [ "$check" -eq 1 ]; then
     get() { # asset -> file verificato nella cache
         local a="$1" f="$cache/$1"
         if [ ! -f "$f" ] || [ "$(sha256_of "$f")" != "$(digest_of "$a")" ]; then
-            curl -fL --retry 3 -s -o "$f" "https://github.com/php/frankenphp/releases/download/v$version/$a" || die "download di $a fallito"
+            curl -fL --retry 3 -s -o "$f" "$(url_of "$a")" || die "download di $a fallito"
         fi
         [ "$(sha256_of "$f")" = "$(digest_of "$a")" ] || die "impronta di $a diversa da quella della release"
         echo "$f"
