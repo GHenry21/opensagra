@@ -88,10 +88,14 @@ jobs:
         run: |
           set -euo pipefail
           bin=frankenphp/dist/frankenphp-mac-x86_64
-          file "$bin" | tee /dev/stderr | grep -q x86_64
+          # Output salvato prima di cercarci dentro: con pipefail un
+          # "comando | grep -q" fallisce per SIGPIPE (141) appena grep trova.
+          info="$(file "$bin")"; echo "$info"
+          grep -q x86_64 <<< "$info"
           "$bin" version
-          "$bin" list-modules | grep -q '^frankenphp$'
-          "$bin" list-modules | grep -q http.handlers.mercure
+          modules="$("$bin" list-modules)"
+          grep -qx frankenphp <<< "$modules"
+          grep -q http.handlers.mercure <<< "$modules"
           # PHP2Shell corretta da 8.5.12 in su
           php_ver="$("$bin" php-cli -r 'echo PHP_VERSION;')"
           echo "PHP $php_ver"
@@ -99,14 +103,16 @@ jobs:
           # Estensioni che OpenSagra usa
           mods="$("$bin" php-cli -m)"
           for m in mysqli pdo_mysql mbstring gd intl openssl curl zip; do
-            printf '%s\n' "$mods" | grep -qix "$m" || { echo "manca l'estensione $m"; exit 1; }
+            grep -qix "$m" <<< "$mods" || { echo "manca l'estensione $m"; exit 1; }
           done
           # php-cli passa gli argomenti a getopt() (php/frankenphp#2690)
           printf '%s\n' '<?php echo json_encode(getopt("", ["a:"])), "\n";' > /tmp/argv.php
           [ "$("$bin" php-cli /tmp/argv.php --a=1)" = '{"a":"1"}' ]
           # macOS minimo
-          otool -l "$bin" | grep -A3 LC_BUILD_VERSION | grep minos
-          go version -m "$bin" | grep -E 'dunglas/mercure\s'
+          loads="$(otool -l "$bin")"
+          grep -A3 LC_BUILD_VERSION <<< "$loads" | grep minos
+          gomod="$(go version -m "$bin")"
+          grep -E 'dunglas/mercure\s' <<< "$gomod"
           shasum -a 256 "$bin"
 
       - uses: actions/upload-artifact@v4
