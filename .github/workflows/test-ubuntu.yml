@@ -85,6 +85,7 @@ jobs:
         timeout-minutes: 25
         run: |
           test -x "$PKG/Installa OpenSagra"
+          sudo apt-get update -qq >/dev/null
           sudo apt-get install -y -qq xvfb imagemagick >/dev/null
           Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
           export DISPLAY=:99
