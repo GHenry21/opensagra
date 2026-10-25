@@ -159,7 +159,7 @@ test_prerequisites() {
 # esecuzione (il vecchio inode resta valido finche' il processo non esce; il
 # wrapper viene comunque riavviato a fine installazione). Il binario nuovo
 # perde la capability di setcap: la riapplica grant_bind_service_capability.
-FRANKENPHP_VERSION="1.13.1"
+FRANKENPHP_VERSION="1.13.3"
 
 frankenphp_installed_version() {
     [ -x "$FRANKEN_DIR/frankenphp" ] || return 0

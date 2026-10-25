@@ -5,7 +5,14 @@
 # notte, e su richiesta su qualunque tag), la build del NOSTRO pacchetto
 # fallisce - mai l'installazione di un utente, che usa la copia inclusa.
 #
-# Perche' v1.13.1: Mercure 1.1 su tutti gli OS (v1.1.1; mac-arm64 gia'
+# Perche' v1.13.3 (OpenSagra v1.1.2, 2026-10-25): PHP 8.5.12, che corregge
+# PHP2Shell (CVE-2026-109618, CVE-2026-109619); Mercure v1.1.4 su tutti gli
+# OS; la 1.13.3 corregge anche il SIGILL dei binari musl su CPU senza SHA-NI.
+# Dalla 1.13.2 FrankenPHP non pubblica frankenphp-mac-x86_64: e' la NOSTRA
+# build (.github/workflows/build-frankenphp-mac-intel.yml, build-static.sh
+# ufficiale del tag), nella pre-release frankenphp-v1.13.3 di questo repo.
+#
+# Prima, v1.13.1: Mercure 1.1 su tutti gli OS (v1.1.1; mac-arm64 gia'
 # ricompilato di notte con la v1.1.2, differenza solo di patch accettata con
 # --mercure-patch-ok: la 1.1.2 cambia solo il caso dietro reverse proxy con
 # trusted_proxies, che OpenSagra non usa) e php-cli che passa di nuovo gli
@@ -31,9 +38,9 @@
 # install.sh / install-macos.sh, $Script:FrankenPhpVersion in install.ps1 -
 # release.yml verifica che coincidano con questo file.
 #
-# version: 1.13.1
-52849d80dcb30fceaefbe140ee1c16ccebedd96a5719d932f9828e8da7688d02  frankenphp-linux-aarch64
-0b5c93c63f02f796716287790028171dbe3af4740d76e1706e20e731312c4086  frankenphp-linux-x86_64
-d6590d741952705fb8e4c57bd66f7ffc95f71f4e27fa8227034729d7ff433599  frankenphp-mac-arm64
-b9123b427cb357eac076b1f316f71589cfe5c3db4ad2449114e243563d794a89  frankenphp-mac-x86_64
-662c615f151ee8db62b055b3d0816a1c67ffb2deb787c36e2b57474d17792bd0  frankenphp-windows-x86_64.zip
+# version: 1.13.3
+035cfd57e830764021260b592e9dd30c1102c11047bc9f66684594a32d9b1234  frankenphp-linux-aarch64
+103f74f9a6442b4854ebc405d4f5923dbd27a510e841a66097e20f7b02b5bc6d  frankenphp-linux-x86_64
+f6acd5a97f46ff13f362329d1669012026c9a35cf00f3a8368b12ec7010cd926  frankenphp-mac-arm64
+6175fe4cdde701dda89ddbd1f150ee3d46eacc1f46947a59e1509241f6247ced  frankenphp-mac-x86_64
+eb6cbfc5a86b04d294d84f39d55fb6ac32826cacf3e6ce55412ed95cce50d9fb  frankenphp-windows-x86_64.zip
