@@ -342,8 +342,43 @@ allow_lan_mariadb() {
 # un rilancio perdeva il segreto ad ogni volta, silenziosamente. Stessa
 # semantica di merge di Copy-Item -Recurse -Force in install.ps1 (che su una
 # directory gia' esistente sovrascrive i file ma non tocca quelli extra).
+# remove_obsolete_files: toglie i file dell'app che la versione installata
+# aveva e questa no (es. api/set_bridge_mode.php dalla v1.1.2), stessa regola
+# dell'aggiornamento leggero (manifest.Plan nel wrapper): elenco "files" del
+# manifesto installato meno quello del pacchetto, uploads/ sempre escluso.
+# copy_app_files sovrappone e basta, quindi senza questo un file tolto dal
+# codice restava sul disco (e raggiungibile via web) dopo ogni reinstallazione.
+# Tocca solo file elencati nel vecchio manifesto: variabili.env e gli altri
+# file generati qui non ci sono mai. Niente manifesto vecchio (installazioni
+# prima della v1.1.0) o nuovo illeggibile = non si cancella nulla.
+manifest_files() { # manifesto -> un percorso per riga
+    sed -n '/"files": \[/,/\]/p' "$1" | sed -n 's/^[[:space:]]*"\([^"\]*\)",\{0,1\}[[:space:]]*$/\1/p'
+}
+remove_obsolete_files() {
+    local old="$INSTALL_DIR/config/.app_manifest.json" new="$SOURCE_DIR/config/.app_manifest.json"
+    [ -f "$old" ] && [ -f "$new" ] || return 0
+    # Elenchi in variabili prima di grep: con pipefail "cmd | grep -q" fallisce
+    # per SIGPIPE appena grep trova la riga.
+    local old_list new_list n=0 rel
+    new_list="$(manifest_files "$new")"
+    old_list="$(manifest_files "$old")"
+    grep -qx 'index.php' <<< "$new_list" || { log "ATTENZIONE: manifesto del pacchetto non leggibile, file obsoleti non rimossi"; return 0; }
+    while IFS= read -r rel; do
+        case "$rel" in ""|/*|*..*|uploads/*) continue ;; esac
+        # Mai un file che il pacchetto nuovo contiene (manifesto incompleto =
+        # nessun danno, verrebbe comunque ricopiato subito dopo).
+        [ -e "$SOURCE_DIR/$rel" ] && continue
+        if [ -f "$INSTALL_DIR/$rel" ] || [ -L "$INSTALL_DIR/$rel" ]; then
+            rm -f "$INSTALL_DIR/$rel" && n=$((n + 1))
+            rmdir "$(dirname "$INSTALL_DIR/$rel")" 2>/dev/null || true
+        fi
+    done < <(grep -Fxv -f <(printf '%s\n' "$new_list") <<< "$old_list" || true)
+    [ "$n" -eq 0 ] || ok "File della versione precedente non piu' usati rimossi: $n"
+}
+
 copy_app_files() {
     mkdir -p "$INSTALL_DIR"
+    remove_obsolete_files
     shopt -s dotglob
     for entry in "$SOURCE_DIR"/*; do
         local name; name="$(basename "$entry")"
@@ -400,8 +435,8 @@ MERCURE_JWT_SECRET_REMOTE=
 # Ponte di stampa nativo: acceso di default, nessuna configurazione richiesta
 # (sempre pronto in ascolto sull'hub locale). "0" = questo PC non fa da ponte
 # (vuoto conta come acceso, non come spento: compatibilita' con installazioni
-# precedenti che scrivevano qui una riga vuota) - si spegne dalla pagina Rete,
-# checkbox "Ponte di stampa".
+# precedenti che scrivevano qui una riga vuota) - si spegne solo scrivendo
+# qui 0 a mano.
 PRINT_BRIDGE_CASSE=1
 EOF
         ok "config/variabili.env creato"

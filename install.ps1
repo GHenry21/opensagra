@@ -737,8 +737,56 @@ function Set-MariaDBNameResolution {
     Add-InstallChecklistItem 'MariaDB: nessuna ricerca DNS sui client (connessioni veloci anche senza Internet)'
 }
 
+function Remove-ObsoleteAppFiles {
+    # Toglie i file dell'app che la versione installata aveva e questa no (es.
+    # api\set_bridge_mode.php dalla v1.1.2), stessa regola dell'aggiornamento
+    # leggero (manifest.Plan nel wrapper): elenco "files" del manifesto
+    # installato meno quello del pacchetto, uploads/ sempre escluso.
+    # Copy-AppFiles sovrappone e basta: senza questo un file tolto dal codice
+    # restava sul disco (e raggiungibile via web) dopo ogni reinstallazione.
+    # Tocca solo file elencati nel vecchio manifesto (variabili.env e gli altri
+    # file generati qui non ci sono mai). Niente manifesto vecchio
+    # (installazioni prima della v1.1.0) o nuovo illeggibile = nulla.
+    $old = Join-Path $Script:InstallPath 'config\.app_manifest.json'
+    $new = Join-Path $Script:SourcePath 'config\.app_manifest.json'
+    if (-not (Test-Path $old) -or -not (Test-Path $new)) { return }
+    try {
+        $oldFiles = @((Get-Content $old -Raw | ConvertFrom-Json).files)
+        $newFiles = @((Get-Content $new -Raw | ConvertFrom-Json).files)
+    } catch {
+        Add-InstallChecklistItem 'Manifesto non leggibile: file obsoleti non rimossi' -State error
+        return
+    }
+    if ($newFiles -notcontains 'index.php') {
+        Add-InstallChecklistItem 'Manifesto del pacchetto non leggibile: file obsoleti non rimossi' -State error
+        return
+    }
+    $keep = @{}
+    foreach ($f in $newFiles) { $keep[$f] = $true }
+    $count = 0
+    foreach ($rel in $oldFiles) {
+        if (-not $rel -or $keep.ContainsKey($rel) -or $rel -like 'uploads/*' -or $rel -match '\.\.|^[\\/]|:') { continue }
+        # Mai un file che il pacchetto nuovo contiene (manifesto incompleto =
+        # nessun danno, verrebbe comunque ricopiato subito dopo).
+        if (Test-Path -LiteralPath (Join-Path $Script:SourcePath ($rel -replace '/', '\'))) { continue }
+        $path = Join-Path $Script:InstallPath ($rel -replace '/', '\')
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath $path)) { $count++ }
+            $dir = Split-Path $path -Parent
+            if (-not (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+                Remove-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($count -gt 0) {
+        Add-InstallChecklistItem "File della versione precedente non più usati rimossi: $count"
+    }
+}
+
 function Copy-AppFiles {
     New-Item -ItemType Directory -Force -Path $Script:InstallPath | Out-Null
+    Remove-ObsoleteAppFiles
     Get-ChildItem -Path $Script:SourcePath -Force | Where-Object {
         $Script:ExcludeFromCopy -notcontains $_.Name
     } | ForEach-Object {
@@ -789,8 +837,8 @@ MERCURE_JWT_SECRET_REMOTE=
 # Ponte di stampa nativo: acceso di default, nessuna configurazione richiesta
 # (sempre pronto in ascolto sull'hub locale). "0" = questo PC non fa da ponte
 # (vuoto conta come acceso, non come spento: compatibilita' con installazioni
-# precedenti che scrivevano qui una riga vuota) - si spegne dalla pagina Rete,
-# checkbox "Ponte di stampa".
+# precedenti che scrivevano qui una riga vuota) - si spegne solo scrivendo
+# qui 0 a mano.
 PRINT_BRIDGE_CASSE=1
 "@ | Out-File -FilePath $envPath -Encoding ascii -Force
         Add-InstallChecklistItem 'config/variabili.env creato'
